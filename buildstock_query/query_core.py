@@ -129,6 +129,7 @@ class QueryCore:
         self.region_name = params.region_name
 
         self._tables: dict[str, sa.Table] = OrderedDict()  # Internal record of tables
+        self._meta = sa.MetaData()
 
         self._batch_query_status_map: dict[int, BatchQueryStatusMap] = {}
         self._batch_query_id = 0
@@ -293,7 +294,6 @@ class QueryCore:
         self._engine = self._create_athena_engine(
             region_name=self.region_name, database=self.db_name, workgroup=self.workgroup
         )
-        self._meta = sa.MetaData(bind=self._engine)
         if isinstance(table_name, str):
             baseline_table = self._get_table(f"{table_name}{self.db_schema.table_suffix.baseline}")
             ts_table = self._get_table(f"{table_name}{self.db_schema.table_suffix.timeseries}", missing_ok=True)

@@ -200,7 +200,7 @@ class BuildStockQuery(QueryCore):
         if self.up_table is not None and self.ts_table is not None:
             select_cols.append(self.ts_table.c["upgrade"])
         select_cols.extend((self.ts_bldgid_column, safunc.count().label("row_count")))
-        ts_query = sa.select(select_cols)
+        ts_query = sa.select(*select_cols)
         if self.up_table is not None:
             ts_query = ts_query.group_by(sa.text("1"), sa.text("2"))
         else:
@@ -253,7 +253,7 @@ class BuildStockQuery(QueryCore):
         """
         tbl = self.bs_table if table_name is None else self._get_table(table_name)
         query = sa.select(
-            [tbl.c[column], safunc.sum(1).label("sample_count"), safunc.sum(self.sample_wt).label("weighted_count")]
+            tbl.c[column], safunc.sum(1).label("sample_count"), safunc.sum(self.sample_wt).label("weighted_count")
         )
         query = query.group_by(tbl.c[column]).order_by(tbl.c[column])
         if get_query_only:
@@ -304,7 +304,7 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         restrict = list(restrict) if restrict else []
-        query = sa.select(["*"]).select_from(self.bs_table)
+        query = sa.select("*").select_from(self.bs_table)
         query = self._add_restrict(query, restrict, bs_only=True)
         compiled_query = self._compile(query)
         if get_query_only:
@@ -416,7 +416,7 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         restrict = list(restrict) if restrict else []
-        query = sa.select(["*"]).select_from(self.up_table)
+        query = sa.select("*").select_from(self.up_table)
         if upgrade_id:
             if self.up_table is None:
                 raise ValueError("This run has no upgrades")
@@ -562,11 +562,11 @@ class BuildStockQuery(QueryCore):
     @validate_arguments
     def _get_simulation_info(self, get_query_only: bool = False) -> Union[str, SimInfo]:
         # find the simulation time interval
-        query0 = sa.select([self.ts_bldgid_column, self._ts_upgrade_col]).limit(1)  # get a building id and upgrade
+        query0 = sa.select(self.ts_bldgid_column, self._ts_upgrade_col).limit(1)  # get a building id and upgrade
         bldg_df = self.execute(query0)
         bldg_id = bldg_df.values[0][0]
         upgrade_id = bldg_df.values[0][1]
-        query1 = sa.select([self.timestamp_column.distinct().label(self.timestamp_column_name)]).where(
+        query1 = sa.select(self.timestamp_column.distinct().label(self.timestamp_column_name)).where(
             self.ts_bldgid_column == bldg_id
         )
         if self.up_table is not None:
@@ -761,7 +761,7 @@ class BuildStockQuery(QueryCore):
 
     def _get_simulation_timesteps_count(self):
         # find the simulation time interval
-        query = sa.select([self.ts_bldgid_column, safunc.sum(1).label("count")])
+        query = sa.select(self.ts_bldgid_column, safunc.sum(1).label("count"))
         query = query.group_by(self.ts_bldgid_column)
         sim_timesteps_count = self.execute(query)
         bld0_step_count = sim_timesteps_count["count"].iloc[0]
@@ -804,7 +804,7 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe consisting of the building ids belonging to the provided list of locations.
 
         """
-        query = sa.select([self.bs_bldgid_column])
+        query = sa.select(self.bs_bldgid_column)
         query = query.where(self._get_column(location_col).in_(locations))
         query = self._add_order_by(query, [self.bs_bldgid_column])
         if get_query_only:

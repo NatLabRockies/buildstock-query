@@ -8,6 +8,7 @@ import pandas as pd
 from pathlib import Path
 import json
 from typing import Literal, TYPE_CHECKING
+from filelock import FileLock
 
 if TYPE_CHECKING:
     from buildstock_query.schema.utilities import MappedColumn  # noqa: F401
@@ -138,15 +139,19 @@ class DataExistsException(Exception):
 
 
 def save_pickle(path, obj):
-    with open(path, "wb") as f:
-        pickle.dump(obj, f)
+    lock_path = str(path) + ".lock"
+    with FileLock(lock_path):
+        with open(path, "wb") as f:
+            pickle.dump(obj, f)
 
 
 def load_pickle(path):
     if not os.path.exists(path):
         raise FileNotFoundError(f"File {path} not found for loading table")
-    with open(path, "rb") as f:
-        return pickle.load(f)
+    lock_path = str(path) + ".lock"
+    with FileLock(lock_path):
+        with open(path, "rb") as f:
+            return pickle.load(f)
 
 
 def read_csv(csv_file_path, **kwargs) -> pd.DataFrame:

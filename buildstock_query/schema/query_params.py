@@ -1,5 +1,5 @@
 from pydantic import ConfigDict, BaseModel, Field
-from typing import Optional, Union, Callable
+from typing import Optional, Union
 from collections.abc import Sequence
 from typing import Literal
 from buildstock_query.schema.utilities import AnyTableType, AnyColType
@@ -20,7 +20,7 @@ class BaseQuery(BaseModel):
     get_nonzero_count: bool = False
     get_query_only: bool = False
     limit: Optional[int] = None
-    agg_func: Optional[Union[str, Callable]] = "sum"
+    agg_func: Optional[str] = "sum"
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid", coerce_numbers_to_str=True)
 
 

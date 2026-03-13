@@ -30,41 +30,56 @@ class BuildStockAggregate:
         upgrade_id: str,
         applied_only: bool | None,
         restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
-        ts_group_by: Sequence[DBColType] = Field(default_factory=list),
+        group_by: Sequence[DBColType] = Field(default_factory=list),
     ):
         if self._bsq.ts_table is None:
             raise ValueError("No timeseries table found in database.")
 
+        ts = self._bsq.ts_table
+        base = self._bsq.bs_table
+        ucol = self._bsq._ts_upgrade_col
+
         if upgrade_id == "0":
+            # For baseline, return original tables with group_by as-is
             if self._bsq.up_table is None:  # There are no upgrades so just return the timeseries table as is
-                tbljoin = self._bsq.ts_table.join(
-                    self._bsq.bs_table,
-                    self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column,
-                )
+                tbljoin = ts.join(base, self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column)
             else:
-                tbljoin = self._bsq.ts_table.join(
-                    self._bsq.bs_table,
+                tbljoin = ts.join(
+                    base,
                     sa.and_(
                         self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column,
-                        self._bsq._ts_upgrade_col == upgrade_id,
+                        ucol == upgrade_id,
                         *self._bsq._get_restrict_clauses(restrict, bs_only=True),
                     ),
                 )
-            return self._bsq.ts_table, self._bsq.ts_table, tbljoin
+            return ts, ts, tbljoin, group_by
 
-        ts = self._bsq.ts_table
-        base = self._bsq.bs_table
+        # For upgrades, create subqueries with proper joins
+        # Split group_by into columns from timeseries vs baseline tables
+        ts_group_by = [g for g in group_by if g.name in ts.columns]
+        bs_group_by = [g for g in group_by if g.name not in ts.columns]
+
+        # Build column list for subquery
         must_have_col_names = [self._bsq.building_id_column_name, self._bsq.timestamp_column_name]
         must_have_cols = [ts.c[col_name] for col_name in must_have_col_names]
-        group_cols = [group for group in ts_group_by if group.name not in must_have_col_names]
-        group_col_names = [g.name for g in group_cols]
-        enduse_cols = [enduse for enduse in enduses if enduse.name not in must_have_col_names + group_col_names]
-        sa_ts_cols = must_have_cols + group_cols + enduse_cols
-        ucol = self._bsq._ts_upgrade_col
+        ts_group_cols = [g for g in ts_group_by if g.name not in must_have_col_names]
+        group_col_names = [g.name for g in ts_group_cols]
+        enduse_cols = [e for e in enduses if e.name not in must_have_col_names + group_col_names]
 
-        ts_b = self._bsq._add_restrict(sa.select(sa_ts_cols), [[ucol, "0"], *restrict]).alias("ts_b")
-        ts_u = self._bsq._add_restrict(sa.select(sa_ts_cols), [[ucol, upgrade_id], *restrict]).alias("ts_u")
+        # Include all necessary columns in the subquery
+        subquery_cols = must_have_cols + ts_group_cols + bs_group_by + enduse_cols
 
+        # Create subquery with proper join to baseline table
+        subquery_base = sa.select(*subquery_cols).select_from(
+            ts.join(base, ts.c[self._bsq.building_id_column_name] == base.c[self._bsq.building_id_column_name])
+        )
+        ts_b = self._bsq._add_restrict(subquery_base, [[ucol, "0"], *restrict]).alias("ts_b")
+        ts_u = self._bsq._add_restrict(subquery_base, [[ucol, upgrade_id], *restrict]).alias("ts_u")
+
+        # Remap group_by columns to reference the subquery alias
+        remapped_group_by = [ts_b.c[g.name] for g in group_by]
+
+        # Create the table join
         if applied_only:
             tbljoin = ts_b.join(
                 ts_u,
@@ -81,7 +96,8 @@ class BuildStockAggregate:
                     ts_b.c[self._bsq.timestamp_column_name] == ts_u.c[self._bsq.timestamp_column_name],
                 ),
             ).join(base, ts_b.c[self._bsq.building_id_column_name] == base.c[self._bsq.building_id_column_name])
-        return ts_b, ts_u, tbljoin
+
+        return ts_b, ts_u, tbljoin, remapped_group_by
 
     @validate_arguments
     def __get_annual_bs_up_table(self, upgrade_id: str, applied_only: bool | None):
@@ -156,11 +172,11 @@ class BuildStockAggregate:
         ]
 
         if not params.group_by:
-            query = sa.select(grouping_metrics_selection + enduse_selection)
+            query = sa.select(*(grouping_metrics_selection + enduse_selection))
             group_by_selection = []
         else:
             group_by_selection = self._bsq._process_groupby_cols(params.group_by, annual_only=True)
-            query = sa.select(group_by_selection + grouping_metrics_selection + enduse_selection)
+            query = sa.select(*(group_by_selection + grouping_metrics_selection + enduse_selection))
         # jj = self.bs_table.join(self.ts_table, self.ts_table.c['building_id']==self.bs_table.c['building_id'])
         # self._compile(query.select_from(jj))
         if upgrade_id not in [None, 0, "0"]:
@@ -298,7 +314,7 @@ class BuildStockAggregate:
 
         group_by_selection = self._bsq._process_groupby_cols(group_by, annual_only=False)
 
-        query = sa.select(group_by_selection + grouping_metrics_selection + enduse_selection)
+        query = sa.select(*(group_by_selection + grouping_metrics_selection + enduse_selection))
         query = query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column)
         if params.join_list:
             query = self._bsq._add_join(query, params.join_list)
@@ -415,7 +431,7 @@ class BuildStockAggregate:
         lower_timestamps = [get_lower_timestamps(d - 1, h) for d, h in zip(at_days, at_hour)]
         upper_timestamps = [get_upper_timestamps(d - 1, h) for d, h in zip(at_days, at_hour)]
 
-        query = sa.select([self._bsq.ts_bldgid_column] + grouping_metrics_selection + enduse_selection)
+        query = sa.select(*[self._bsq.ts_bldgid_column] + grouping_metrics_selection + enduse_selection)
         query = query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column)
         query = self._bsq._add_group_by(query, [self._bsq.ts_bldgid_column])
         query = self._bsq._add_order_by(query, [self._bsq.ts_bldgid_column])
@@ -482,39 +498,40 @@ class BuildStockAggregate:
             bs_tbl, up_tbl, tbljoin = self.__get_annual_bs_up_table(upgrade_id, params.applied_only)
         else:
             params.restrict, ts_restrict = self._bsq._split_restrict(params.restrict)
-            bs_group_by, ts_group_by = self._bsq._split_group_by(group_by_selection)
-            bs_tbl, up_tbl, tbljoin = self.__get_timeseries_bs_up_table(
-                enduse_cols, upgrade_id, params.applied_only, ts_restrict, ts_group_by
+            bs_tbl, up_tbl, tbljoin, group_by_selection = self.__get_timeseries_bs_up_table(
+                enduse_cols, upgrade_id, params.applied_only, ts_restrict, group_by_selection
             )
-            ts_group_by = [bs_tbl.c[c.name] for c in ts_group_by]  # Refer to the columns using ts_b table
-            group_by_selection = bs_group_by + ts_group_by
+
+        def get_col(tbl, col):  # column could be MappedColumn not available in tbl
+            return tbl.c[col.name] if col.name in tbl.c else col
+
         query_cols = []
         for col in enduse_cols:
             if params.annual_only:
-                baseline_col = bs_tbl.c[col.name]
+                baseline_col = get_col(bs_tbl, col)
                 if upgrade_id != "0":
                     # "and not params.include_savings" is added to restore the behavior of savings_shape query.
                     # Can be removed once savings_shape is removed.
                     if params.applied_only and not params.include_savings:
-                        upgrade_col = up_tbl.c[col.name]
+                        upgrade_col = get_col(up_tbl, col)
                     else:
                         upgrade_col = sa.case(
-                            (self._bsq._get_success_condition(up_tbl), up_tbl.c[col.name]), else_=bs_tbl.c[col.name]
+                            (self._bsq._get_success_condition(up_tbl), get_col(up_tbl, col)), else_=baseline_col
                         )
                 else:
                     upgrade_col = baseline_col
                 savings_col = safunc.coalesce(baseline_col, 0) - safunc.coalesce(upgrade_col, 0)
             else:
-                baseline_col = bs_tbl.c[col.name]
+                baseline_col = get_col(bs_tbl, col)
                 if upgrade_id != "0":
                     # "and not params.include_savings" is added to restore the behavior of savings_shape query.
                     # Can be removed once savings_shape is removed.
                     if params.applied_only and not params.include_savings:
-                        upgrade_col = up_tbl.c[col.name]
+                        upgrade_col = get_col(up_tbl, col)
                     else:
                         upgrade_col = sa.case(
-                            (up_tbl.c[self._bsq.building_id_column_name] == None, bs_tbl.c[col.name]),  # noqa: E711
-                            else_=up_tbl.c[col.name],
+                            (up_tbl.c[self._bsq.building_id_column_name] == None, baseline_col),  # noqa: E711
+                            else_=get_col(up_tbl, col),
                         )
                 else:
                     upgrade_col = baseline_col
@@ -550,19 +567,19 @@ class BuildStockAggregate:
             if params.get_quartiles:
                 if params.include_baseline:
                     query_cols.append(
-                        sa.func.approx_percentile(baseline_col, [0, 0.02, 0.25, 0.5, 0.75, 0.98, 1]).label(
+                        sa.func.approx_percentile(baseline_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).label(
                             f"{self._bsq._simple_label(col.name, params.agg_func)}__baseline__quartiles"
                         )
                     )
                 if params.include_upgrade:
                     query_cols.append(
-                        sa.func.approx_percentile(upgrade_col, [0, 0.02, 0.25, 0.5, 0.75, 0.98, 1]).label(
+                        sa.func.approx_percentile(upgrade_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).label(
                             f"{self._bsq._simple_label(col.name, params.agg_func)}__upgrade__quartiles"
                         )
                     )
                 if params.include_savings:
                     query_cols.append(
-                        sa.func.approx_percentile(savings_col, [0, 0.02, 0.25, 0.5, 0.75, 0.98, 1]).label(
+                        sa.func.approx_percentile(savings_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).label(
                             f"{self._bsq._simple_label(col.name, params.agg_func)}__savings__quartiles"
                         )
                     )
@@ -636,7 +653,7 @@ class BuildStockAggregate:
                 ]
         else:
             query_cols = group_by_selection + grouping_metrics_selection + query_cols
-        query = sa.select(query_cols).select_from(tbljoin)
+        query = sa.select(*query_cols).select_from(tbljoin)
         query = self._bsq._add_join(query, params.join_list)
         if params.annual_only:
             query = query.where(self._bsq._bs_successful_condition)

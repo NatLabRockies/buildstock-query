@@ -9,23 +9,23 @@ from _pytest.monkeypatch import MonkeyPatch
 from tests.utils import load_tbl_from_pkl
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _mock_query_core():
-    """
-    Monkey-patch SQLAlchemy, boto3 and other dependencies so instead of db, data is
-    read from pkl files. The patch is automatically rolled back after each test, ensuring other test
-    modules use the real objects.
-    """
-    import buildstock_query.query_core as _qc  # local import to avoid circular issues
-    from unittest.mock import MagicMock
+# @pytest.fixture(scope="module", autouse=True)
+# def _mock_query_core():
+#     """
+#     Monkey-patch SQLAlchemy, boto3 and other dependencies so instead of db, data is
+#     read from pkl files. The patch is automatically rolled back after each test, ensuring other test
+#     modules use the real objects.
+#     """
+#     import buildstock_query.query_core as _qc  # local import to avoid circular issues
+#     from unittest.mock import MagicMock
 
-    mp = MonkeyPatch()
-    mp.setattr(_qc.sa, "Table", load_tbl_from_pkl, raising=False)
-    mp.setattr(_qc.sa, "create_engine", MagicMock(), raising=False)
-    mp.setattr(_qc, "Connection", MagicMock(), raising=False)
-    mp.setattr(_qc, "boto3", MagicMock(), raising=False)
-    yield
-    mp.undo()
+#     mp = MonkeyPatch()
+#     mp.setattr(_qc.sa, "Table", load_tbl_from_pkl, raising=False)
+#     mp.setattr(_qc.sa, "create_engine", MagicMock(), raising=False)
+#     mp.setattr(_qc, "Connection", MagicMock(), raising=False)
+#     mp.setattr(_qc, "boto3", MagicMock(), raising=False)
+#     yield
+#     mp.undo()
 
 
 class TestViz:
@@ -35,7 +35,7 @@ class TestViz:
         opt_sat_path = str(folder_path / "reference_files" / "options_saturations.csv")
         mydata = VizData(
             opt_sat_path=opt_sat_path,
-            workgroup="largeee",
+            workgroup="rescore",
             db_name="largeee_test_runs",
             run=("small_run_baseline_20230810_100", "small_run_category_1_20230616"),
             buildstock_type="resstock",

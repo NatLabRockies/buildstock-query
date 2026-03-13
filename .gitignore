@@ -1,4 +1,9 @@
 *.pkl
+*.pkl.lock
+.coverage
+AGENTS/
+AGENTS.md
+.claude/
 *.DS_Store
 .vscode
 _pycache__/

@@ -42,7 +42,7 @@ class BuildStockReport:
     def _get_bs_success_report(self, get_query_only: bool) -> Union[DataFrame, str]: ...
 
     def _get_bs_success_report(self, get_query_only: bool = False):
-        bs_query = sa.select([self._bsq._bs_completed_status_col, safunc.count().label("count")])
+        bs_query = sa.select(*[self._bsq._bs_completed_status_col, safunc.count().label("count")])
         bs_query = bs_query.group_by(sa.text("1"))
         if get_query_only:
             return self._bsq._compile(bs_query)
@@ -72,7 +72,7 @@ class BuildStockReport:
         queries: list[str] = []
         chng_types = ["no-chng", "bad-chng", "ok-chng", "true-bad-chng", "true-ok-chng", "null", "any"]
         for ch_type in chng_types:
-            up_query = sa.select([self._bsq.up_table.c["upgrade"], safunc.count().label("change")])
+            up_query = sa.select(*[self._bsq.up_table.c["upgrade"], safunc.count().label("change")])
             up_query = up_query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
             conditions = self._get_change_conditions(change_type=ch_type)
             up_query = up_query.where(
@@ -131,7 +131,7 @@ class BuildStockReport:
     ):
         if self._bsq.up_table is None:
             raise ValueError("No upgrade table is available .")
-        up_query = sa.select([self._bsq.up_bldgid_column])
+        up_query = sa.select(*[self._bsq.up_bldgid_column])
         if trim_missing_bs:
             up_query = up_query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
             up_query = up_query.where(
@@ -260,7 +260,7 @@ class BuildStockReport:
         if self._bsq.up_table is None:
             raise ValueError("No upgrade table is available .")
         up_query = sa.select(
-            [self._bsq.bs_bldgid_column, self._bsq._bs_completed_status_col, self._bsq._up_completed_status_col]
+            *[self._bsq.bs_bldgid_column, self._bsq._bs_completed_status_col, self._bsq._up_completed_status_col]
         )
         up_query = up_query.join(self._bsq.up_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
 
@@ -305,7 +305,7 @@ class BuildStockReport:
         if self._bsq.up_table is None:
             raise ValueError("No upgrade table is available .")
         up_query = sa.select(
-            [self._bsq.up_table.c["upgrade"], self._bsq._up_completed_status_col, safunc.count().label("count")]
+            *[self._bsq.up_table.c["upgrade"], self._bsq._up_completed_status_col, safunc.count().label("count")]
         )
         if trim_missing_bs:
             up_query = up_query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
@@ -350,10 +350,10 @@ class BuildStockReport:
             if c.name.startswith("upgrade_costs.option_") and c.name.endswith("name")
         ]
         query = sa.select(
-            [self._bsq.up_table.c["upgrade"]]
-            + opt_name_cols
-            + [safunc.count().label("success")]
-            + [safunc.array_agg(self._bsq.up_bldgid_column)]
+            *[self._bsq.up_table.c["upgrade"],
+              *opt_name_cols,
+              safunc.count().label("success"),
+              safunc.array_agg(self._bsq.up_bldgid_column)]
         )
         if trim_missing_bs:
             query = query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
@@ -428,6 +428,7 @@ class BuildStockReport:
             pd.DataFrame: The report dataframe.
         """
         ua_df = self._bsq.get_upgrades_analyzer(yaml_file=yaml_file, opt_sat_file=opt_sat_path).get_report()
+        ua_df['upgrade'] = ua_df['upgrade'].map(str)
         ua_df = ua_df.groupby(["upgrade", "option"]).aggregate(
             {"applicable_to": "sum", "applicable_buildings": lambda x: reduce(set.union, x)}
         )
@@ -626,7 +627,7 @@ class BuildStockReport:
             raise ValueError("No upgrade table is available .")
 
         ts_query = sa.select(
-            [self._bsq.ts_table.c["upgrade"], safunc.count(self._bsq.ts_bldgid_column.distinct()).label("count")]
+            *[self._bsq.ts_table.c["upgrade"], safunc.count(self._bsq.ts_bldgid_column.distinct()).label("count")]
         )
         ts_query = ts_query.group_by(sa.text("1"))
         ts_query = ts_query.order_by(sa.text("1"))
@@ -795,18 +796,24 @@ class BuildStockReport:
         up_csv = up_csv[end_use_cols].rename(columns=clean_column)
         bs_csv = bs_csv[end_use_cols].rename(columns=clean_column)
 
+        up_csv = up_csv.astype('float64', errors='ignore')
+        bs_csv = bs_csv.astype('float64', errors='ignore')
+
         pure_enduses = {get_pure_enduse(c) for c in up_csv.columns}
 
         def get_all_fuel_enduses(df, end_use):
             return [col for col in df.columns if col.endswith(end_use)]
 
         def add_all_fuel_cols(df):
+            # Collect all new columns first to avoid fragmentation
+            new_cols = {}
             for end_use in pure_enduses:
-                df[f"all_fuel_{end_use}"] = df[get_all_fuel_enduses(df, end_use)].sum(axis=1)
-            return df
+                new_cols[f"all_fuel_{end_use}"] = df[get_all_fuel_enduses(df, end_use)].sum(axis=1)
+            # Add all columns at once
+            return pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
 
-        add_all_fuel_cols(up_csv)
-        add_all_fuel_cols(bs_csv)
+        up_csv = add_all_fuel_cols(up_csv)
+        bs_csv = add_all_fuel_cols(bs_csv)
 
         diff = up_csv - bs_csv
         enduses_df = diff.transpose()

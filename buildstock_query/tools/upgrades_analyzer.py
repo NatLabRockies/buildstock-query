@@ -781,6 +781,29 @@ class UpgradesAnalyzer:
                 characteristics.append(col)
         return characteristics
 
+    def compute_preference_weights(self, soft_avoid_chars: list[tuple[str, str]]) -> dict[int, tuple[int, int]]:
+        """Compute preference weights so buildings matching avoided chars are less likely to be picked.
+
+        Returns negative weights for matching buildings: (-match_count, sum_of_matched_indices).
+        More matches = lower weight. Among equal match counts, matching a later (less important)
+        condition gives a higher weight. Buildings with no matches are omitted (implicit weight (0, 0)).
+
+        Args:
+            soft_avoid_chars: (column, value) tuples ordered by importance (first = most important to avoid).
+        """
+        match_count = np.zeros(len(self.buildstock_df), dtype=int)
+        index_sum = np.zeros(len(self.buildstock_df), dtype=int)
+        for i, (col, val) in enumerate(soft_avoid_chars):
+            mask = (self.buildstock_df[col] == val).to_numpy()
+            match_count += mask
+            index_sum += mask * i
+        has_match = match_count > 0
+        return {
+            bldg_id: (-int(mc), int(ix))
+            for bldg_id, mc, ix, hm in zip(self.buildstock_df.index, match_count, index_sum, has_match)
+            if hm
+        }
+
     def get_minimal_representative_buildings(
         self,
         report_df: pd.DataFrame,
@@ -788,6 +811,7 @@ class UpgradesAnalyzer:
         include_never_upgraded=False,
         verbose=False,
         must_cover_chars=None,
+        soft_avoid_chars: list[tuple[str, str]] | None = None,
     ) -> list:
         """Return a minimal set of buildings that covers all the building_groups.
         In other words, it returns a new set of buildings that has non-zero intersection with all sets.
@@ -807,6 +831,10 @@ class UpgradesAnalyzer:
             List of building characteristics to guarantee coverage in the output. Defaults to None.
         verbose : bool, optional
             Whether to print verbose output. Defaults to False.
+        soft_avoid_chars : list[tuple[str, str]], optional
+            List of (column_name, value_to_avoid) tuples ordered by importance (first = most important to avoid).
+            Buildings matching these characteristics are deprioritized during tie-breaking. Coverage guarantees
+            are preserved — at least one building per characteristic value will still be included.
 
         Returns
         -------
@@ -835,8 +863,14 @@ class UpgradesAnalyzer:
                     logger.info(f"Ensuring representation for {len(group)} buildings for {char} = {char_val}")
                 groups.append(list(group))
 
+        preference_weights = self.compute_preference_weights(soft_avoid_chars) if soft_avoid_chars else None
+        if preference_weights and verbose:
+            logger.info(
+                f"Computed preference weights for {len(preference_weights)} buildings based on {soft_avoid_chars}"
+            )
+
         solver = SetCoverSolver(groups=groups, verbose=verbose)
-        return solver.find_minimal_set(current_list=previous_minimal_bldgs)
+        return solver.find_minimal_set(current_list=previous_minimal_bldgs, preference_weights=preference_weights)
 
     def get_parameter_overlap_report(self, report_df: pd.DataFrame):
         """
@@ -1007,6 +1041,7 @@ def main():
         "geometry building type recs",
         "heating fuel",
     ]
+    soft_avoid_chars = [("heating fuel", "Wood")]
     additional_chars = ua.get_characteristics(min_cardinality=2, max_cardinality=10)
     must_cover_chars = must_cover_chars + [char for char in additional_chars if char not in must_cover_chars]
     minimal_bldgs = ua.get_minimal_representative_buildings(
@@ -1015,6 +1050,7 @@ def main():
         include_never_upgraded=True,
         previous_minimal_bldgs=previous_minimal_bldgs,
         verbose=True,
+        soft_avoid_chars=soft_avoid_chars,
     )
     ua.buildstock_df_original.set_index("Building").loc[list(minimal_bldgs)].to_csv(buildstock_name)
     report_df.drop(columns=["applicable_buildings"]).to_csv(csv_name, index=False)

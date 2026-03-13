@@ -2,7 +2,7 @@
 
 import logging
 from collections import defaultdict
-from typing import Optional, TypeVar, Generic, Protocol
+from typing import TypeVar, Generic, Protocol
 from typing_extensions import Self
 from abc import abstractmethod
 from collections.abc import Iterable, Collection, Hashable, Sequence
@@ -43,26 +43,27 @@ class SetCoverSolver(Generic[T]):
         if self.verbose:
             logger.info(f"{time.strftime('%Y-%m-%d %H:%M:%S')}: {msg}")
 
-    def find_minimal_set(self, current_list: Optional[list[T]] = None) -> list[T]:
-        """
-        Finds a minimal representative set using a hybrid strategy by finding a minimal hitting set
-        using both greedy algorithm and simple algorithm that incrementally adds or removes items
-        to the current list of items. If current_list is None, it will find a minimal hitting set
-        using the greedy algorithm.
+    def find_minimal_set(
+        self,
+        current_list: list[T] | None = None,
+        preference_weights: dict[T, tuple[int, int]] | None = None,
+    ) -> list[T]:
+        """Find a minimal hitting set using a hybrid greedy + refinement strategy.
+
+        If current_list is provided, also tries refining it and returns whichever result is smaller.
 
         Args:
-            current_list: Optional[list[T]] - The current list of items, if available. The algorithm
-                will try to find a minimal hitting set that is a super/subset of this list if feasible.
-                Otherwise, it will find a minimal hitting set using the greedy algorithm.
+            current_list: Previous solution to refine from. If None, uses greedy only.
+            preference_weights: Tie-breaking weights. See get_greedy_hitting_set for details.
 
         Returns:
             list[T]: The minimal hitting set.
         """
         self.vprint("Finding greedy minimal set")
-        minimal_set = self.get_greedy_hitting_set(current_list=current_list)
+        minimal_set = self.get_greedy_hitting_set(current_list=current_list, preference_weights=preference_weights)
         if current_list:
             self.vprint("Finding refined minimal set")
-            refined_minimal_set = self.refine_minimal_set(current_list)
+            refined_minimal_set = self.refine_minimal_set(current_list, preference_weights=preference_weights)
             self.vprint(f"Refined minimal set size: {len(refined_minimal_set)}")
             self.vprint(f"Greedy minimal set size: {len(minimal_set)}")
             if len(refined_minimal_set) <= len(minimal_set):
@@ -73,10 +74,15 @@ class SetCoverSolver(Generic[T]):
         self.vprint(f"Minimal set size: {len(minimal_set)}")
         return minimal_set
 
-    def refine_minimal_set(self, current_list: Sequence[T]) -> list[T]:
-        """Takes current_list and adds the minimum items required to cover all groups.
-        or if the current_list already covers all groups, it will try to remove the maximum number of items
-        to still cover all groups."""
+    def refine_minimal_set(
+        self,
+        current_list: Sequence[T],
+        preference_weights: dict[T, tuple[int, int]] | None = None,
+    ) -> list[T]:
+        """Refine current_list by removing redundant items or adding missing ones.
+
+        If all groups are already covered, tries removing items (least-preferred first when
+        preference_weights is provided). Otherwise, adds the minimum items needed via greedy."""
         if not current_list:
             raise ValueError("current_list cannot be empty")
         current_items_set = set(current_list)
@@ -85,7 +91,12 @@ class SetCoverSolver(Generic[T]):
         self.vprint(f"{len(uncovered_groups)} of {len(self.groups_set)} groups left uncovered by existing items")
         if len(uncovered_groups) == 0:
             self.vprint("Checking if we can remove any items from the existing set to still cover all groups")
-            for current_item in reversed(current_items_list):
+            # Try removing least-preferred items first (lowest weight) to increase chance of dropping them
+            if preference_weights:
+                removal_order = sorted(current_items_list, key=lambda x: preference_weights.get(x, (0, 0)))
+            else:
+                removal_order = list(reversed(current_items_list))
+            for current_item in removal_order:
                 current_items_set.remove(current_item)
                 uncovered_groups = [group for group in self.groups_set if group.isdisjoint(current_items_set)]
                 if len(uncovered_groups) == 0:
@@ -95,13 +106,16 @@ class SetCoverSolver(Generic[T]):
                     current_items_set.add(current_item)
             return [item for item in current_items_list if item in current_items_set]
         self.vprint("Finding the minimal extra items to cover the uncovered groups")
-        minimal_extra_items = self.get_greedy_hitting_set(groups=uncovered_groups)
+        minimal_extra_items = self.get_greedy_hitting_set(
+            groups=uncovered_groups, preference_weights=preference_weights
+        )
         return current_items_list + minimal_extra_items
 
     def get_greedy_hitting_set(
         self,
-        groups: Optional[Iterable[Collection[T]]] = None,
-        current_list: Optional[Sequence[T]] = None,
+        groups: Iterable[Collection[T]] | None = None,
+        current_list: Sequence[T] | None = None,
+        preference_weights: dict[T, tuple[int, int]] | None = None,
     ) -> list[T]:
         """Greedy algorithm to find a minimal hitting set that hits all groups.
         At each step, the greedy algorithm picks an item that hits the most groups out of the remaining groups
@@ -128,10 +142,12 @@ class SetCoverSolver(Generic[T]):
          each item in the currently hit group belongs to and move them one bucket down.)
 
         Args:
-            groups: Optional[Iterable[Collection[T]]]: The groups to be hit by the minimal set. If None, all groups in
-                                                        the solver will be used.
-            current_list: Optional[Collection[T]]: The items that should be preferred in tie-breaking situations.
-                                                   Can be passed previously obtained minimal set to ensure stability
+            groups: The groups to hit. If None, uses all groups in the solver.
+            current_list: Items preferred during tie-breaking (e.g. a previous solution for stability).
+            preference_weights: Soft tie-breaking bias. Maps item -> weight tuple (higher = more preferred).
+                Items not in the dict get implicit weight (0, 0). Only affects selection among items
+                with equal hit count; never overrides the greedy "pick max coverage" rule.
+
         Returns:
             A list of items forming a minimal hitting set.
 
@@ -177,6 +193,8 @@ class SetCoverSolver(Generic[T]):
             if current_max_hit == 0:
                 raise RuntimeError("No item left that fall in any remaining sets.")
 
+            # Priority 1: prefer items from current_list (stability)
+            chosen_item = None
             if preferred_items_list:
                 candidate_set: set[T] = set(buckets[current_max_hit].keys())
                 for c in preferred_items_list:
@@ -185,10 +203,18 @@ class SetCoverSolver(Generic[T]):
                         del buckets[current_max_hit][chosen_item]
                         self.vprint(f"Preferred item {chosen_item} chosen from bucket with {current_max_hit} hits")
                         break
-                else:
-                    chosen_item = buckets[current_max_hit].popitem()[0]
-                    self.vprint(f"Arbitrary item {chosen_item} chosen from bucket with {current_max_hit} hits")
-            else:
+
+            # Priority 2: among remaining candidates, pick the one with highest preference weight
+            if chosen_item is None and preference_weights:
+                chosen_item = max(buckets[current_max_hit], key=lambda x: preference_weights.get(x, (0, 0)))
+                del buckets[current_max_hit][chosen_item]
+                weight = preference_weights.get(chosen_item, (0, 0))
+                self.vprint(
+                    f"Item {chosen_item} (preference_weight={weight}) chosen from bucket with {current_max_hit} hits"
+                )
+
+            # Priority 3: fallback to popitem (last inserted, typically highest building_id)
+            if chosen_item is None:
                 chosen_item = buckets[current_max_hit].popitem()[0]
                 self.vprint(f"Arbitrary item {chosen_item} chosen from bucket with {current_max_hit} hits")
 

@@ -50,6 +50,7 @@ class BuildStockQuery(QueryCore):
         skip_reports: bool = False,
         athena_query_reuse: bool = True,
         query_unload_s3_bucket: str = "resstock-core",
+        cache_folder: str = ".bsq_cache",
     ) -> None:
         """A class to run Athena queries for BuildStock runs and download results as pandas DataFrame.
 
@@ -92,6 +93,7 @@ class BuildStockQuery(QueryCore):
             execution_history=execution_history,
             athena_query_reuse=athena_query_reuse,
             query_unload_s3_bucket=query_unload_s3_bucket,
+            cache_folder=cache_folder,
         )
         self._run_params = self.params.get_run_params()
         super(BuildStockQuery, self).__init__(params=self._run_params)
@@ -651,62 +653,36 @@ class BuildStockQuery(QueryCore):
 
     def get_calculated_column(self, column_name: str, column_expr: str, table="baseline") -> DBColType:
         """
-        Creates a calculated column from a column expression string.
-        For example col1 + col2 will be resolved to (col1 + col2), col1 - col2 will be resolved to (col1 - col2)
-        col1*(col2 + col3) will be resolved to (col1 * (col2 + col3)) etc
+        Creates a calculated column from an arithmetic expression string.
+        Column identifiers in the expression are resolved to SQLAlchemy columns via _get_enduse_cols,
+        then the expression is evaluated using Python's eval with operator overloading.
+        Supports +, -, *, /, parentheses, and numeric literals.
+        Examples: "col1 + col2", "col1 - col2 - col3", "col1 * (col2 + col3)", "out.elec - out.gas * 2"
         Args:
-            column_name (str): The name to label the calculated column.
-            column_expr (str): The column expression to resolve.
-            table (str): The table to use for column resolution. One of 'baseline', 'upgrade', or 'timeseries'.
+            column_name: The name to label the calculated column.
+            column_expr: The arithmetic expression to resolve (e.g. "col1 - col2 + col3").
+            table: The table to use for column resolution. One of 'baseline', 'upgrade', or 'timeseries'.
         Returns:
-            DBColType: The calculated column with the specified label.
+            The calculated column with the specified label.
         """
-        # Check if column_expr is a simple identifier (no operators)
-        if re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', column_expr.strip()):
-            return self._get_enduse_cols([column_expr.strip()], table=table)[0].label(self._simple_label(column_name))
+        if not re.match(r'^[\w\s+\-*/().]+$', column_expr):
+            raise ValueError(f"Invalid characters in column expression: {column_expr}")
 
-        import pyparsing as pp
-
-        ident = pp.Word(pp.alphas, pp.alphanums + "_.")
-
-        plus = pp.Literal("+")
-        minus = pp.Literal("-")
-        mult = pp.Literal("*")
-        div = pp.Literal("/")
-
-        expr = pp.infixNotation(
-            ident,
-            [
-                (mult | div, 2, pp.opAssoc.LEFT),
-                (plus | minus, 2, pp.opAssoc.LEFT),
-            ],
+        # Find all column identifiers, longest first to avoid partial replacement
+        identifiers = sorted(
+            set(re.findall(r'[a-zA-Z_][a-zA-Z0-9_.]*', column_expr)),
+            key=len, reverse=True,
         )
 
-        def parse(tokens):
-            # Handle string tokens (leaf nodes - column identifiers)
-            if isinstance(tokens, str):
-                return self._get_enduse_cols([tokens], table=table)[0]
+        # Replace all identifiers with placeholders and resolve to SA columns
+        namespace: dict = {"__builtins__": {}}
+        eval_expr = column_expr
+        for idx, ident in enumerate(identifiers):
+            placeholder = f"_col_{idx}"
+            eval_expr = re.sub(re.escape(ident) + r'(?![\w.])', placeholder, eval_expr)
+            namespace[placeholder] = self._get_enduse_cols([ident], table=table)[0]
 
-            if len(tokens) == 1:
-                return parse(tokens[0])
-
-            left = parse(tokens[0])
-            operator = tokens[1]
-            right = parse(tokens[2:])
-
-            if operator == "+":
-                return left + right
-            elif operator == "-":
-                return left - right
-            elif operator == "*":
-                return left * right
-            elif operator == "/":
-                return left / right
-            else:
-                raise ValueError(f"Unknown operator: {operator}")
-
-        parsed_expr = expr.parseString(column_expr, parseAll=True)
-        resolved_col = parse(parsed_expr[0])
+        resolved_col = eval(eval_expr, namespace)  # noqa: S307
         return resolved_col.label(self._simple_label(column_name))
 
     def _get_enduse_cols(self, enduses: Sequence[AnyColType], table="baseline") -> Sequence[DBColType]:

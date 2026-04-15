@@ -196,6 +196,52 @@ class TestBuildStockQuery:
         assert 1 <= len(df) <= 5
         assert df["geometry_building_type_recs"].is_monotonic_increasing
 
+    def test_get_calculated_column_simple(self, bsq: BuildStockQuery) -> None:
+        col = bsq.get_calculated_column("total", "fuel_use_electricity_total_m_btu + fuel_use_natural_gas_total_m_btu")
+        sql = str(col.compile(compile_kwargs={"literal_binds": True}))
+        # Both columns should appear with a + between them
+        assert "+" in sql
+        assert "total" in col.key
+
+    def test_get_calculated_column_left_associativity(self, bsq: BuildStockQuery) -> None:
+        """A - B - C must produce ((A - B) - C), not (A - (B - C))."""
+        a, b, c = (
+            "fuel_use_electricity_total_m_btu",
+            "fuel_use_natural_gas_total_m_btu",
+            "fuel_use_propane_total_m_btu",
+        )
+        col = bsq.get_calculated_column("result", f"{a} - {b} - {c}")
+        sql = str(col.compile(compile_kwargs={"literal_binds": True}))
+        # Left-associative: should be (A - B) - C, i.e. two subtractions at the same level
+        # Right-associative would nest: A - (B - C) which SQLAlchemy renders with parens around B - C
+        assert sql.count("(") <= 1 or f"({b.split('_m_btu')[0]}" not in sql  # no nested parens around B-C
+        # More direct: compile A - (B - C) and verify our result differs
+        cols = bsq._get_enduse_cols([a, b, c])
+        right_assoc_sql = str((cols[0] - (cols[1] - cols[2])).compile(compile_kwargs={"literal_binds": True}))
+        left_assoc_sql = str(((cols[0] - cols[1]) - cols[2]).compile(compile_kwargs={"literal_binds": True}))
+        assert sql == left_assoc_sql
+        assert sql != right_assoc_sql
+
+    def test_get_calculated_column_parentheses(self, bsq: BuildStockQuery) -> None:
+        a = "fuel_use_electricity_total_m_btu"
+        b = "fuel_use_natural_gas_total_m_btu"
+        c = "fuel_use_propane_total_m_btu"
+        col = bsq.get_calculated_column("result", f"{a} * ({b} + {c})")
+        sql = str(col.compile(compile_kwargs={"literal_binds": True}))
+        # Should have multiplication and a grouped addition
+        assert "*" in sql
+        assert "+" in sql
+
+    def test_get_calculated_column_numeric_literal(self, bsq: BuildStockQuery) -> None:
+        col = bsq.get_calculated_column("scaled", "fuel_use_electricity_total_m_btu * 1000")
+        sql = str(col.compile(compile_kwargs={"literal_binds": True}))
+        assert "1000" in sql
+        assert "*" in sql
+
+    def test_get_calculated_column_invalid_chars(self, bsq: BuildStockQuery) -> None:
+        with pytest.raises(ValueError, match="Invalid characters"):
+            bsq.get_calculated_column("bad", "col1; DROP TABLE")
+
     def test_get_building_average_kws_at(self, bsq: BuildStockQuery) -> None:
         df = bsq.agg.get_building_average_kws_at(
             at_hour=14.0,

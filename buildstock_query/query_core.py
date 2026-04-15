@@ -544,12 +544,39 @@ class QueryCore:
             Optional[str]: The S3 path to the result if it exists, otherwise None.
         """
         bucket_name, prefix = result_path.replace("s3://", "").split("/", 1)
+        normalized_prefix = prefix.rstrip("/") + "/"
         try:
-            response = self._aws_s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix, Delimiter="/")
-            if "CommonPrefixes" in response and response["CommonPrefixes"]:
-                first_folder = response["CommonPrefixes"][0]["Prefix"]
-                return f"s3://{bucket_name}/{first_folder}"
-            return None
+            paginator = self._aws_s3.get_paginator("list_objects_v2")
+            folders: dict[str, datetime.datetime] = {}
+            for page in paginator.paginate(Bucket=bucket_name, Prefix=normalized_prefix):
+                for obj in page.get("Contents", []):
+                    key = obj.get("Key", "")
+                    if not key.startswith(normalized_prefix):
+                        continue
+                    remainder = key[len(normalized_prefix):]
+                    if not remainder or "/" not in remainder:
+                        continue
+
+                    folder = remainder.split("/", 1)[0]
+                    last_modified = obj.get("LastModified")
+                    if not folder or last_modified is None:
+                        continue
+
+                    current = folders.get(folder)
+                    if current is None or last_modified > current:
+                        folders[folder] = last_modified
+
+            if not folders:
+                return None
+
+            chosen_folder = max(folders.items(), key=lambda item: (item[1], item[0]))[0]
+            if len(folders) > 1:
+                logger.warning(
+                    "Multiple cached UNLOAD result folders found for prefix %s; using newest folder %s.",
+                    normalized_prefix,
+                    chosen_folder,
+                )
+            return f"s3://{bucket_name}/{normalized_prefix}{chosen_folder}/"
         except ClientError as e:
             logger.error(f"Error accessing S3: {e}")
             return None

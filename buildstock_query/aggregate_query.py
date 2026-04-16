@@ -49,10 +49,10 @@ class BuildStockAggregate:
                     sa.and_(
                         self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column,
                         ucol == upgrade_id,
-                        *self._bsq._get_restrict_clauses(restrict, bs_only=True),
+                        *self._bsq._get_restrict_clauses(restrict, annual_only=True),
                     ),
                 )
-            return ts, ts, tbljoin, group_by
+            return ts, ts, tbljoin, list(group_by)
 
         # For upgrades, create subqueries with proper joins
         # Split group_by into columns from timeseries vs baseline tables
@@ -154,6 +154,14 @@ class BuildStockAggregate:
             enduse_selection += [
                 sa.func.approx_percentile(enduse, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).label(
                     f"{self._bsq._simple_label(enduse.name)}__quartiles"
+                )
+                for enduse in enduse_cols
+            ]
+            enduse_selection += [
+                sa.func.approx_percentile(enduse, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).filter(
+                    enduse != 0
+                ).label(
+                    f"{self._bsq._simple_label(enduse.name)}__nonzero_quartiles"
                 )
                 for enduse in enduse_cols
             ]
@@ -467,7 +475,7 @@ class BuildStockAggregate:
             lower_vals[enduses] = lower_vals[enduses] * avg_lower_weight + upper_vals[enduses] * avg_upper_weight
             return lower_vals
 
-    def validate_partition_by(self, partition_by: Sequence[str]):
+    def validate_partition_by(self, partition_by: Sequence[str]) -> Sequence[str]:
         if not partition_by:
             return []
         [self._bsq._get_gcol(col) for col in partition_by]  # making sure all entries are valid
@@ -571,16 +579,37 @@ class BuildStockAggregate:
                             f"{self._bsq._simple_label(col.name, params.agg_func)}__baseline__quartiles"
                         )
                     )
+                    query_cols.append(
+                        sa.func.approx_percentile(baseline_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).filter(
+                            baseline_col != 0
+                        ).label(
+                            f"{self._bsq._simple_label(col.name, params.agg_func)}__baseline__nonzero_quartiles"
+                        )
+                    )
                 if params.include_upgrade:
                     query_cols.append(
                         sa.func.approx_percentile(upgrade_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).label(
                             f"{self._bsq._simple_label(col.name, params.agg_func)}__upgrade__quartiles"
                         )
                     )
+                    query_cols.append(
+                        sa.func.approx_percentile(upgrade_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).filter(
+                            upgrade_col != 0
+                        ).label(
+                            f"{self._bsq._simple_label(col.name, params.agg_func)}__upgrade__nonzero_quartiles"
+                        )
+                    )
                 if params.include_savings:
                     query_cols.append(
                         sa.func.approx_percentile(savings_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).label(
                             f"{self._bsq._simple_label(col.name, params.agg_func)}__savings__quartiles"
+                        )
+                    )
+                    query_cols.append(
+                        sa.func.approx_percentile(savings_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).filter(
+                            savings_col != 0
+                        ).label(
+                            f"{self._bsq._simple_label(col.name, params.agg_func)}__savings__nonzero_quartiles"
                         )
                     )
 
@@ -642,7 +671,7 @@ class BuildStockAggregate:
         # to match the behavior of savings_shape query. Can be simplified after savings_shape function is removed.
         if params.include_savings:
             if params.annual_only or params.timestamp_grouping_func == "year":
-                query_cols = grouping_metrics_selection + query_cols + group_by_selection
+                query_cols = grouping_metrics_selection + query_cols + list(group_by_selection)
             else:  # time is the first column in this case and needs to be moved to the front to match
                 # the behavior of savings_shape query
                 query_cols = [
@@ -652,13 +681,13 @@ class BuildStockAggregate:
                     *group_by_selection[:-1],
                 ]
         else:
-            query_cols = group_by_selection + grouping_metrics_selection + query_cols
+            query_cols = list(group_by_selection) + grouping_metrics_selection + query_cols
         query = sa.select(*query_cols).select_from(tbljoin)
         query = self._bsq._add_join(query, params.join_list)
         if params.annual_only:
             query = query.where(self._bsq._bs_successful_condition)
         query = self._bsq._add_restrict(query, params.restrict)
-        query = self._bsq._add_avoid(query, params.avoid, bs_only=params.annual_only)
+        query = self._bsq._add_avoid(query, params.avoid, annual_only=params.annual_only)
         query = self._bsq._add_group_by(query, group_by_selection)
         query = self._bsq._add_order_by(query, group_by_selection if params.sort else [])
         query = query.limit(params.limit) if params.limit else query

@@ -159,7 +159,7 @@ class TestResStockSavings:
         rtol = 2e-3  # 0.2% relative tolerance for matching annual values to timeseries values
         mbtu_atol = 0.01  # absolute mbtu tolerance per unit for closeness comparison
         # group_by = [my_athena.bs_bldgid_column]
-        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs"))
+        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs")) as count
                                      from {my_athena.bs_table.name}""").values[0][0]
         success_report = my_athena.report.get_success_report()
         annual_savings_full = my_athena.savings.savings_shape(
@@ -236,7 +236,7 @@ class TestResStockSavings:
         rtol = 2e-3  # 0.2% relative tolerance for matching annual values to timeseries values
         mbtu_atol = 0.01  # absolute mbtu tolerance per unit for closeness comparison
         # group_by = [my_athena.bs_bldgid_column]
-        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs"))
+        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs")) as count
                                      from {my_athena.bs_table.name}""").values[0][0]
         success_report = my_athena.report.get_success_report()
         annual_savings_full = my_athena.query(
@@ -337,7 +337,7 @@ class TestResStockSavings:
 
     def test_collapse_ts(self, my_athena: BuildStockQuery):
         group_by = ["geometry_building_type_recs"]
-        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs"))
+        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs")) as count
                                      from {my_athena.bs_table.name}""").values[0][0]
         rtol = 2e-3  # 0.2% relative tolerance for matching annual values to timeseries values
         mbtu_atol = 0.01  # absolute mbtu tolerance per unit for closeness comparison
@@ -389,7 +389,7 @@ class TestResStockSavings:
 
     def test_collapse_ts_with_query(self, my_athena: BuildStockQuery):
         group_by = ["geometry_building_type_recs"]
-        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs"))
+        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs")) as count
                                      from {my_athena.bs_table.name}""").values[0][0]
         rtol = 2e-3  # 0.2% relative tolerance for matching annual values to timeseries values
         mbtu_atol = 0.01  # absolute mbtu tolerance per unit for closeness comparison
@@ -467,7 +467,7 @@ class TestResStockSavings:
 
     def test_restrict(self, my_athena: BuildStockQuery):
         group_by = ["state", "geometry_building_type_recs"]
-        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs"))
+        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs")) as count
                                      from {my_athena.bs_table.name} where "build_existing_model.state" = 'CA'""").values[0][0]
         ts_enduses = ["fuel_use__electricity__total__kwh"]
         restrict = [("state", ["CA"])]
@@ -485,7 +485,7 @@ class TestResStockSavings:
 
     def test_restrict_with_query(self, my_athena: BuildStockQuery):
         group_by = ["state", "geometry_building_type_recs"]
-        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs"))
+        n_groups = my_athena.execute(f"""select count(distinct("build_existing_model.geometry_building_type_recs")) as count
                                      from {my_athena.bs_table.name} where "build_existing_model.state" = 'CA'""").values[0][0]
         ts_enduses = ["fuel_use__electricity__total__kwh"]
         restrict = [("state", ["CA"])]

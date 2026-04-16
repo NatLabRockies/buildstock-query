@@ -1,6 +1,6 @@
 import buildstock_query.main as main
 import logging
-from typing import List, Any, Optional, Union, Sequence
+from typing import Any, Optional, Union, Sequence
 import pandas as pd
 from buildstock_query.schema.query_params import UtilityTSQuery
 from buildstock_query.schema.utilities import AnyColType, AnyTableType
@@ -44,7 +44,7 @@ class BuildStockUtility:
                               collapse_ts: bool = False,
                               timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None,
                               query_group_size: int = 20,
-                              limit: Optional[int] = None
+                              limit: Optional[int] = None,
                               ) -> str:
         ...
 
@@ -64,7 +64,7 @@ class BuildStockUtility:
                               timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None,
                               get_query_only: Literal[False] = False,
                               query_group_size: int = 20,
-                              limit: Optional[int] = None
+                              limit: Optional[int] = None,
                               ) -> pd.DataFrame:
         ...
 
@@ -84,7 +84,7 @@ class BuildStockUtility:
                               collapse_ts: bool = False,
                               timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None,
                               query_group_size: int = 20,
-                              limit: Optional[int] = None
+                              limit: Optional[int] = None,
                               ) -> Union[str, pd.DataFrame]:
         """
         Aggregates the timeseries result, grouping by utilities.
@@ -120,7 +120,7 @@ class BuildStockUtility:
         ...
 
     @typing.overload
-    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Sequence[str],
+    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Optional[Sequence[str]] = None,
                                        get_query_only: Literal[True],
                                        group_by: Sequence[Union[AnyColType,
                                                                 tuple[str, str]]] = Field(default_factory=list),
@@ -128,7 +128,7 @@ class BuildStockUtility:
         ...
 
     @typing.overload
-    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Sequence[str],
+    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Optional[Sequence[str]] = None,
                                        get_query_only: Literal[False] = False,
                                        group_by: Sequence[Union[AnyColType,
                                                                 tuple[str, str]]] = Field(default_factory=list),
@@ -136,8 +136,8 @@ class BuildStockUtility:
         ...
 
     @typing.overload
-    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Sequence[str],
-                                       get_query_only: bool,
+    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Optional[Sequence[str]] = None,
+                                       get_query_only: bool = False,
                                        group_by: Sequence[Union[AnyColType,
                                                                 tuple[str, str]]] = Field(default_factory=list),
                                        ) -> Union[pd.DataFrame, str]:
@@ -167,18 +167,18 @@ class BuildStockUtility:
         ...
 
     @typing.overload
-    def get_filtered_results_csv_by_eiaid(self, eiaids: List[str],
+    def get_filtered_results_csv_by_eiaid(self, eiaids: Sequence[str],
                                           get_query_only: Literal[True]) -> str:
         ...
 
     @typing.overload
-    def get_filtered_results_csv_by_eiaid(self, eiaids: List[str],
+    def get_filtered_results_csv_by_eiaid(self, eiaids: Sequence[str],
                                           get_query_only: Literal[False] = False) -> pd.DataFrame:
         ...
 
     @typing.overload
     def get_filtered_results_csv_by_eiaid(
-            self, eiaids: List[str], get_query_only: bool) -> Union[str, pd.DataFrame]:
+            self, eiaids: Sequence[str], get_query_only: bool) -> Union[str, pd.DataFrame]:
         """
         Returns a portion of the results csvs, which belongs to given list of utilities
         Args:
@@ -209,15 +209,15 @@ class BuildStockUtility:
         ...
 
     @typing.overload
-    def get_buildings_by_eiaids(self, eiaids: List[str], get_query_only: Literal[True]) -> str:
+    def get_buildings_by_eiaids(self, eiaids: Sequence[str], get_query_only: Literal[True]) -> str:
         ...
 
     @typing.overload
-    def get_buildings_by_eiaids(self, eiaids: List[str], get_query_only: Literal[False] = False) -> pd.DataFrame:
+    def get_buildings_by_eiaids(self, eiaids: Sequence[str], get_query_only: Literal[False] = False) -> pd.DataFrame:
         ...
 
     @typing.overload
-    def get_buildings_by_eiaids(self, eiaids: List[str], get_query_only: bool) -> Union[str, pd.DataFrame]:
+    def get_buildings_by_eiaids(self, eiaids: Sequence[str], get_query_only: bool) -> Union[str, pd.DataFrame]:
         """
         Returns the list of buildings belonging to the given list of utilities.
         Args:
@@ -233,15 +233,15 @@ class BuildStockUtility:
         ...
 
     @typing.overload
-    def get_locations_by_eiaids(self, eiaids: List[str], get_query_only: Literal[True]) -> str:
+    def get_locations_by_eiaids(self, eiaids: Sequence[str], get_query_only: Literal[True]) -> str:
         ...
 
     @typing.overload
-    def get_locations_by_eiaids(self, eiaids: List[str], get_query_only: Literal[False] = False) -> list[str]:
+    def get_locations_by_eiaids(self, eiaids: Sequence[str], get_query_only: Literal[False] = False) -> list[str]:
         ...
 
     @typing.overload
-    def get_locations_by_eiaids(self, eiaids: List[str], get_query_only: bool) -> Union[str, list[str]]:
+    def get_locations_by_eiaids(self, eiaids: Sequence[str], get_query_only: bool) -> Union[str, list[str]]:
         """
         Returns the list of locations/counties (depends on mapping version) belonging to a given list of utilities.
         Args:

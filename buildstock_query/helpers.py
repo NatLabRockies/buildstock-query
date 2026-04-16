@@ -9,7 +9,6 @@ from pathlib import Path
 import json
 from typing import Literal, TYPE_CHECKING
 from filelock import FileLock
-
 if TYPE_CHECKING:
     from buildstock_query.schema.utilities import MappedColumn  # noqa: F401
 
@@ -21,7 +20,7 @@ MBTU2KWH = 293.0710701722222
 class CachedFutureDf(Future):
     def __init__(self, df: pd.DataFrame, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.df = df
+        self.df = df.copy()
         self.set_result(self.df)
 
     def running(self) -> Literal[False]:
@@ -34,6 +33,9 @@ class CachedFutureDf(Future):
         return False
 
     def result(self, timeout=None) -> pd.DataFrame:
+        return self.df
+
+    def as_df(self) -> pd.DataFrame:
         return self.df
 
     def as_pandas(self) -> pd.DataFrame:
@@ -60,7 +62,8 @@ class AthenaFutureDf:
         return self.future.result()
 
     def as_pandas(self) -> pd.DataFrame:
-        return self.future.as_pandas()  # type: ignore # mypy doesn't know about AthenaPandasResultSet
+        df = self.future.as_df()  # type: ignore # mypy doesn't know about AthenaPandasResultSet
+        return df
 
 
 class COLOR:

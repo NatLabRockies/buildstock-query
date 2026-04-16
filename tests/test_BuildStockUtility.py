@@ -251,7 +251,7 @@ def test_calculate_tou_bill_monthly(
     )
 
     assert not df.empty
-    expected_col = "fuel_use__electricity__total__kwh__TOU__dollars"
+    expected_col = "fuel_use__electricity__total__kwh__tou__dollars"
     assert expected_col in df.columns
     assert "time" in df.columns
     assert df["sample_count"].gt(0).all()
@@ -307,8 +307,8 @@ def test_calculate_tou_bill_collapse_multiple_meters(
 
     assert not df.empty
     expected_cols = [
-        "fuel_use__electricity__total__kwh__TOU__dollars",
-        "end_use__electricity__cooling__kwh__TOU__dollars",
+        "fuel_use__electricity__total__kwh__tou__dollars",
+        "end_use__electricity__cooling__kwh__tou__dollars",
     ]
     assert set(expected_cols) <= set(df.columns)
     assert "time" not in df.columns

@@ -42,14 +42,15 @@ class BuildStockQuery(QueryCore):
         workgroup: str,
         db_name: str,
         table_name: Union[str, tuple[str, Optional[str], Optional[str]]],
-        db_schema: Optional[str] = None,
+        db_schema: Optional[str | dict] = None,
         buildstock_type: Literal["resstock", "comstock"] = "resstock",
         sample_weight_override: Optional[Union[int, float]] = None,
         region_name: str = "us-west-2",
         execution_history: Optional[str] = None,
         skip_reports: bool = False,
         athena_query_reuse: bool = True,
-        **kwargs,
+        query_unload_s3_bucket: str = "resstock-core",
+        cache_folder: str = ".bsq_cache",
     ) -> None:
         """A class to run Athena queries for BuildStock runs and download results as pandas DataFrame.
 
@@ -61,10 +62,11 @@ class BuildStockQuery(QueryCore):
             say, 'mfm_run', then it must correspond to tables in athena named mfm_run_baseline and optionally
             mfm_run_timeseries and mf_run_upgrades. Or, tuple of three elements can be provided for the table names
             for baseline, timeseries and upgrade. Timeseries and upgrade can be None if no such table exist.
-            db_schema (str, optional): The database structure in Athena is different between ResStock and ComStock run.
-                It is also different between the version in OEDI and default version from BuildStockBatch. This argument
-                controls the assumed schema. Allowed values are 'resstock_default', 'resstock_oedi', 'comstock_default'
-                and 'comstock_oedi'. Defaults to 'resstock_default' for resstock and 'comstock_default' for comstock.
+            db_schema (str | dict, optional): The database structure in Athena is different between ResStock and
+                ComStock run. It is also different between the version in OEDI and default version from
+                BuildStockBatch. This argument controls the assumed schema. Allowed values are whatever files exist
+                in db_schema folder. Defaults to 'resstock_default' for resstock and 'comstock_default' for comstock.
+                Can also pass a dict obtained from parsing the schema file. eg: toml.load("db_schema_file.toml").
             sample_weight_override (str, optional): Specify a custom sample_weight. Otherwise, the default is 1 for
                 ComStock and uses sample_weight in the run for ResStock.
             region_name (str, optional): the AWS region where the database exists. Defaults to 'us-west-2'.
@@ -76,7 +78,8 @@ class BuildStockQuery(QueryCore):
             athena_query_reuse (bool, optional): When true, Athena will make use of its built-in 7 day query cache.
                 When false, it will not. Defaults to True. One use case to set this to False is when you have modified
                 the underlying s3 data or glue schema and want to make sure you are not using the cached results.
-            kargs: Any other extra keyword argument supported by the QueryCore can be supplied here
+            query_unload_s3_bucket (str, optional): The s3 bucket to use for unloading athena query results.
+                Defaults to 'resstock-core'.
         """
         db_schema = db_schema or f"{buildstock_type}_default"
         self.params = BSQParams(
@@ -89,6 +92,8 @@ class BuildStockQuery(QueryCore):
             region_name=region_name,
             execution_history=execution_history,
             athena_query_reuse=athena_query_reuse,
+            query_unload_s3_bucket=query_unload_s3_bucket,
+            cache_folder=cache_folder,
         )
         self._run_params = self.params.get_run_params()
         super(BuildStockQuery, self).__init__(params=self._run_params)
@@ -305,7 +310,7 @@ class BuildStockQuery(QueryCore):
         """
         restrict = list(restrict) if restrict else []
         query = sa.select("*").select_from(self.bs_table)
-        query = self._add_restrict(query, restrict, bs_only=True)
+        query = self._add_restrict(query, restrict, annual_only=True)
         compiled_query = self._compile(query)
         if get_query_only:
             return compiled_query
@@ -422,7 +427,7 @@ class BuildStockQuery(QueryCore):
                 raise ValueError("This run has no upgrades")
             query = query.where(self.up_table.c["upgrade"] == str(upgrade_id))
 
-        query = self._add_restrict(query, restrict, bs_only=True)
+        query = self._add_restrict(query, restrict, annual_only=True)
         compiled_query = self._compile(query)
         if get_query_only:
             return compiled_query
@@ -548,7 +553,7 @@ class BuildStockQuery(QueryCore):
         """
         restrict = list(restrict) if restrict else []
         query = sa.select(self.bs_bldgid_column)
-        query = self._add_restrict(query, restrict, bs_only=True)
+        query = self._add_restrict(query, restrict, annual_only=True)
         if get_query_only:
             return self._compile(query)
         return self.execute(query)
@@ -570,7 +575,7 @@ class BuildStockQuery(QueryCore):
             self.ts_bldgid_column == bldg_id
         )
         if self.up_table is not None:
-            query1 = query1.where(self._ts_upgrade_col == upgrade_id)
+            query1 = query1.where(self._ts_upgrade_col == str(upgrade_id))
         query1 = query1.order_by(self.timestamp_column).limit(2)
         if get_query_only:
             return self._compile(query1)
@@ -619,7 +624,7 @@ class BuildStockQuery(QueryCore):
             raise ValueError(f"Unknown special column type: {column_type}")
 
     def _get_gcol(
-        self, column: AnyColType, tables: Sequence[AnyTableType] | None = None
+        self, column: AnyColType, annual_only: bool = False
     ) -> DBColType:  # gcol => group by col
         """Get a DB column for the purpose of grouping. If the provided column doesn't exist as is,
         tries to get the column by prepending self._char_prefix."""
@@ -635,16 +640,50 @@ class BuildStockQuery(QueryCore):
 
         if isinstance(column, str):
             try:
-                return self._get_column(column, tables).label(self._simple_label(column))
+                return self._get_column(column, annual_only=annual_only).label(self._simple_label(column))
             except (ValueError, KeyError):
                 if column.startswith(self._char_prefix):
                     new_name = column.removeprefix(self._char_prefix)
-                    return self._get_column(new_name, tables).label(column)
+                    return self._get_column(new_name, annual_only=annual_only).label(column)
                 else:
                     new_name = f"{self._char_prefix}{column}"
-                    return self._get_column(new_name, tables).label(column)
+                    return self._get_column(new_name, annual_only=annual_only).label(column)
 
         raise ValueError(f"Invalid column name type {column}: {type(column)}")
+
+    def get_calculated_column(self, column_name: str, column_expr: str, table="baseline") -> DBColType:
+        """
+        Creates a calculated column from an arithmetic expression string.
+        Column identifiers in the expression are resolved to SQLAlchemy columns via _get_enduse_cols,
+        then the expression is evaluated using Python's eval with operator overloading.
+        Supports +, -, *, /, parentheses, and numeric literals.
+        Examples: "col1 + col2", "col1 - col2 - col3", "col1 * (col2 + col3)", "out.elec - out.gas * 2"
+        Args:
+            column_name: The name to label the calculated column.
+            column_expr: The arithmetic expression to resolve (e.g. "col1 - col2 + col3").
+            table: The table to use for column resolution. One of 'baseline', 'upgrade', or 'timeseries'.
+        Returns:
+            The calculated column with the specified label.
+        """
+        if not re.match(r'^[\w\s+\-*/().]+$', column_expr):
+            raise ValueError(f"Invalid characters in column expression: {column_expr}")
+
+        # Find all column identifiers, longest first to avoid partial replacement
+        identifiers = sorted(
+            set(re.findall(r'[a-zA-Z_][a-zA-Z0-9_.]*', column_expr)),
+            key=len, reverse=True,
+        )
+
+        # Replace all identifiers with placeholders and resolve to SA columns
+        namespace: dict = {"__builtins__": {}}
+        eval_expr = column_expr
+        for idx, ident in enumerate(identifiers):
+            placeholder = f"_col_{idx}"
+            eval_expr = re.sub(re.escape(ident) + r'(?![\w.])', placeholder, eval_expr)
+            namespace[placeholder] = self._get_enduse_cols([ident], table=table)[0]
+
+        resolved_col = eval(eval_expr, namespace)  # noqa: S307
+        return resolved_col.label(self._simple_label(column_name))
 
     def _get_enduse_cols(self, enduses: Sequence[AnyColType], table="baseline") -> Sequence[DBColType]:
         tbls_dict = {"baseline": self.bs_table, "upgrade": self.up_table, "timeseries": self.ts_table}
@@ -710,7 +749,7 @@ class BuildStockQuery(QueryCore):
             if self.ts_table is not None and col in self.ts_table.columns:  # prioritize ts table
                 ts_restrict.append([self.ts_table.c[col], restrict_vals])
             else:
-                bs_restrict.append([self._get_gcol(col), restrict_vals])
+                bs_restrict.append([self._get_gcol(col, annual_only=True), restrict_vals])
         return bs_restrict, ts_restrict
 
     def _split_group_by(self, processed_group_by: list[DBColType]):
@@ -754,10 +793,7 @@ class BuildStockQuery(QueryCore):
     def _process_groupby_cols(self, group_by, annual_only=False) -> list[DBColType]:
         if not group_by:
             return []
-        tables = [self.bs_table, self.up_table]
-        if not annual_only:
-            tables.insert(0, self.ts_table)
-        return [self._get_gcol(entry, tables) for entry in group_by]
+        return [self._get_gcol(entry, annual_only=annual_only) for entry in group_by]
 
     def _get_simulation_timesteps_count(self):
         # find the simulation time interval
@@ -805,7 +841,7 @@ class BuildStockQuery(QueryCore):
 
         """
         query = sa.select(self.bs_bldgid_column)
-        query = query.where(self._get_column(location_col).in_(locations))
+        query = query.where(self._get_column(location_col, [self.bs_table]).in_(locations))
         query = self._add_order_by(query, [self.bs_bldgid_column])
         if get_query_only:
             return self._compile(query)

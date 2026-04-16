@@ -127,8 +127,10 @@ class TestBuildStockQuery:
             enduses=["fuel_use_electricity_total_m_btu"],
             group_by=["geometry_building_type_recs"],
             get_quartiles=True,
-        ).rename({'fuel_use_electricity_total_m_btu__upgrade__quartiles':
-                  'fuel_use_electricity_total_m_btu__quartiles'}, axis=1)
+        ).rename({"fuel_use_electricity_total_m_btu__upgrade__quartiles":
+                  "fuel_use_electricity_total_m_btu__quartiles",
+                  "fuel_use_electricity_total_m_btu__upgrade__nonzero_quartiles":
+                  "fuel_use_electricity_total_m_btu__nonzero_quartiles"}, axis=1)
         pd.testing.assert_frame_equal(df1, df2)
 
     def test_annual_electricity_agg_max_vs_query(self, bsq: BuildStockQuery):
@@ -296,7 +298,7 @@ class TestBuildStockQuery:
             enduses=["fuel_use__electricity__total__kwh"],
             restrict=[("build_existing_model.state", ["TX"])],
             annual_only=False,
-        )
+        ).sort_values("time").reset_index(drop=True)
         df2 = bsq.query(
             upgrade_id=2,
             include_savings=True,
@@ -305,7 +307,7 @@ class TestBuildStockQuery:
             enduses=["fuel_use__electricity__total__kwh"],
             restrict=[("build_existing_model.state", ["TX"])],
             annual_only=False,
-        )
+        ).sort_values("time").reset_index(drop=True)
         pd.testing.assert_frame_equal(df1, df2)
 
     def test_savings_shape_geometry_vs_query(self, bsq: BuildStockQuery):
@@ -333,7 +335,7 @@ class TestBuildStockQuery:
             group_by=["geometry_building_type_recs"],
             get_quartiles=True,
             annual_only=False,
-        )
+        ).sort_values(["geometry_building_type_recs", "time"]).reset_index(drop=True)
         df2 = bsq.query(
             upgrade_id=2,
             include_savings=True,
@@ -343,7 +345,10 @@ class TestBuildStockQuery:
             group_by=["geometry_building_type_recs"],
             get_quartiles=True,
             annual_only=False,
-        ).drop(columns=["fuel_use__electricity__total__kwh__baseline__quartiles"])
+        ).drop(columns=["fuel_use__electricity__total__kwh__baseline__quartiles",
+                        "fuel_use__electricity__total__kwh__baseline__nonzero_quartiles",
+                        "fuel_use__electricity__total__kwh__savings__nonzero_quartiles",
+                        ]).sort_values(["geometry_building_type_recs", "time"]).reset_index(drop=True)
         pd.testing.assert_frame_equal(df1, df2)
 
     def test_savings_shape_annual_vs_query(self, bsq: BuildStockQuery):
@@ -365,7 +370,7 @@ class TestBuildStockQuery:
         )
         pd.testing.assert_frame_equal(df1, df2)
 
-    def test_savings_shape_with_timestamp_grouping(self, bsq: BuildStockQuery):
+    def test_savings_shape_with_timestamp_grouping2(self, bsq: BuildStockQuery):
         """Test savings with timestamp_grouping_func to cover elif branch."""
         df1 = bsq.savings.savings_shape(
             upgrade_id=2,
@@ -437,7 +442,7 @@ class TestBuildStockQuery:
             annual_only=False,
             applied_only=True,
             restrict=[("build_existing_model.state", ["TX"])],
-        )
+        ).sort_values("time").reset_index(drop=True)
         df2 = bsq.query(
             upgrade_id=2,
             include_savings=True,
@@ -448,7 +453,7 @@ class TestBuildStockQuery:
             annual_only=False,
             applied_only=True,
             restrict=[("build_existing_model.state", ["TX"])],
-        )
+        ).sort_values("time").reset_index(drop=True)
         pd.testing.assert_frame_equal(df1, df2)
 
     def test_savings_shape_timeseries_applied_only_false(self, bsq: BuildStockQuery):

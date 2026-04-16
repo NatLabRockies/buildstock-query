@@ -86,6 +86,8 @@ class BuildStockReport:
         change_df: DataFrame = pd.DataFrame()
         for chng_type, query in zip(chng_types, queries):
             df = self._bsq.execute(query)
+            if df.empty:
+                df = pd.DataFrame(columns=["upgrade", "change"])
             df.rename(columns={"change": chng_type}, inplace=True)
             # df['upgrade'] = df['upgrade'].map(int)
             df = df.set_index("upgrade").sort_index()
@@ -617,27 +619,47 @@ class BuildStockReport:
     def _get_ts_report(self, get_query_only: Literal[False] = False) -> DataFrame: ...
 
     @typing.overload
-    def _get_ts_report(self, get_query_only: Literal[True]) -> str: ...
+    def _get_ts_report(self, get_query_only: Literal[True]) -> list[str]: ...
 
     @typing.overload
-    def _get_ts_report(self, get_query_only: bool) -> Union[DataFrame, str]: ...
+    def _get_ts_report(self, get_query_only: bool) -> Union[DataFrame, list[str]]: ...
 
     def _get_ts_report(self, get_query_only: bool = False):
         if self._bsq.ts_table is None:
             raise ValueError("No upgrade table is available .")
 
-        ts_query = sa.select(
-            *[self._bsq.ts_table.c["upgrade"], safunc.count(self._bsq.ts_bldgid_column.distinct()).label("count")]
+        available_upgrades = list(
+            dict.fromkeys(str(upg) for upg in self._bsq.get_available_upgrades() if upg is not None)
         )
-        ts_query = ts_query.group_by(sa.text("1"))
-        ts_query = ts_query.order_by(sa.text("1"))
+        ts_queries: list[str] = []
+        ts_upgrade_col = sa.cast(self._bsq.ts_table.c["upgrade"], sa.String)
+        for upgrade in available_upgrades:
+            query = (
+                sa.select(
+                    sa.literal(upgrade).label("upgrade"),
+                    safunc.count(self._bsq.ts_bldgid_column.distinct()).label("count"),
+                )
+                .select_from(self._bsq.ts_table)
+                .where(ts_upgrade_col == upgrade)
+            )
+            ts_queries.append(self._bsq._compile(query))
+
         if get_query_only:
-            return self._bsq._compile(ts_query)
-        df = self._bsq.execute(ts_query)
-        df["upgrade"] = df["upgrade"].map(str)
-        df = df.set_index("upgrade")
-        df = df.rename(columns={"count": "success"})
-        return df
+            return ts_queries
+
+        if not ts_queries:
+            return pd.DataFrame(columns=["success"])
+
+        batch_id = self._bsq.submit_batch_query(ts_queries, max_threads=4)
+        result_df = self._bsq.get_batch_query_result(batch_id=batch_id)
+        if result_df.empty:
+            return pd.DataFrame(columns=["success"])
+        if "query_id" in result_df.columns:
+            result_df = result_df.drop(columns=["query_id"])
+        result_df["upgrade"] = result_df["upgrade"].map(str)
+        result_df = result_df.set_index("upgrade").sort_index()
+        result_df = result_df.rename(columns={"count": "success"})
+        return result_df
 
     def check_ts_bs_integrity(self) -> bool:
         """Checks the integrity between the timeseries and baseline (metadata) tables.

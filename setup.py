@@ -28,7 +28,8 @@ setup(
         "toml",
         "requests",
         "sqlglot",
-        "filelock"
+        "filelock",
+        "pyparsing"
     ],
     extras_require={
         "dev": [

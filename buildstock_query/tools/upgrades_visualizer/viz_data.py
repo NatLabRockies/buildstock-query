@@ -145,7 +145,7 @@ class VizData:
                 monthly_vals = run_obj._query_cache[monthly_vals_query].copy()
             else:
                 month_year = f"{datetime.datetime.now().strftime('%b%Y')}"
-                s3_unload_path = f"s3://resstock-core/athena_unload_results/{month_year}/"
+                s3_unload_path = f"s3://{run_obj.params.query_unload_s3_bucket}/bsq_athena_unload_results/{month_year}/"
                 pd_cursor = run_obj._conn.cursor(unload=True, s3_staging_dir=s3_unload_path).execute(
                     monthly_vals_query,
                     result_reuse_enable=True,

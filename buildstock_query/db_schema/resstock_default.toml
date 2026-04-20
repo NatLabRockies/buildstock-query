@@ -8,7 +8,7 @@ characteristics = "build_existing_model."
 output = "report_simulation_output."
 
 
-[column_names]  
+[column_names]
 building_id = "building_id"
 sample_weight = "build_existing_model.sample_weight"
 sqft = "build_existing_model.geometry_floor_area"    
@@ -16,6 +16,7 @@ timestamp = "time"
 completed_status = "completed_status"
 unmet_hours_cooling_hr = "report_simulation_output.unmet_hours_cooling_hr"
 unmet_hours_heating_hr = "report_simulation_output.unmet_hours_heating_hr"
+map_eiaid_column = "county"
 fuel_totals = [
                'report_simulation_output.energy_use_total_m_btu',
                'report_simulation_output.fuel_use_coal_total_m_btu',
@@ -30,7 +31,7 @@ fuel_totals = [
 [completion_values]
 success = "Success"
 fail = "Fail"
-unapplicable = "Invalid"
+inapplicable = "Invalid"
 
 [structure]
-unapplicables_have_ts = "false"
+inapplicables_have_ts = "false"

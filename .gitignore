@@ -1,4 +1,9 @@
 *.pkl
+*.pkl.lock
+.coverage
+AGENTS/
+AGENTS.md
+.claude/
 *.DS_Store
 .vscode
 _pycache__/
@@ -12,3 +17,4 @@ build/
 *.txt
 *.csv
 *.yml
+.bsq_cache

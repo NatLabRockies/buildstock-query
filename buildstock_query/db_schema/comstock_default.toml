@@ -25,7 +25,7 @@ fuel_totals = [
 [completion_values]
 success = "Success"
 fail = "Fail"
-unapplicable = "Invalid"
+inapplicable = "Invalid"
 
 [structure]
-unapplicables_have_ts = "false"
+inapplicables_have_ts = "false"

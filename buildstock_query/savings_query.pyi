@@ -7,6 +7,7 @@ from typing import Optional
 from pydantic import Field
 from typing import Literal
 import typing
+from typing_extensions import deprecated
 
 
 class BuildStockSavings:
@@ -34,6 +35,7 @@ class BuildStockSavings:
         ...
 
     @typing.overload
+    @deprecated("Please use my_run.query with include_savings=True.")
     def savings_shape(
         self, *,
         get_query_only: Literal[True],
@@ -56,6 +58,7 @@ class BuildStockSavings:
         ...
 
     @typing.overload
+    @deprecated("Please use my_run.query with include_savings=True.")
     def savings_shape(
         self, *,
         upgrade_id: Union[int, str],
@@ -78,6 +81,7 @@ class BuildStockSavings:
         ...
 
     @typing.overload
+    @deprecated("Please use my_run.query with include_savings=True.")
     def savings_shape(
         self, *,
         get_query_only: bool,
@@ -136,5 +140,6 @@ class BuildStockSavings:
         ...
 
     @typing.overload
+    @deprecated("Please use my_run.query with include_savings=True.")
     def savings_shape(self, *, params: SavingsQuery) -> Union[str, pd.DataFrame]:
         ...

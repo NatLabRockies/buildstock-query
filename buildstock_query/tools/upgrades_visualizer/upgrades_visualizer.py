@@ -290,7 +290,6 @@ def get_app(viz_data: VizData):
     def download_csv(n_clicks):
         if not n_clicks:
             raise PreventUpdate()
-        nonlocal download_csv_df
         bldg_ids = set(download_csv_df['building_id'].to_list()) - {0}
         bdf = viz_data.upgrade2res['0'].filter(pl.col("building_id").is_in(set(bldg_ids))).select(char_cols)
         if len(bdf) > 0:

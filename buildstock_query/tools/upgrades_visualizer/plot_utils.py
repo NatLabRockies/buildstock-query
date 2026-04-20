@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import ConfigDict, BaseModel, Field
 from enum import Enum
 from typing import Optional
 import re
@@ -22,13 +22,15 @@ class ValueTypes(str, Enum):
 class PlotParams(BaseModel):
     enduses: list[str]
     savings_type: SavingsTypes
-    change_type: Optional[str]
-    upgrade: Optional[str]
+    change_type: Optional[str] = None
+    upgrade: Optional[str] = None
     group_by: list[str] = Field(default_factory=list)
     filter_bldgs: list[int] = Field(default_factory=list)
     sync_upgrade: Optional[int] = None
     resolution: str = "annual"
     value_type: ValueTypes
+
+    model_config = ConfigDict(coerce_numbers_to_str=True)
 
 
 num2month = {1: "January", 2: "February", 3: "March", 4: "April",

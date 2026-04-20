@@ -1,62 +1,69 @@
-from typing import Optional, Union, Literal, Sequence
+from typing import Literal
+from collections.abc import Sequence
 import pandas as pd
 import typing
-from buildstock_query.schema.query_params import TSQuery, AnnualQuery
-import buildstock_query.main as main
+from buildstock_query.schema.query_params import TSQuery, BaseQuery, Query
+from buildstock_query import main
 from buildstock_query.schema.utilities import AnyColType, AnyTableType
-
+from pydantic import Field
+from typing_extensions import deprecated
 
 class BuildStockAggregate:
-
-    def __init__(self, buildstock_query: 'main.BuildStockQuery') -> None:
-        ...
-
+    def __init__(self, buildstock_query: main.BuildStockQuery) -> None: ...
     @typing.overload
-    def aggregate_annual(self, *,
-                         enduses: Sequence[AnyColType],
-                         get_query_only: Literal[True],
-                         group_by: Sequence[Union[AnyColType, tuple[str, str]]] = [],
-                         sort: bool = False,
-                         upgrade_id: Union[int, str] = '0',
-                         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
-                         weights: Sequence[Union[str, tuple]] = [],
-                         restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                         avoid: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                         get_quartiles: bool = False,
-                         get_nonzero_count: bool = False,
-                         ) -> str:
-        ...
-
+    @deprecated("Please use my_run.query with annual_only=True.")
+    def aggregate_annual(
+        self,
+        *,
+        enduses: Sequence[AnyColType],
+        get_query_only: Literal[True],
+        group_by: Sequence[AnyColType | tuple[str, str]] = [],
+        sort: bool = False,
+        upgrade_id: int | str = "0",
+        join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
+        weights: Sequence[str | tuple] = [],
+        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        get_quartiles: bool = False,
+        get_nonzero_count: bool = False,
+        agg_func: str | None = "sum",
+    ) -> str: ...
     @typing.overload
-    def aggregate_annual(self, *,
-                         enduses: Sequence[AnyColType],
-                         get_query_only: Literal[False] = False,
-                         group_by: Sequence[Union[AnyColType, tuple[str, str]]] = [],
-                         sort: bool = False,
-                         upgrade_id: Union[int, str] = '0',
-                         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
-                         weights: Sequence[Union[str, tuple]] = [],
-                         restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                         avoid: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                         get_quartiles: bool = False,
-                         get_nonzero_count: bool = False,
-                         ) -> pd.DataFrame:
-        ...
-
+    @deprecated("Please use my_run.query with annual_only=True.")
+    def aggregate_annual(
+        self,
+        *,
+        enduses: Sequence[AnyColType],
+        get_query_only: Literal[False] = False,
+        group_by: Sequence[AnyColType | tuple[str, str]] = [],
+        sort: bool = False,
+        upgrade_id: int | str = "0",
+        join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
+        weights: Sequence[str | tuple] = [],
+        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        get_quartiles: bool = False,
+        get_nonzero_count: bool = False,
+        agg_func: str | None = "sum",
+    ) -> pd.DataFrame: ...
     @typing.overload
-    def aggregate_annual(self, *,
-                         enduses: Sequence[AnyColType],
-                         get_query_only: bool,
-                         group_by: Sequence[Union[AnyColType, tuple[str, str]]] = [],
-                         sort: bool = False,
-                         upgrade_id: Union[int, str] = '0',
-                         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
-                         weights: Sequence[Union[str, tuple]] = [],
-                         restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                         avoid: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                         get_quartiles: bool = False,
-                         get_nonzero_count: bool = False,
-                         ) -> Union[pd.DataFrame, str]:
+    @deprecated("Please use my_run.query with annual_only=True.")
+    def aggregate_annual(
+        self,
+        *,
+        enduses: Sequence[AnyColType],
+        get_query_only: bool,
+        group_by: Sequence[AnyColType | tuple[str, str]] = [],
+        sort: bool = False,
+        upgrade_id: int | str = "0",
+        join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
+        weights: Sequence[str | tuple] = [],
+        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        get_quartiles: bool = False,
+        get_nonzero_count: bool = False,
+        agg_func: str | None = "sum",
+    ) -> pd.DataFrame | str:
         """
         Aggregates the baseline annual result on select enduses.
         Check the argument description below to learn about additional features and options.
@@ -65,7 +72,7 @@ class BuildStockAggregate:
 
             group_by: The list of columns to group the aggregation by.
 
-            sort: Whether to sort the results by group_by colummns
+            sort: Whether to sort the results by group_by columns
 
             upgrade_id: The upgrade to query for. Only valid with runs with upgrade. If not provided, use the baseline
 
@@ -93,69 +100,76 @@ class BuildStockAggregate:
             get_query_only: Skips submitting the query to Athena and just returns the query string. Useful for batch
                             submitting multiple queries or debugging
 
+            agg_func: The aggregation function to use. Defaults to 'sum'.
+                      See other options in https://prestodb.io/docs/current/functions/aggregate.html
+
         Returns:
                 if get_query_only is True, returns the query_string, otherwise returns the dataframe
         """
-        ...
 
     @typing.overload
-    def aggregate_annual(self, *,
-                         params: AnnualQuery
-                         ) -> Union[str, pd.DataFrame]:
-        ...
-
+    @deprecated("Please use my_run.query with annual_only=True.")
+    def aggregate_annual(self, *, params: BaseQuery) -> str | pd.DataFrame: ...
     @typing.overload
-    def aggregate_timeseries(self, *,
-                             enduses: Sequence[AnyColType],
-                             get_query_only: Literal[True],
-                             group_by: Sequence[Union[AnyColType, tuple[str, str]]] = [],
-                             upgrade_id: Union[int, str] = '0',
-                             sort: bool = False,
-                             join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
-                             weights: Sequence[Union[str, tuple]] = [],
-                             restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                             avoid: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                             split_enduses: bool = False,
-                             collapse_ts: bool = False,
-                             timestamp_grouping_func: Optional[str] = None,
-                             limit: Optional[int] = None
-                             ) -> str:
-        ...
-
+    @deprecated("Please use my_run.query with annual_only=False.")
+    def aggregate_timeseries(
+        self,
+        *,
+        enduses: Sequence[AnyColType],
+        get_query_only: Literal[True],
+        group_by: Sequence[AnyColType | tuple[str, str]] = [],
+        upgrade_id: int | str = "0",
+        sort: bool = False,
+        join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
+        weights: Sequence[str | tuple] = [],
+        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        split_enduses: bool = False,
+        collapse_ts: bool = False,
+        timestamp_grouping_func: str | None = None,
+        limit: int | None = None,
+        agg_func: str | None = "sum",
+    ) -> str: ...
     @typing.overload
-    def aggregate_timeseries(self, *,
-                             enduses: Sequence[AnyColType],
-                             group_by: Sequence[Union[AnyColType, tuple[str, str]]] = [],
-                             upgrade_id: Union[int, str] = '0',
-                             sort: bool = False,
-                             join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
-                             weights: Sequence[Union[str, tuple]] = [],
-                             restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                             avoid: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                             split_enduses: bool = False,
-                             collapse_ts: bool = False,
-                             timestamp_grouping_func: Optional[str] = None,
-                             get_query_only: Literal[False] = False,
-                             limit: Optional[int] = None
-                             ) -> pd.DataFrame:
-        ...
-
+    @deprecated("Please use my_run.query with annual_only=False.")
+    def aggregate_timeseries(
+        self,
+        *,
+        enduses: Sequence[AnyColType],
+        group_by: Sequence[AnyColType | tuple[str, str]] = [],
+        upgrade_id: int | str = "0",
+        sort: bool = False,
+        join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
+        weights: Sequence[str | tuple] = [],
+        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        split_enduses: bool = False,
+        collapse_ts: bool = False,
+        timestamp_grouping_func: str | None = None,
+        get_query_only: Literal[False] = False,
+        limit: int | None = None,
+        agg_func: str | None = "sum",
+    ) -> pd.DataFrame: ...
     @typing.overload
-    def aggregate_timeseries(self, *,
-                             enduses: Sequence[AnyColType],
-                             get_query_only: bool,
-                             group_by: Sequence[Union[AnyColType, tuple[str, str]]] = [],
-                             upgrade_id: Union[int, str] = '0',
-                             sort: bool = False,
-                             join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
-                             weights: Sequence[Union[str, tuple]] = [],
-                             restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                             avoid: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = [],
-                             split_enduses: bool = False,
-                             collapse_ts: bool = False,
-                             timestamp_grouping_func: Optional[str] = None,
-                             limit: Optional[int] = None
-                             ) -> Union[str, pd.DataFrame]:
+    @deprecated("Please use my_run.query with annual_only=False.")
+    def aggregate_timeseries(
+        self,
+        *,
+        enduses: Sequence[AnyColType],
+        get_query_only: bool,
+        group_by: Sequence[AnyColType | tuple[str, str]] = [],
+        upgrade_id: int | str = "0",
+        sort: bool = False,
+        join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
+        weights: Sequence[str | tuple] = [],
+        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        split_enduses: bool = False,
+        collapse_ts: bool = False,
+        timestamp_grouping_func: str | None = None,
+        limit: int | None = None,
+        agg_func: str | None = "sum",
+    ) -> str | pd.DataFrame:
         """
         Aggregates the timeseries result on select enduses.
         Check the argument description below to learn about additional features and options.
@@ -188,31 +202,36 @@ class BuildStockAggregate:
         get_query_only: Skips submitting the query to Athena and just returns the query string. Useful for batch
                         submitting multiple queries or debugging
 
-
+        agg_func: The aggregation function to use. Defaults to 'sum'.
+                  See other options in https://prestodb.io/docs/current/functions/aggregate.html
         Returns:
                 if get_query_only is True, returns the query_string, otherwise, returns the DataFrame
 
         """
-        ...
 
     @typing.overload
-    def aggregate_timeseries(self, *,
-                             params: TSQuery,
-                             ) -> Union[str, pd.DataFrame]:
-        ...
-
+    @deprecated("Please use my_run.query with annual_only=False.")
+    def aggregate_timeseries(
+        self,
+        *,
+        params: TSQuery,
+    ) -> str | pd.DataFrame: ...
     @typing.overload
-    def get_building_average_kws_at(self,
-                                    at_hour: Union[Sequence[float], float],
-                                    at_days: Sequence[float],
-                                    enduses: Sequence[str],
-                                    get_query_only: Literal[False] = False) -> pd.DataFrame:
-        ...
-
+    def get_building_average_kws_at(
+        self,
+        at_hour: Sequence[float] | float,
+        at_days: Sequence[float],
+        enduses: Sequence[str],
+        get_query_only: Literal[False] = False,
+    ) -> pd.DataFrame: ...
     @typing.overload
-    def get_building_average_kws_at(self,
-                                    at_hour: Union[Sequence[float], float],
-                                    at_days: Sequence[float],
-                                    enduses: Sequence[str],
-                                    get_query_only: Literal[True]) -> str:
+    def get_building_average_kws_at(
+        self,
+        at_hour: Sequence[float] | float,
+        at_days: Sequence[float],
+        enduses: Sequence[str],
+        get_query_only: Literal[True],
+    ) -> str: ...
+
+    def _query(self, *args, **kwargs) -> str | pd.DataFrame:
         ...

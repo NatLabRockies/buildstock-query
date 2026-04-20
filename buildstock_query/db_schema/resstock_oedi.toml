@@ -15,6 +15,7 @@ timestamp = "timestamp"
 completed_status = "applicability"
 unmet_hours_cooling_hr = ""
 unmet_hours_heating_hr = ""
+map_eiaid_column = "gisjoin"
 fuel_totals = ["out.electricity.total.energy_consumption",
                "out.natural_gas.total.energy_consumption",
                "out.fuel_oil.total.energy_consumption",
@@ -24,7 +25,7 @@ fuel_totals = ["out.electricity.total.energy_consumption",
 [completion_values]
 success = "true"
 fail = ""
-unapplicable = "false"
+inapplicable = "false"
 
 [structure]
-unapplicables_have_ts = "true"
+inapplicables_have_ts = "true"

@@ -2,18 +2,20 @@ import pathlib
 import numpy as np
 from buildstock_query.tools import UpgradesAnalyzer
 import pytest
+import pandas as pd
+from unittest.mock import patch
 
 
 class TestUpgradesAnalyzer:
-
     # Create three different kind of UpgradesAnalyzer fixuture objects.
     # 1. with_filter: upgrades yaml and filter yaml are included
     # 2. without_filter: only upgrades yaml is included
     # 3. only_filter: only filter yaml is included
     # The test cases are parametrized to run with all three kinds of fixtures.
     # But some test functions skip the test if the fixture is not applicable.
-    @pytest.fixture(params=['with_filter', 'without_filter', 'only_filter'],
-                    ids=["with_filter", "without_filter", "only_filter"])
+    @pytest.fixture(
+        params=["with_filter", "without_filter", "only_filter"], ids=["with_filter", "without_filter", "only_filter"]
+    )
     def ua(self, request):
         folder_path = pathlib.Path(__file__).parent.resolve()
 
@@ -34,11 +36,13 @@ class TestUpgradesAnalyzer:
 
         self.buildstock_path = folder_path / "reference_files" / "res_n250_15min_v19_buildstock.csv"
         self.opt_sat_path = folder_path / "reference_files" / "options_saturations.csv"
-        ua = UpgradesAnalyzer(yaml_file=yaml_path,
-                              filter_yaml_file=filter_yaml_path,
-                              buildstock=str(self.buildstock_path),
-                              upgrade_names=upgrade_names,
-                              opt_sat_file=str(self.opt_sat_path))
+        ua = UpgradesAnalyzer(
+            yaml_file=yaml_path,
+            filter_yaml_file=filter_yaml_path,
+            buildstock=str(self.buildstock_path),
+            upgrade_names=upgrade_names,
+            opt_sat_file=str(self.opt_sat_path),
+        )
         return ua
 
     def test_read_cfg(self, ua, request):
@@ -82,7 +86,6 @@ class TestUpgradesAnalyzer:
         assert expected_output == UpgradesAnalyzer._get_eq_str(test_inp)
 
     def test_get_mentioned_parameters(self):
-
         empty_logics = [{}, [], "", None]
         for logic in empty_logics:
             assert UpgradesAnalyzer.get_mentioned_parameters(logic) == []
@@ -137,9 +140,9 @@ class TestUpgradesAnalyzer:
 
     def test_normalize_lists(self):
         logic = [["logic1", "logic2"], ["logic3", "logic4"]]
-        flatened_logic = UpgradesAnalyzer._normalize_lists(logic)
+        flattened_logic = UpgradesAnalyzer._normalize_lists(logic)
         expected_logic = {"and": [{"and": ["logic1", "logic2"]}, {"and": ["logic3", "logic4"]}]}
-        assert flatened_logic == expected_logic
+        assert flattened_logic == expected_logic
 
         logic = {
             "or": [
@@ -149,7 +152,7 @@ class TestUpgradesAnalyzer:
                 ["logic7"],
             ]
         }
-        flatened_logic = UpgradesAnalyzer._normalize_lists(logic)
+        flattened_logic = UpgradesAnalyzer._normalize_lists(logic)
         expected_logic = {
             "or": [
                 {"and": ["logic1", "logic2"]},
@@ -158,7 +161,7 @@ class TestUpgradesAnalyzer:
                 "logic7",
             ]
         }
-        assert expected_logic == flatened_logic
+        assert expected_logic == flattened_logic
 
         logic = {
             "and": [
@@ -166,9 +169,9 @@ class TestUpgradesAnalyzer:
                 {"and": ["Vintage|1980s", "Vintage|1960s"]},
             ]
         }
-        flatened_logic = UpgradesAnalyzer._normalize_lists(logic)
+        flattened_logic = UpgradesAnalyzer._normalize_lists(logic)
         expected_logic = logic.copy()
-        assert flatened_logic == expected_logic
+        assert flattened_logic == expected_logic
 
     def test_print_options_application_report(self, ua: UpgradesAnalyzer, capsys):
         logic_dict = {
@@ -179,21 +182,21 @@ class TestUpgradesAnalyzer:
         }  # {"opt_index": logic_array_of_applicable_buildings}
         report_df = ua._get_options_application_count_report(logic_dict)
         assert len(report_df) == 3
-        assert report_df.loc[2]['Applied buildings'] == '1 (33.3%)'
-        assert report_df.loc[2]['Cumulative all'] == '1 (33.3%)'
-        assert report_df.loc[3]['Applied options'].iloc[0] == "1, 2, 3"
-        assert report_df.loc[3]['Applied options'].iloc[1] == "1, 2, 4"
-        assert report_df.loc[3]['Applied buildings'].iloc[0] == "1 (33.3%)"
-        assert report_df.loc[3]['Applied buildings'].iloc[1] == "1 (33.3%)"
-        assert report_df.loc[3]['Cumulative all'].iloc[0] == "2 (66.7%)"
-        assert report_df.loc[3]['Cumulative all'].iloc[1] == "3 (100.0%)"
+        assert report_df.loc[2]["Applied buildings"] == "1 (33.3%)"
+        assert report_df.loc[2]["Cumulative all"] == "1 (33.3%)"
+        assert report_df.loc[3]["Applied options"].iloc[0] == "1, 2, 3"
+        assert report_df.loc[3]["Applied options"].iloc[1] == "1, 2, 4"
+        assert report_df.loc[3]["Applied buildings"].iloc[0] == "1 (33.3%)"
+        assert report_df.loc[3]["Applied buildings"].iloc[1] == "1 (33.3%)"
+        assert report_df.loc[3]["Cumulative all"].iloc[0] == "2 (66.7%)"
+        assert report_df.loc[3]["Cumulative all"].iloc[1] == "3 (100.0%)"
 
     def test_get_report_only_filter(self, ua: UpgradesAnalyzer, request):
         if request.node.callspec.id != "only_filter":
             return
         report = ua.get_report()
         assert len(report) == 8
-        assert (list(report['removal_count'].values) == [14, 36, 14, 14, 14, 14, 14, 14])
+        assert list(report["removal_count"].values) == [14, 36, 14, 14, 14, 14, 14, 14]
 
     def test_get_report(self, ua: UpgradesAnalyzer, request):
         if request.node.callspec.id == "only_filter":  # test if upgrades yaml is included
@@ -239,7 +242,7 @@ class TestUpgradesAnalyzer:
         logic_cond3_3 = ua.buildstock_df["location region"] == "CR09"
         opt3_logic = (logic_cond3_1 | logic_cond3_2) & logic_cond3_3 & pkg_logic
         if ua.filter_cfg:
-            remove_logic = ((ua.buildstock_df["vintage"] == "1980s") | (ua.buildstock_df["vintage"] == "1960s"))
+            remove_logic = (ua.buildstock_df["vintage"] == "1980s") | (ua.buildstock_df["vintage"] == "1960s")
             opt1_logic &= ~remove_logic
             opt2_logic &= ~remove_logic
             opt3_logic &= ~remove_logic
@@ -257,7 +260,7 @@ class TestUpgradesAnalyzer:
         assert len(report_df) == 2
         opt1_cond = report_df["option"] == "Vintage|1980s"
         if ua.filter_cfg:
-            remove_logic = ((ua.buildstock_df["vintage"] == "1980s"))
+            remove_logic = ua.buildstock_df["vintage"] == "1980s"
             total_applicable_buildings = sum(~remove_logic)
             assert report_df[report_df["option"] == "All"].removal_count.values[0] == sum(remove_logic)
         else:
@@ -280,7 +283,7 @@ class TestUpgradesAnalyzer:
         with pytest.raises(ValueError):
             ua.get_detailed_report(1, 0)  # option 0 is invalid. It is 1-indexed
 
-        _, report_text = ua.get_detailed_report(1)
+        _, report_text, _, _ = ua.get_detailed_report(1)
         assert "Option1:'Insulation Wall|Wood Stud, Uninsulated, R-5 Sheathing'" in report_text
         logic_cond1 = ua.buildstock_df["insulation wall"] == "Wood Stud, Uninsulated"
         cmp_str = f"Insulation Wall|Wood Stud, Uninsulated => {sum(logic_cond1)}"
@@ -299,7 +302,7 @@ class TestUpgradesAnalyzer:
         else:
             assert f"Overall applied to => {sum(logic_cond1 | logic_cond2)}" in report_text
 
-        _, report_text = ua.get_detailed_report(2)
+        _, report_text, _, _ = ua.get_detailed_report(2)
         opt1_text = "Option1:'Windows|Single, Clear, Metal, Exterior Low-E Storm'"
         opt2_text = "Option2:'Vintage|1980s'"
         opt3_text = "Option3:'Vintage|1970s'"
@@ -307,12 +310,12 @@ class TestUpgradesAnalyzer:
         assert opt2_text in report_text
         assert opt3_text in report_text
 
-        substr1 = report_text[report_text.index(opt1_text): report_text.index(opt2_text)]
+        substr1 = report_text[report_text.index(opt1_text) : report_text.index(opt2_text)]
         assert "Package Apply Logic Report" in substr1
         if ua.filter_cfg:  # if filter yaml is included
-            package_report = substr1[substr1.index("Package Apply Logic Report"):substr1.index("Remove Logic Report")]
+            package_report = substr1[substr1.index("Package Apply Logic Report") : substr1.index("Remove Logic Report")]
         else:
-            package_report = substr1[substr1.index("Package Apply Logic Report"):]
+            package_report = substr1[substr1.index("Package Apply Logic Report") :]
         main_report = substr1[: substr1.index("Package Apply Logic Report")]
         logic_opt1_1 = ua.buildstock_df["windows"] == "Single, Clear, Metal"
         assert f"Windows|Single, Clear, Metal => {sum(logic_opt1_1)}" in main_report
@@ -333,8 +336,8 @@ class TestUpgradesAnalyzer:
 
         if ua.filter_cfg:  # if filter yaml is included
             assert "Remove Logic Report" in substr1
-            remove_report = substr1[substr1.index("Remove Logic Report"):]
-            remove_logic = ((ua.buildstock_df["vintage"] == "1980s") | (ua.buildstock_df["vintage"] == "1960s"))
+            remove_report = substr1[substr1.index("Remove Logic Report") :]
+            remove_logic = (ua.buildstock_df["vintage"] == "1980s") | (ua.buildstock_df["vintage"] == "1960s")
             assert f"or => {sum(remove_logic)}" in remove_report
             assert f"Vintage|1980s => {sum(ua.buildstock_df['vintage'] == '1980s')}" in remove_report
             assert f"Vintage|1960s => {sum(ua.buildstock_df['vintage'] == '1960s')}" in remove_report
@@ -342,7 +345,29 @@ class TestUpgradesAnalyzer:
             overall_logic &= ~remove_logic
 
         assert f"Overall applied to => {sum(overall_logic)}" in report_text
-        # TODO: Also add test for combination report output
+
+        _, report_text, opt_app_report_df, opt_app_detailed_report_df = ua.get_detailed_report(2)
+
+        # verify opt_app_report_df
+        if ua.filter_cfg:
+            assert opt_app_report_df["Applied options"].to_list() == ["windows"]
+            assert opt_app_report_df["Applied buildings"].str.split(" ").str[0].to_list() == ["28"]
+        else:
+            assert opt_app_report_df["Applied options"].to_list() == ["windows", "vintage", "windows, vintage"]
+            assert opt_app_report_df["Applied buildings"].str.split(" ").str[0].to_list() == ["29", "20", "9"]
+
+        # verify opt_app_detailed_report_df
+        for indx, row in opt_app_detailed_report_df.iterrows():
+            applied_bldgs_array = np.ones((1, ua.total_samples), dtype=bool)
+            applied_options = [int(opt) for opt in row["Applied options"].split(",")]
+            not_applied_options = [i for i in range(1, 4) if i not in applied_options]
+            for opt in applied_options:
+                logic_arr, _, _, _ = ua.get_detailed_report(2, opt)
+                applied_bldgs_array &= logic_arr
+            for opt in not_applied_options:
+                logic_arr, _, _, _ = ua.get_detailed_report(2, opt)
+                applied_bldgs_array &= ~logic_arr
+            assert applied_bldgs_array.sum() == int(row["Applied buildings"].split()[0]), f"Row \n{row}\n failed"
 
     def test_get_logic_report(self, ua: UpgradesAnalyzer):
         for logic_cfg in ["Vintage|1980s", ["Vintage|1980s"]]:
@@ -479,5 +504,78 @@ class TestUpgradesAnalyzer:
                 n_unchanged = len(df_same.query(query)[dimensions])
                 n_diff = abs(n_diff)
                 assert n_diff == n_unchanged, (
-                    f"Only {n_unchanged} dwelling units were found to be unchanged, " f"expecting {n_diff} per report"
+                    f"Only {n_unchanged} dwelling units were found to be unchanged, expecting {n_diff} per report"
                 )
+
+    def test_get_minimal_representative_buildings(self):
+        # Create mock UpgradesAnalyzer instance
+        mock_buildstock_df = pd.DataFrame(index=list(range(1, 11)),
+        columns=["windows", "vintage", "location region"],
+        data=[
+            ("Single, Clear, Metal", "2000s", "CR01"),
+            ("Single, Clear, Metal", "2000s", "CR02"),
+            ("Single, Clear, Metal", "2000s", "CR03"),
+            ("Single, Clear, Metal", "2000s", "CR04"),
+            ("Single, Clear, Metal", "2000s", "CR05"),
+            ("Single, Clear, Metal", "2000s", "CR06"),
+            ("Single, Clear, Metal", "2000s", "CR07"),
+            ("Single, Clear, Metal", "2000s", "CR08"),
+            ("Single, Clear, Metal", "2000s", "CR09"),
+            ("Single, Clear, Metal", "2010s", "CR10"),
+        ])
+
+        # Create the analyzer with just the necessary components for this test
+        with patch.object(UpgradesAnalyzer, "__init__", return_value=None):
+            ua = UpgradesAnalyzer()
+            ua.buildstock_df = mock_buildstock_df
+
+
+        # Test case: Basic functionality
+        building_groups = [
+            {1, 2, 3},  # Group 1
+            {2, 4, 5},  # Group 2
+            {3, 5, 6},  # Group 3
+            {6, 7, 8},  # Group 4
+            {1, 8, 9},  # Group 5
+        ]
+        report_df = pd.DataFrame(
+            {"applicable_buildings": building_groups, "option_num": range(1, len(building_groups) + 1)}
+        )
+
+        minimal_set = ua.get_minimal_representative_buildings(report_df, include_never_upgraded=False)
+        assert isinstance(minimal_set, list)
+        assert minimal_set == [8, 5, 3]
+
+        assert [8, 5, 3, 10] == ua.get_minimal_representative_buildings(report_df, include_never_upgraded=True)
+
+        # Test case: Empty input
+        assert ua.get_minimal_representative_buildings(report_df[0:0], include_never_upgraded=False) == []
+        assert ua.get_minimal_representative_buildings(report_df[0:0], include_never_upgraded=True) == [10]
+
+        # Test case: Input with empty sets (should be ignored)
+        building_groups.append(set())
+        report_df = pd.DataFrame(
+            {"applicable_buildings": building_groups, "option_num": range(1, len(building_groups) + 1)}
+        )
+        assert [8, 5, 3] == ua.get_minimal_representative_buildings(report_df)
+
+        # Test case with must_cover_chars
+        # Since we need all buildings to cover all location regions, we expect all buildings to be in the minimal set
+        assert list(range(1, 11)) == sorted(ua.get_minimal_representative_buildings(report_df, must_cover_chars=["location region"]))
+        # We need building 10 to cover vintage 2010s
+        assert [8, 5, 3, 10] == ua.get_minimal_representative_buildings(report_df, must_cover_chars=["vintage"])
+        # We don't need anything extra to cover windows
+        assert [8, 5, 3] == ua.get_minimal_representative_buildings(report_df, must_cover_chars=["windows"])
+        # We need building 10 to cover vintage 2010s and windows
+        assert [8, 5, 3, 10] == ua.get_minimal_representative_buildings(report_df, must_cover_chars=["vintage", "windows"])
+
+
+    def test_check_parameter_overlap(self, ua: UpgradesAnalyzer, request):
+        if request.node.callspec.id == "only_filter":  # test if upgrades yaml is included
+            return
+        report_df = ua.get_report()
+        overlap_text = ua.get_parameter_overlap_report(report_df)
+        if ua.filter_cfg:
+            assert overlap_text == ""
+        else:
+            assert "Option 2:Vintage|1980s overlaps with Option 3:Vintage|1970s on 12 buildings" in overlap_text

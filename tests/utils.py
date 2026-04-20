@@ -1,7 +1,7 @@
 from buildstock_query.helpers import load_pickle, save_pickle
 import pathlib
 from sqlalchemy.exc import NoSuchTableError
-
+import sqlglot
 
 folder_path = pathlib.Path(__file__).parent.resolve()
 
@@ -27,11 +27,8 @@ def mock_get_tables(self, table_name):
 
 
 def assert_query_equal(query1, query2):
-    query1 = query1.strip().lower().split()
-    query2 = query2.strip().lower().split()
-    wrong_matches = [(indx, word, query2[indx]) for indx, word in enumerate(query1)
-                     if word != query2[indx]]
-    assert not wrong_matches
+    query_diff = sqlglot.diff(sqlglot.parse_one(query1), sqlglot.parse_one(query2), delta_only=True)
+    assert not query_diff
 
 
 def save_ref_pkl(name, obj):

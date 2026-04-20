@@ -42,7 +42,13 @@ class BuildStockAggregate:
         if upgrade_id == "0":
             # For baseline, return original tables with group_by as-is
             if self._bsq.up_table is None:  # There are no upgrades so just return the timeseries table as is
-                tbljoin = ts.join(base, self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column)
+                tbljoin = ts.join(
+                    base,
+                    sa.and_(
+                        self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column,
+                        *self._bsq._get_restrict_clauses(restrict, annual_only=True),
+                    ),
+                )
             else:
                 tbljoin = ts.join(
                     base,

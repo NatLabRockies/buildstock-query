@@ -40,6 +40,7 @@ from buildstock_query.schema.utilities import (
 import hashlib
 import toml
 import uuid
+from sqlalchemy.sql.selectable import SelectBase, Subquery
 
 urllib3.disable_warnings()
 
@@ -1126,11 +1127,28 @@ class QueryCore:
             label += f"__{agg_func}"
         return label
 
+    @staticmethod
+    def _normalize_restrict_subquery(criteria):
+        if isinstance(criteria, SelectBase):
+            if len(criteria.selected_columns) != 1:
+                raise ValueError("Subquery restrictions must select exactly one column.")
+            return criteria
+
+        if isinstance(criteria, Subquery):
+            if len(criteria.c) != 1:
+                raise ValueError("Subquery restrictions must select exactly one column.")
+            return sa.select(next(iter(criteria.c)))
+
+        return None
+
     def _get_restrict_clauses(self, restrict, annual_only=False):
         clauses = []
         for col_str, criteria in restrict:
             col = self._get_column(col_str, annual_only=annual_only)
-            if isinstance(criteria, (list, tuple)):
+            subquery = self._normalize_restrict_subquery(criteria)
+            if subquery is not None:
+                clauses.append(col.in_(subquery))
+            elif isinstance(criteria, Sequence) and not isinstance(criteria, str):
                 if len(criteria) > 1:
                     clauses.append(col.in_(criteria))
                 elif len(criteria) == 1:
@@ -1154,7 +1172,10 @@ class QueryCore:
         where_clauses = []
         for col_str, criteria in avoid:
             col = self._get_column(col_str, annual_only=annual_only)
-            if isinstance(criteria, (list, tuple)):
+            subquery = self._normalize_restrict_subquery(criteria)
+            if subquery is not None:
+                where_clauses.append(col.not_in(subquery))
+            elif isinstance(criteria, Sequence) and not isinstance(criteria, str):
                 if len(criteria) > 1:
                     where_clauses.append(col.not_in(criteria))
                 elif len(criteria) == 1:

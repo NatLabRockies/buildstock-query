@@ -4,7 +4,7 @@ import pandas as pd
 import typing
 from buildstock_query.schema.query_params import TSQuery, BaseQuery, Query
 from buildstock_query import main
-from buildstock_query.schema.utilities import AnyColType, AnyTableType
+from buildstock_query.schema.utilities import AnyColType, AnyTableType, RestrictTuple
 from pydantic import Field
 from typing_extensions import deprecated
 
@@ -22,8 +22,8 @@ class BuildStockAggregate:
         upgrade_id: int | str = "0",
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
         weights: Sequence[str | tuple] = [],
-        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
-        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        restrict: Sequence[RestrictTuple] = [],
+        avoid: Sequence[RestrictTuple] = [],
         get_quartiles: bool = False,
         get_nonzero_count: bool = False,
         agg_func: str | None = "sum",
@@ -40,8 +40,8 @@ class BuildStockAggregate:
         upgrade_id: int | str = "0",
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
         weights: Sequence[str | tuple] = [],
-        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
-        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        restrict: Sequence[RestrictTuple] = [],
+        avoid: Sequence[RestrictTuple] = [],
         get_quartiles: bool = False,
         get_nonzero_count: bool = False,
         agg_func: str | None = "sum",
@@ -58,8 +58,8 @@ class BuildStockAggregate:
         upgrade_id: int | str = "0",
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
         weights: Sequence[str | tuple] = [],
-        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
-        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        restrict: Sequence[RestrictTuple] = [],
+        avoid: Sequence[RestrictTuple] = [],
         get_quartiles: bool = False,
         get_nonzero_count: bool = False,
         agg_func: str | None = "sum",
@@ -122,8 +122,8 @@ class BuildStockAggregate:
         sort: bool = False,
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
         weights: Sequence[str | tuple] = [],
-        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
-        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        restrict: Sequence[RestrictTuple] = [],
+        avoid: Sequence[RestrictTuple] = [],
         split_enduses: bool = False,
         collapse_ts: bool = False,
         timestamp_grouping_func: str | None = None,
@@ -141,8 +141,8 @@ class BuildStockAggregate:
         sort: bool = False,
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
         weights: Sequence[str | tuple] = [],
-        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
-        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        restrict: Sequence[RestrictTuple] = [],
+        avoid: Sequence[RestrictTuple] = [],
         split_enduses: bool = False,
         collapse_ts: bool = False,
         timestamp_grouping_func: str | None = None,
@@ -162,8 +162,8 @@ class BuildStockAggregate:
         sort: bool = False,
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = [],
         weights: Sequence[str | tuple] = [],
-        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
-        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = [],
+        restrict: Sequence[RestrictTuple] = [],
+        avoid: Sequence[RestrictTuple] = [],
         split_enduses: bool = False,
         collapse_ts: bool = False,
         timestamp_grouping_func: str | None = None,

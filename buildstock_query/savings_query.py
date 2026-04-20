@@ -7,7 +7,7 @@ from sqlalchemy import func as safunc
 import sqlalchemy as sa
 from typing import Union
 from collections.abc import Sequence
-from buildstock_query.schema.utilities import AnyColType
+from buildstock_query.schema.utilities import AnyColType, RestrictTuple
 from pydantic import Field
 from typing_extensions import deprecated
 
@@ -32,7 +32,7 @@ class BuildStockSavings:
         enduses: Sequence[AnyColType],
         upgrade_id: str,
         applied_only: bool,
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         ts_group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
     ):
         if self._bsq.ts_table is None:
@@ -107,6 +107,11 @@ class BuildStockSavings:
         if params.timestamp_grouping_func and params.timestamp_grouping_func not in ["hour", "day", "month"]:
             raise ValueError("timestamp_grouping_func must be one of ['hour', 'day', 'month']")
 
+        bs_restrict = self._bsq._add_applied_in_restrict(
+            params.restrict,
+            applied_in=params.applied_in,
+            annual_only=params.annual_only,
+        )
         enduse_cols = self._bsq._get_enduse_cols(
             params.enduses, table="baseline" if params.annual_only else "timeseries"
         )
@@ -117,7 +122,7 @@ class BuildStockSavings:
         if params.annual_only:
             ts_b, ts_u, tbljoin = self.__get_annual_bs_up_table(upgrade_id, params.applied_only)
         else:
-            params.restrict, ts_restrict = self._bsq._split_restrict(params.restrict)
+            bs_restrict, ts_restrict = self._bsq._split_restrict(bs_restrict)
             bs_group_by, ts_group_by = self._bsq._split_group_by(group_by_selection)
             ts_b, ts_u, tbljoin = self.__get_timeseries_bs_up_table(
                 enduse_cols, upgrade_id, params.applied_only, ts_restrict, ts_group_by
@@ -203,7 +208,7 @@ class BuildStockSavings:
         query_cols = grouping_metrics_selection + query_cols
         query = sa.select(*query_cols).select_from(tbljoin)
         query = self._bsq._add_join(query, params.join_list)
-        query = self._bsq._add_restrict(query, params.restrict)
+        query = self._bsq._add_restrict(query, bs_restrict)
         if params.annual_only:
             query = query.where(self._bsq._bs_successful_condition)
         query = self._bsq._add_group_by(query, group_by_selection)

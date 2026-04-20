@@ -14,7 +14,7 @@ from typing_extensions import assert_never
 import typing
 from datetime import datetime
 from buildstock_query.schema.run_params import BSQParams
-from buildstock_query.schema.utilities import DBColType, SALabel, AnyColType, AnyTableType
+from buildstock_query.schema.utilities import DBColType, SALabel, SACol, AnyColType, AnyTableType, RestrictTuple
 from buildstock_query.schema.utilities import validate_arguments
 from buildstock_query.schema.utilities import MappedColumn
 from buildstock_query.schema.query_params import Query
@@ -746,11 +746,24 @@ class BuildStockQuery(QueryCore):
         bs_restrict = []  # restrict to apply to baseline table
         ts_restrict = []  # restrict to apply to timeseries table
         for col, restrict_vals in restrict:
-            if self.ts_table is not None and col in self.ts_table.columns:  # prioritize ts table
-                ts_restrict.append([self.ts_table.c[col], restrict_vals])
+            if self._restrict_targets_ts(col):  # prioritize ts table
+                col_name = col if isinstance(col, str) else col.name
+                ts_restrict.append([self.ts_table.c[col_name], restrict_vals])
             else:
                 bs_restrict.append([self._get_gcol(col, annual_only=True), restrict_vals])
         return bs_restrict, ts_restrict
+
+    def _restrict_targets_ts(self, col: AnyColType) -> bool:
+        if self.ts_table is None:
+            return False
+        if isinstance(col, str):
+            return col in self.ts_table.columns
+        if isinstance(col, SACol):
+            return getattr(col, "table", None) is self.ts_table
+        if isinstance(col, SALabel):
+            source_col = getattr(col, "element", None)
+            return isinstance(source_col, SACol) and getattr(source_col, "table", None) is self.ts_table
+        return False
 
     def _split_group_by(self, processed_group_by: list[DBColType]):
         # Some cols like "state" might be available in both ts and bs table
@@ -901,6 +914,42 @@ class BuildStockQuery(QueryCore):
     def _get_success_condition(self, table: AnyTableType):
         return self._get_completed_status_col(table) == self.db_schema.completion_values.success
 
+    def _get_applied_in_subquery(self, applied_in: Optional[Sequence[str | int]]):
+        """Return a building-id subquery for buildings where all listed upgrades applied successfully."""
+        if not applied_in:
+            return None
+        if self.up_table is None:
+            raise ValueError("No upgrades table found.")
+
+        upgrade_ids = list(dict.fromkeys(self._validate_upgrade(upgrade_id) for upgrade_id in applied_in))
+        bldg_id_col = self.up_table.c[self.building_id_column_name]
+        return (
+            sa.select(bldg_id_col)
+            .where(
+                self._up_upgrade_col.in_(upgrade_ids),
+                self._up_successful_condition,
+            )
+            .group_by(bldg_id_col)
+            .having(sa.func.count(sa.func.distinct(self._up_upgrade_col)) == len(upgrade_ids))
+        )
+
+    def _add_applied_in_restrict(
+        self,
+        restrict: Sequence[RestrictTuple],
+        *,
+        applied_in: Optional[Sequence[str | int]],
+        annual_only: bool,
+    ) -> list[RestrictTuple]:
+        """Append the applied-in building filter to the existing restrict list when requested."""
+        updated_restrict = list(restrict) if restrict else []
+        applied_subquery = self._get_applied_in_subquery(applied_in)
+        if applied_subquery is None:
+            return updated_restrict
+
+        bldg_col = self.bs_bldgid_column if annual_only or self.ts_table is None else self.ts_bldgid_column
+        updated_restrict.append((bldg_col, applied_subquery))
+        return updated_restrict
+
     @typing.overload
     def query(
         self,
@@ -916,9 +965,10 @@ class BuildStockQuery(QueryCore):
         sort: bool = True,
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
         weights: Sequence[str | tuple] = Field(default_factory=list),
-        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = Field(default_factory=list),
-        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = Field(default_factory=list),
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         applied_only: bool = False,
+        applied_in: Sequence[str | int] | None = None,
         get_quartiles: bool = False,
         get_nonzero_count: bool = False,
         unload_to: str = "",
@@ -943,9 +993,10 @@ class BuildStockQuery(QueryCore):
         sort: bool = True,
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
         weights: Sequence[str | tuple] = Field(default_factory=list),
-        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = Field(default_factory=list),
-        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = Field(default_factory=list),
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         applied_only: bool = False,
+        applied_in: Sequence[str | int] | None = None,
         get_quartiles: bool = False,
         get_nonzero_count: bool = False,
         unload_to: str = "",
@@ -970,9 +1021,10 @@ class BuildStockQuery(QueryCore):
         sort: bool = True,
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
         weights: Sequence[str | tuple] = Field(default_factory=list),
-        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = Field(default_factory=list),
-        avoid: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = Field(default_factory=list),
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         applied_only: bool = False,
+        applied_in: Sequence[str | int] | None = None,
         get_quartiles: bool = False,
         get_nonzero_count: bool = False,
         unload_to: str = "",
@@ -1000,12 +1052,16 @@ class BuildStockQuery(QueryCore):
                         where baseline_column_name and new_column_name are the columns on which the new_table
                         should be joined to baseline table.
             applied_only: Calculate savings shape based on only buildings to which the upgrade applied
+            applied_in: Optional list of upgrade ids. When set alongside `applied_only=True`, the query is further
+                        restricted to buildings for which all listed upgrades satisfy the run's success/applicability
+                        condition.
             weights: The additional columns to use as weight. The "build_existing_model.sample_weight" is already used.
                      It is specified as either list of string or list of tuples. When only string is used, the string
                      is the column name, when tuple is passed, the second element is the table name.
 
-            restrict: The list of where condition to restrict the results to. It should be specified as a list of tuple.
-                      Example: `[('state',['VA','AZ']), ("build_existing_model.lighting",['60% CFL']), ...]`
+            restrict: The list of where conditions to restrict the results to. Each entry can be a scalar equality,
+                      an `IN (...)` list, or a single-column SQLAlchemy subquery for `IN (subquery)`.
+                      Example: `[('state', ['VA', 'AZ']), (self.ts_bldgid_column, sa.select(...)), ...]`
 
             get_query_only: Skips submitting the query to Athena and just returns the query string. Useful for batch
                             submitting multiple queries or debugging

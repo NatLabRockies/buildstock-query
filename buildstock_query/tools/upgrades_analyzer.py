@@ -14,6 +14,8 @@ from buildstock_query.tools.logic_parser import LogicParser
 from tabulate import tabulate
 from buildstock_query.helpers import read_csv, load_script_defaults, save_script_defaults
 from buildstock_query.file_getter import OpenOrDownload
+from buildstock_query.tools.set_cover import SetCoverSolver
+import traceback
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -767,8 +769,49 @@ class UpgradesAnalyzer:
         with open(file_path, "w") as file:
             file.write(all_report)
 
+    def get_characteristics(self, *, max_cardinality: int, min_cardinality: int):
+        """Get all characteristics with cardinality between min_cardinality and max_cardinality.
+        Used in get_minimal_representative_buildings to ensure coverage for all characteristics
+        that have reasonable cardinality (for example - try to cover all heating fuels (cardinality=7)
+        but not all counties (cardinality=3140)).
+        """
+        characteristics = []
+        for col in self.buildstock_df.columns.to_list():
+            if min_cardinality <= self.buildstock_df[col].unique().size <= max_cardinality:
+                characteristics.append(col)
+        return characteristics
+
+    def compute_preference_weights(self, soft_avoid_chars: list[tuple[str, str]]) -> dict[int, tuple[int, int]]:
+        """Compute preference weights so buildings matching avoided chars are less likely to be picked.
+
+        Returns negative weights for matching buildings: (-match_count, sum_of_matched_indices).
+        More matches = lower weight. Among equal match counts, matching a later (less important)
+        condition gives a higher weight. Buildings with no matches are omitted (implicit weight (0, 0)).
+
+        Args:
+            soft_avoid_chars: (column, value) tuples ordered by importance (first = most important to avoid).
+        """
+        match_count = np.zeros(len(self.buildstock_df), dtype=int)
+        index_sum = np.zeros(len(self.buildstock_df), dtype=int)
+        for i, (col, val) in enumerate(soft_avoid_chars):
+            mask = (self.buildstock_df[col] == val).to_numpy()
+            match_count += mask
+            index_sum += mask * i
+        has_match = match_count > 0
+        return {
+            bldg_id: (-int(mc), int(ix))
+            for bldg_id, mc, ix, hm in zip(self.buildstock_df.index, match_count, index_sum, has_match)
+            if hm
+        }
+
     def get_minimal_representative_buildings(
-        self, building_groups, include_never_upgraded=False, verbose=False
+        self,
+        report_df: pd.DataFrame,
+        previous_minimal_bldgs: list | None = None,
+        include_never_upgraded=False,
+        verbose=False,
+        must_cover_chars=None,
+        soft_avoid_chars: list[tuple[str, str]] | None = None,
     ) -> list:
         """Return a minimal set of buildings that covers all the building_groups.
         In other words, it returns a new set of buildings that has non-zero intersection with all sets.
@@ -782,6 +825,16 @@ class UpgradesAnalyzer:
         building_groups : list[set[int]]
             List of set of buildings belonging to different apply_logic blocks for different upgrade and options.
             One set per option per upgrade.
+        include_never_upgraded : bool, optional
+            Whether to include one building from never_upgraded_buildings in the output. Defaults to False.
+        must_cover_chars : list[int], optional
+            List of building characteristics to guarantee coverage in the output. Defaults to None.
+        verbose : bool, optional
+            Whether to print verbose output. Defaults to False.
+        soft_avoid_chars : list[tuple[str, str]], optional
+            List of (column_name, value_to_avoid) tuples ordered by importance (first = most important to avoid).
+            Buildings matching these characteristics are deprioritized during tie-breaking. Coverage guarantees
+            are preserved — at least one building per characteristic value will still be included.
 
         Returns
         -------
@@ -791,106 +844,33 @@ class UpgradesAnalyzer:
             include_never_upgraded is True, one building (of largest building_id) from never_upgraded_buildings
             is appended to the output.
         """
+        # option_num = -1 corresponds to building that is union of all listed option_num. Since this is a
+        # redundant group (i.e. if all options are covered, this group will be covered too), we remove it
+        # for efficiency.
+        must_cover_chars = must_cover_chars or []
+        groups = report_df[report_df["option_num"] != -1]["applicable_buildings"].to_list()
 
-        def vprint(msg):
-            if verbose:
-                logger.info(msg)
-
-        vprint("Sorting building groups to ensure deterministic output...")
-        # sort to ensure deterministic output
-        building_groups_sorted = [tuple(sorted(s)) for s in building_groups if len(s) > 0]
-        building_groups_set = [set(s) for s in building_groups_sorted]
-        all_bldgs = set(self.buildstock_df.index)
-        upgraded_bldgs = set.union(*building_groups_set) if building_groups_set else set()
-        never_upgraded_buildings = sorted(all_bldgs - upgraded_bldgs)
-        vprint(
-            f"Total buildings: {len(all_bldgs)}, Upgraded buildings: {len(upgraded_bldgs)},\
-               Never upgraded buildings: {len(never_upgraded_buildings)}"
-        )
-
-        vprint(f"Processing {len(building_groups_sorted)} building groups")
-
-        n = len(building_groups_sorted)
-
-        vprint("Building reverse mapping from building index to groups it belongs to ...")
-        bldg2groups: dict[int, list[int]] = defaultdict(list)
-        for group_index, group in enumerate(building_groups_sorted):
-            for bldg_id in group:
-                bldg2groups[bldg_id].append(group_index)
-        vprint(f"Reverse mapping built with {len(bldg2groups)} buildings")
-
-        # 2. Initialize counters and bucket heap
-        vprint("Initializing counters and bucket heap...")
-        bldg2group_count: dict[int, int] = {bldg_id: len(groups) for bldg_id, groups in bldg2groups.items()}
-        max_count = max(bldg2group_count.values()) if bldg2group_count else 0
-        # Bucket Queue to store buildings with same number of groups (count) they belong to.
-        # We are using a dictionary instead of set because dictionary returns elements in repeatable order
-        # Sets can return elements in arbitrary order and we want this algorithm to be deterministic
-        buckets = [{} for _ in range(max_count + 1)]
-        for bldg_id, cnt in bldg2group_count.items():
-            buckets[cnt][bldg_id] = None
-
-        vprint(f"Bucket heap initialized with {len(bldg2group_count)} elements, max count: {max_count}")
-
-        # Track which sets are still active (un‑hit)
-        active = [True] * n
-        remaining = n
-        minimal_buildings: list = []
-        iteration = 0
-        current_max = max_count
-        while remaining:
-            iteration += 1
-            vprint(f"{remaining} sets remaining to hit, minimal set size: {len(minimal_buildings)}")
-            while current_max > 0 and not buckets[current_max]:
-                current_max -= 1
-            if current_max == 0:
-                raise RuntimeError("No building left that fall in any remaining sets.")
-
-            bldg_id = buckets[current_max].popitem()[0]  # Guarantees LIFO order
-            cnt = bldg2group_count[bldg_id]
-            if cnt == 0:
-                raise RuntimeError("Counter reached zero but some sets remain uncovered.")
-
-            vprint(f"Adding building: {bldg_id} to the minimal set")
-            minimal_buildings.append(bldg_id)
-
-            if verbose:
-                covered_sets = len([1 for indx in bldg2groups[bldg_id] if active[indx]])
-                bldg_count = sum([len(building_groups_sorted[indx]) for indx in bldg2groups[bldg_id] if active[indx]])
-                vprint(
-                    f"{covered_sets} sets covered by this building will be removed and ~{bldg_count}"
-                    "count of buildings will be decreased."
-                )
-
-            for group_index in bldg2groups[bldg_id]:
-                if not active[group_index]:
-                    continue  # this set was already covered earlier
-                active[group_index] = False
-                remaining -= 1
-
-                for impacted_building_id in building_groups_sorted[group_index]:
-                    if impacted_building_id == bldg_id:
-                        continue  # we just chose this building; its counter will be discarded
-
-                    # Update group count of these buildings by moving them to lower bucket
-                    old_count = bldg2group_count[impacted_building_id]
-                    bldg2group_count[impacted_building_id] -= 1
-                    new_count = bldg2group_count[impacted_building_id]
-
-                    # Move building from higher bucket to new lower bucket
-                    if impacted_building_id in buckets[old_count]:
-                        del buckets[old_count][impacted_building_id]
-                    if new_count > 0:
-                        buckets[new_count][impacted_building_id] = None
-        vprint(f"Finished! Found minimal set of size {len(minimal_buildings)}")
-        minimal_buildings_set = set(minimal_buildings)
-        assert all(s & minimal_buildings_set for s in building_groups_set), "Not every set was hit — bug in algorithm!"
-        vprint(f"Minimal set size: {len(minimal_buildings)}")
         if include_never_upgraded:
-            full_set = minimal_buildings + never_upgraded_buildings[-1:]
-            vprint(f"Full set (including never upgraded buildings) size: {len(full_set)}")
-            return full_set
-        return minimal_buildings
+            covered_bldgs = set.union(*groups) if groups else set()
+            uncovered_buildings = set(self.buildstock_df.index) - covered_bldgs
+            groups.append(list(uncovered_buildings))
+
+        for char in must_cover_chars:
+            unique_char_val = self.buildstock_df[char].unique()
+            for char_val in unique_char_val:
+                group = self.buildstock_df[self.buildstock_df[char] == char_val].index
+                if verbose:
+                    logger.info(f"Ensuring representation for {len(group)} buildings for {char} = {char_val}")
+                groups.append(list(group))
+
+        preference_weights = self.compute_preference_weights(soft_avoid_chars) if soft_avoid_chars else None
+        if preference_weights and verbose:
+            logger.info(
+                f"Computed preference weights for {len(preference_weights)} buildings based on {soft_avoid_chars}"
+            )
+
+        solver = SetCoverSolver(groups=groups, verbose=verbose)
+        return solver.find_minimal_set(current_list=previous_minimal_bldgs, preference_weights=preference_weights)
 
     def get_parameter_overlap_report(self, report_df: pd.DataFrame):
         """
@@ -975,6 +955,9 @@ def main():
     parser.add_argument("--buildstock_file", help="Project sample file (buildstock.csv)")
     parser.add_argument("--opt_sat_file", help="Path to option_saturation.csv file")
     parser.add_argument("--output_prefix", help="Output file name prefix", default="")
+    parser.add_argument(
+        "--prev_minimal_buildstock_file", help="Previous minimal buildstock file to try to refine", default=None
+    )
     args = parser.parse_args()
 
     defaults = load_script_defaults("project_info")
@@ -1021,6 +1004,21 @@ def main():
         }
     )
     save_script_defaults("project_info", defaults)
+    previous_minimal_bldgs = None
+    if args.prev_minimal_buildstock_file:
+        try:
+            previous_minimal_bldgs_df = pd.read_csv(args.prev_minimal_buildstock_file, dtype=str)
+            previous_minimal_bldgs = previous_minimal_bldgs_df["Building"].tolist()
+            print(
+                f"Read {len(previous_minimal_bldgs)} buildings ({previous_minimal_bldgs})"
+                f" from previous minimal buildstock file: {args.prev_minimal_buildstock_file}"
+            )
+            print("I will attempt to preserve as many of these buildings as possible in the new minimal buildstock.")
+        except Exception:
+            print(
+                f"Failed to read previous minimal buildstock file: {args.prev_minimal_buildstock_file}\n"
+                f" due to {traceback.format_exc()}\nWill create a brand new one!"
+            )
     ua = UpgradesAnalyzer(yaml_file=yaml_file, buildstock=buildstock_file, opt_sat_file=opt_sat_file)
     report_df = ua.get_report()
     folder_path = Path.cwd()
@@ -1037,10 +1035,24 @@ def main():
         print("All good! No parameter applies multiple times in the same upgrade.")
 
     buildstock_name = folder_path / f"{output_prefix}minimal_buildstock.csv"
+    must_cover_chars = [
+        # "census division",
+        # "vintage",
+        # "geometry building type recs",
+        "heating fuel",
+    ]
+    soft_avoid_chars = [("heating fuel", "Wood")]
+    additional_chars = ua.get_characteristics(min_cardinality=2, max_cardinality=10)
+    must_cover_chars = must_cover_chars + [char for char in additional_chars if char not in must_cover_chars]
     minimal_bldgs = ua.get_minimal_representative_buildings(
-        report_df["applicable_buildings"].to_list(), include_never_upgraded=True, verbose=True
+        report_df,
+        must_cover_chars=must_cover_chars,
+        include_never_upgraded=True,
+        previous_minimal_bldgs=previous_minimal_bldgs,
+        verbose=True,
+        soft_avoid_chars=soft_avoid_chars,
     )
-    ua.buildstock_df_original.set_index("Building").loc[list(sorted(minimal_bldgs))].to_csv(buildstock_name)
+    ua.buildstock_df_original.set_index("Building").loc[list(minimal_bldgs)].to_csv(buildstock_name)
     report_df.drop(columns=["applicable_buildings"]).to_csv(csv_name, index=False)
     ua.save_detailed_report_all(str(txt_name))
     print(f"Saved  {csv_name} and {txt_name} inside {os.getcwd()}")

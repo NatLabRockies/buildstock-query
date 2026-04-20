@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-import pandas as pd
-import pytest
 import ast
 from typing import Generator
+
+import pandas as pd
+import pytest
+import sqlalchemy as sa
+
 from buildstock_query.main import BuildStockQuery
 from buildstock_query.schema.query_params import Query, BaseQuery
 
@@ -153,6 +156,51 @@ class TestBuildStockQuery:
         assert {"geometry_building_type_recs", "state", "time"} <= set(df.columns)
         assert (df["state"] == "TX").all()
         assert df["fuel_use__electricity__total__kwh"].ge(0).all()
+
+    def test_timeseries_query_keeps_ts_restrict_without_upgrades(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        table_name = "small_run_baseline_20230810_100"
+
+        metadata = sa.MetaData()
+        baseline = sa.Table(
+            f"{table_name}_baseline",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("completed_status", sa.String),
+        )
+        timeseries = sa.Table(
+            f"{table_name}_timeseries",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("time", sa.DateTime),
+            sa.Column("upgrade", sa.String),
+            sa.Column("fuel_use__electricity__total__kwh", sa.Float),
+        )
+
+        def _get_local_tables(self, requested_table_name):
+            assert requested_table_name == table_name
+            return baseline, timeseries, None
+
+        monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
+        bsq = BuildStockQuery(
+            db_name="resstock_core",
+            table_name=table_name,
+            workgroup="rescore",
+            buildstock_type="resstock",
+            skip_reports=True,
+            sample_weight_override=1,
+        )
+        monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0"])
+
+        query = bsq.query(
+            annual_only=False,
+            enduses=["fuel_use__electricity__total__kwh"],
+            restrict=[(bsq.building_id_column_name, [1])],
+            get_query_only=True,
+        )
+
+        assert f"{bsq.ts_table.name}.{bsq.building_id_column_name} = 1" in query
 
     def test_timeseries_matches_query(self, bsq: BuildStockQuery) -> None:
         agg_df = bsq.agg.aggregate_timeseries(

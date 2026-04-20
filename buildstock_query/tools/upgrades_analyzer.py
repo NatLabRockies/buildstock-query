@@ -1036,9 +1036,9 @@ def main():
 
     buildstock_name = folder_path / f"{output_prefix}minimal_buildstock.csv"
     must_cover_chars = [
-        "census division",
-        "vintage",
-        "geometry building type recs",
+        # "census division",
+        # "vintage",
+        # "geometry building type recs",
         "heating fuel",
     ]
     soft_avoid_chars = [("heating fuel", "Wood")]

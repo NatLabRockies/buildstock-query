@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import ast
+import pathlib
 from typing import Generator
 
 import pandas as pd
 import pytest
 import sqlalchemy as sa
+import toml
 
 from buildstock_query.main import BuildStockQuery
+from buildstock_query.db_schema.db_schema_model import DBSchema
 from buildstock_query.schema.query_params import Query, BaseQuery, SavingsQuery
 
 
@@ -201,6 +204,52 @@ class TestBuildStockQuery:
         )
 
         assert f"{bsq.ts_table.name}.{bsq.building_id_column_name} = 1" in query
+
+    @pytest.mark.parametrize("table_name", ["shared_run", ("shared_run_baseline", None, "shared_run_baseline")])
+    def test_get_tables_keeps_exported_columns_for_shared_baseline_table(
+        self, table_name: str | tuple[str, None, str]
+    ) -> None:
+        schema_path = pathlib.Path(__file__).resolve().parents[1] / "buildstock_query" / "db_schema" / "resstock_default.toml"
+        db_schema_dict = toml.load(schema_path)
+        db_schema_dict["table_suffix"]["upgrades"] = db_schema_dict["table_suffix"]["baseline"]
+
+        bsq = BuildStockQuery.__new__(BuildStockQuery)
+        bsq.region_name = "us-west-2"
+        bsq.db_name = "resstock_core"
+        bsq.workgroup = "rescore"
+        bsq.db_schema = DBSchema.model_validate(db_schema_dict)
+
+        metadata = sa.MetaData()
+        source_table = sa.Table(
+            "shared_run_baseline",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("upgrade", sa.String),
+            sa.Column("completed_status", sa.String),
+        )
+        tables = {source_table.name: source_table}
+
+        bsq._create_athena_engine = lambda **kwargs: object()
+
+        def _get_local_table(requested_table_name, missing_ok=False):
+            if requested_table_name in tables:
+                return tables[requested_table_name]
+            if missing_ok:
+                return None
+            raise sa.exc.NoSuchTableError(requested_table_name)
+
+        bsq._get_table = _get_local_table
+
+        baseline_table, ts_table, upgrade_table = bsq._get_tables(table_name)
+
+        assert ts_table is None
+        assert baseline_table.c["building_id"].name == "building_id"
+        assert upgrade_table.c["building_id"].name == "building_id"
+
+        compiled_baseline = " ".join(bsq._compile(sa.select(baseline_table.c["building_id"])).split())
+        compiled_upgrade = " ".join(bsq._compile(sa.select(upgrade_table.c["building_id"])).split())
+        assert f"SELECT * FROM {source_table.name}" in compiled_baseline
+        assert f"SELECT * FROM {source_table.name}" in compiled_upgrade
 
     def test_timeseries_query_supports_subquery_restrict_with_ts_column(
         self, monkeypatch: pytest.MonkeyPatch

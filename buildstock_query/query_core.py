@@ -289,42 +289,33 @@ class QueryCore:
             )
         return valid_tables[0].c[column_name]
 
+    def _get_subquery_table(
+        self, source_table: DBTableType, where_clause: sa.ColumnElement, alias_name: str
+    ) -> DBTableType:
+        raw_subquery = sa.select("*").select_from(source_table).where(where_clause)
+        return sa.text(self._compile(raw_subquery)).columns(*source_table.c).subquery(alias_name)
+
     def _get_tables(self, table_name: Union[str, tuple[str, Optional[str], Optional[str]]]):
         self._engine = self._create_athena_engine(
             region_name=self.region_name, database=self.db_name, workgroup=self.workgroup
         )
         if isinstance(table_name, str):
-            baseline_table = self._get_table(f"{table_name}{self.db_schema.table_suffix.baseline}")
-            ts_table = self._get_table(f"{table_name}{self.db_schema.table_suffix.timeseries}", missing_ok=True)
-            if self.db_schema.table_suffix.upgrades == self.db_schema.table_suffix.baseline:
-                upgrade_table = (
-                    sa.select(baseline_table)
-                    .where(sa.cast(baseline_table.c["upgrade"], sa.String) != "0")
-                    .alias("upgrade")
-                )
-                baseline_table = (
-                    sa.select(baseline_table)
-                    .where(sa.cast(baseline_table.c["upgrade"], sa.String) == "0")
-                    .alias("baseline")
-                )
-            else:
-                upgrade_table = self._get_table(f"{table_name}{self.db_schema.table_suffix.upgrades}", missing_ok=True)
+            baseline_table_name = f"{table_name}{self.db_schema.table_suffix.baseline}"
+            ts_table_name = f"{table_name}{self.db_schema.table_suffix.timeseries}"
+            upgrade_table_name = f"{table_name}{self.db_schema.table_suffix.upgrades}"
         else:
-            baseline_table = self._get_table(f"{table_name[0]}")
-            ts_table = self._get_table(f"{table_name[1]}", missing_ok=True) if table_name[1] else None
-            if table_name[2] == table_name[0]:
-                upgrade_table = (
-                    sa.select(baseline_table)
-                    .where(sa.cast(baseline_table.c["upgrade"], sa.String) != "0")
-                    .alias("upgrade")
-                )
-                baseline_table = (
-                    sa.select(baseline_table)
-                    .where(sa.cast(baseline_table.c["upgrade"], sa.String) == "0")
-                    .alias("baseline")
-                )
-            else:
-                upgrade_table = self._get_table(f"{table_name[2]}", missing_ok=True) if table_name[2] else None
+            baseline_table_name = table_name[0]
+            ts_table_name = table_name[1]
+            upgrade_table_name = table_name[2]
+
+        baseline_table = self._get_table(baseline_table_name)
+        ts_table = self._get_table(ts_table_name, missing_ok=True) if ts_table_name else None
+        if baseline_table_name == upgrade_table_name:
+            upgrade_col = sa.cast(baseline_table.c["upgrade"], sa.String)
+            upgrade_table = self._get_subquery_table(baseline_table, upgrade_col != "0", "upgrade")
+            baseline_table = self._get_subquery_table(baseline_table, upgrade_col == "0", "baseline")
+        else:
+            upgrade_table = self._get_table(upgrade_table_name, missing_ok=True) if upgrade_table_name else None
         return baseline_table, ts_table, upgrade_table
 
     def _initialize_book_keeping(self, execution_history):

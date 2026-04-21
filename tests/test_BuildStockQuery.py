@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 import sqlalchemy as sa
 import toml
+from pyathena.error import OperationalError
 
 from buildstock_query.main import BuildStockQuery
 from buildstock_query.db_schema.db_schema_model import DBSchema
@@ -17,13 +18,16 @@ from buildstock_query.schema.query_params import Query, BaseQuery, SavingsQuery
 @pytest.fixture(scope="module")
 def bsq() -> Generator[BuildStockQuery, None, None]:
     """Shared BuildStockQuery instance backed by the sdr_magic17 run."""
-    obj = BuildStockQuery(
-        db_name="resstock_core",
-        table_name="sdr_magic17",
-        workgroup="rescore",
-        buildstock_type="resstock",
-        skip_reports=True,
-    )
+    try:
+        obj = BuildStockQuery(
+            db_name="resstock_core",
+            table_name="sdr_magic17",
+            workgroup="rescore",
+            buildstock_type="resstock",
+            skip_reports=True,
+        )
+    except OperationalError as exc:
+        pytest.skip(f"Athena integration tests unavailable: {exc}")
     # Warm cache once so subsequent calls can reuse local artifacts where possible.
     obj.save_cache()
     yield obj
@@ -338,6 +342,74 @@ class TestBuildStockQuery:
                     "applied_in": ["1", "2"],
                 }
             )
+
+    @pytest.mark.parametrize(
+        "query_runner",
+        [
+            lambda bsq, restrict: bsq.query(
+                annual_only=False,
+                upgrade_id="1",
+                enduses=["fuel_use__electricity__total__kwh"],
+                restrict=restrict,
+                get_query_only=True,
+            ),
+            lambda bsq, restrict: bsq.savings.savings_shape(
+                annual_only=False,
+                upgrade_id="1",
+                enduses=["fuel_use__electricity__total__kwh"],
+                restrict=restrict,
+                get_query_only=True,
+            ),
+        ],
+    )
+    def test_timeseries_upgrade_restrict_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, query_runner
+    ) -> None:
+        table_name = "small_run_baseline_20230810_100"
+
+        metadata = sa.MetaData()
+        baseline = sa.Table(
+            f"{table_name}_baseline",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("completed_status", sa.String),
+        )
+        timeseries = sa.Table(
+            f"{table_name}_timeseries",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("time", sa.DateTime),
+            sa.Column("upgrade", sa.Integer),
+            sa.Column("fuel_use__electricity__total__kwh", sa.Float),
+        )
+        upgrades = sa.Table(
+            f"{table_name}_upgrades",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("upgrade", sa.String),
+            sa.Column("completed_status", sa.String),
+        )
+
+        def _get_local_tables(self, requested_table_name):
+            assert requested_table_name == table_name
+            return baseline, timeseries, upgrades
+
+        monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
+        bsq = BuildStockQuery(
+            db_name="resstock_core",
+            table_name=table_name,
+            workgroup="rescore",
+            buildstock_type="resstock",
+            skip_reports=True,
+            sample_weight_override=1,
+        )
+        monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1"])
+
+        with pytest.raises(
+            ValueError,
+            match="Use `upgrade_id` instead of a `restrict` on the timeseries `upgrade` column",
+        ):
+            query_runner(bsq, [("upgrade", [1])])
 
     def test_timeseries_query_applied_in_adds_subquery_restrict(
         self, monkeypatch: pytest.MonkeyPatch

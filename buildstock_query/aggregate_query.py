@@ -496,6 +496,11 @@ class BuildStockAggregate:
         [self._bsq._get_table(jl[0]) for jl in params.join_list]  # ingress all tables in join list
 
         upgrade_id = self._bsq._validate_upgrade(params.upgrade_id)
+        self._bsq._validate_timeseries_upgrade_restrict(
+            params.restrict,
+            annual_only=params.annual_only,
+            upgrade_id=upgrade_id,
+        )
         bs_restrict = self._bsq._add_applied_in_restrict(
             params.restrict,
             applied_in=params.applied_in,

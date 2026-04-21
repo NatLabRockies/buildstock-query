@@ -2,6 +2,7 @@ import numpy as np
 from unittest.mock import MagicMock
 from buildstock_query.main import BuildStockQuery, SimInfo
 import pytest
+from pyathena.error import OperationalError
 from tests.utils import assert_query_equal, load_tbl_from_pkl, load_cache_from_pkl
 from buildstock_query.helpers import KWH2MBTU
 import re
@@ -22,12 +23,15 @@ def temp_history_file():
 def my_athena() -> Generator[BuildStockQuery, None, None]:  # pylint: disable=invalid-name
     """Shared BuildStockQuery instance for all tests."""
     """Shared BuildStockQuery instance for all tests."""
-    obj = BuildStockQuery(
-        db_name="resstock_core",
-        table_name="sdr_magic17",
-        workgroup="rescore",
-        buildstock_type="resstock",
-    )
+    try:
+        obj = BuildStockQuery(
+            db_name="resstock_core",
+            table_name="sdr_magic17",
+            workgroup="rescore",
+            buildstock_type="resstock",
+        )
+    except OperationalError as exc:
+        pytest.skip(f"Athena integration tests unavailable: {exc}")
     # Warm-up – ensures that subsequent queries can leverage the local cache when available
     obj.save_cache()
     yield obj

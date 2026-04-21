@@ -104,6 +104,11 @@ class BuildStockSavings:
             raise ValueError("Only 'sum' is supported for savings_shape")
 
         upgrade_id = self._bsq._validate_upgrade(params.upgrade_id)
+        self._bsq._validate_timeseries_upgrade_restrict(
+            params.restrict,
+            annual_only=params.annual_only,
+            upgrade_id=upgrade_id,
+        )
         if params.timestamp_grouping_func and params.timestamp_grouping_func not in ["hour", "day", "month"]:
             raise ValueError("timestamp_grouping_func must be one of ['hour', 'day', 'month']")
 

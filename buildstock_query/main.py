@@ -765,6 +765,38 @@ class BuildStockQuery(QueryCore):
             return isinstance(source_col, SACol) and getattr(source_col, "table", None) is self.ts_table
         return False
 
+    def _is_timeseries_upgrade_restrict(self, col: AnyColType) -> bool:
+        if self.ts_table is None:
+            return False
+        if isinstance(col, str):
+            return col == "upgrade"
+
+        if getattr(col, "name", None) != "upgrade":
+            return False
+
+        if isinstance(col, SACol):
+            return getattr(col, "table", None) is self.ts_table
+
+        base_columns = getattr(col, "base_columns", None)
+        return bool(base_columns) and self.ts_table.c["upgrade"] in base_columns
+
+    def _validate_timeseries_upgrade_restrict(
+        self,
+        restrict: Sequence[RestrictTuple],
+        *,
+        annual_only: bool,
+        upgrade_id: str,
+    ) -> None:
+        if annual_only or upgrade_id == "0":
+            return
+
+        for col, _ in restrict:
+            if self._is_timeseries_upgrade_restrict(col):
+                raise ValueError(
+                    "Use `upgrade_id` instead of a `restrict` on the timeseries `upgrade` column "
+                    "for upgrade queries."
+                )
+
     def _split_group_by(self, processed_group_by: list[DBColType]):
         # Some cols like "state" might be available in both ts and bs table
         ts_group_by: list[DBColType] = []  # restrict to apply to baseline table

@@ -9,7 +9,7 @@ import pandas as pd
 from buildstock_query.schema.helpers import gather_params
 from typing import Union
 from collections.abc import Sequence
-from buildstock_query.schema.utilities import AnyColType, DBColType, RestrictTuple, validate_arguments
+from buildstock_query.schema.utilities import DBColType, RestrictTuple, validate_arguments
 from pydantic import Field
 
 logging.basicConfig(level=logging.INFO)

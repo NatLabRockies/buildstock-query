@@ -92,7 +92,8 @@ class BuildStockReport:
             # df['upgrade'] = df['upgrade'].map(int)
             df = df.set_index("upgrade").sort_index()
             change_df = change_df.join(df, how="outer") if len(change_df) > 0 else df
-        change_df = change_df.fillna(0)
+        with pd.option_context("future.no_silent_downcasting", True):
+            change_df = change_df.fillna(0).infer_objects(copy=False)
         for chng_type in chng_types:
             if chng_type not in change_df.columns:
                 change_df[chng_type] = 0

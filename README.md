@@ -4,7 +4,10 @@ BuildStockQuery is a python library designed to simplify and streamline the proc
  
 BuildStockQuery offers an intuitive Object-Oriented Programming (OOP) interface to the ResStock output dataset allowing users to easily perform common queries and receive results in familiar pandas DataFrame format, abstracting away the need for complex SQL query. By initializing a query object with the pertinent Athena database and table names, users can easily query for various kinds of insights, for example, timeseries electricity for an end use for a given state grouped by building types.
 
-Documentation and walkthrough: https://github.com/NREL/buildstock-query/wiki
-
-Usage examples: https://github.com/NREL/buildstock-query/tree/main/example_usage
+## Documentation 
+ 
+- [Installation and Developer Instructions](https://github.com/NREL/buildstock-query/wiki)
+- [Example Usage Notebooks](https://github.com/NREL/buildstock-query/tree/main/example_usage)
+- [API and Code Reference](https://nrel.github.io/buildstock-query/)
+- [ResStock Project Overview](https://nrel.github.io/ResStock.github.io)
 

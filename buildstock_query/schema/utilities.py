@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pydantic import ConfigDict, BaseModel, validate_call
 import sqlalchemy as sa
 from sqlalchemy.sql.elements import Label, ColumnElement
-from sqlalchemy.sql.selectable import Subquery
+from sqlalchemy.sql.selectable import SelectBase, Subquery
 # from buildstock_query import BuildStockQuery  # can't import due to circular import
 
 
@@ -24,5 +24,7 @@ class MappedColumn(BaseModel):
 
 
 AnyColType = DBColType | str | MappedColumn
+RestrictValue = str | int | bool | Sequence[int | str | bool] | SelectBase | Subquery
+RestrictTuple = tuple[AnyColType, RestrictValue]
 
 validate_arguments = validate_call(config=ConfigDict(arbitrary_types_allowed=True))

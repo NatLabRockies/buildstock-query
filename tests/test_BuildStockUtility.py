@@ -5,6 +5,7 @@ from typing import Generator
 import numpy as np
 import pandas as pd
 import pytest
+from pyathena.error import OperationalError
 
 from buildstock_query.main import BuildStockQuery
 
@@ -12,13 +13,16 @@ from buildstock_query.main import BuildStockQuery
 @pytest.fixture(scope="module")
 def bsq() -> Generator[BuildStockQuery, None, None]:
     """Shared BuildStockQuery instance backed by the sdr_magic17 run."""
-    obj = BuildStockQuery(
-        db_name="resstock_core",
-        table_name="sdr_magic17",
-        workgroup="rescore",
-        buildstock_type="resstock",
-        skip_reports=True,
-    )
+    try:
+        obj = BuildStockQuery(
+            db_name="resstock_core",
+            table_name="sdr_magic17",
+            workgroup="rescore",
+            buildstock_type="resstock",
+            skip_reports=True,
+        )
+    except OperationalError as exc:
+        pytest.skip(f"Athena integration tests unavailable: {exc}")
     obj.save_cache()
     yield obj
     obj.save_cache()

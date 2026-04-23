@@ -9,7 +9,7 @@ import pandas as pd
 from buildstock_query.schema.helpers import gather_params
 from typing import Union
 from collections.abc import Sequence
-from buildstock_query.schema.utilities import AnyColType, DBColType, validate_arguments
+from buildstock_query.schema.utilities import DBColType, RestrictTuple, validate_arguments
 from pydantic import Field
 
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +29,7 @@ class BuildStockAggregate:
         enduses: Sequence[DBColType],
         upgrade_id: str,
         applied_only: bool | None,
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         group_by: Sequence[DBColType] = Field(default_factory=list),
     ):
         if self._bsq.ts_table is None:
@@ -496,6 +496,16 @@ class BuildStockAggregate:
         [self._bsq._get_table(jl[0]) for jl in params.join_list]  # ingress all tables in join list
 
         upgrade_id = self._bsq._validate_upgrade(params.upgrade_id)
+        self._bsq._validate_timeseries_upgrade_restrict(
+            params.restrict,
+            annual_only=params.annual_only,
+            upgrade_id=upgrade_id,
+        )
+        bs_restrict = self._bsq._add_applied_in_restrict(
+            params.restrict,
+            applied_in=params.applied_in,
+            annual_only=params.annual_only,
+        )
         enduse_cols = self._bsq._get_enduse_cols(
             params.enduses, table="baseline" if params.annual_only else "timeseries"
         )
@@ -511,7 +521,7 @@ class BuildStockAggregate:
         if params.annual_only:
             bs_tbl, up_tbl, tbljoin = self.__get_annual_bs_up_table(upgrade_id, params.applied_only)
         else:
-            params.restrict, ts_restrict = self._bsq._split_restrict(params.restrict)
+            bs_restrict, ts_restrict = self._bsq._split_restrict(bs_restrict)
             bs_tbl, up_tbl, tbljoin, group_by_selection = self.__get_timeseries_bs_up_table(
                 enduse_cols, upgrade_id, params.applied_only, ts_restrict, group_by_selection
             )
@@ -692,7 +702,7 @@ class BuildStockAggregate:
         query = self._bsq._add_join(query, params.join_list)
         if params.annual_only:
             query = query.where(self._bsq._bs_successful_condition)
-        query = self._bsq._add_restrict(query, params.restrict)
+        query = self._bsq._add_restrict(query, bs_restrict)
         query = self._bsq._add_avoid(query, params.avoid, annual_only=params.annual_only)
         query = self._bsq._add_group_by(query, group_by_selection)
         query = self._bsq._add_order_by(query, group_by_selection if params.sort else [])

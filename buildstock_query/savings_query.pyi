@@ -1,7 +1,7 @@
 import pandas as pd
 from typing import Sequence, Union
 from buildstock_query.schema.query_params import SavingsQuery
-from buildstock_query.schema.utilities import AnyColType, AnyTableType
+from buildstock_query.schema.utilities import AnyColType, AnyTableType, RestrictTuple
 import buildstock_query.main as main
 from typing import Optional
 from pydantic import Field
@@ -24,9 +24,7 @@ class BuildStockSavings:
                                      enduses: Sequence[AnyColType],
                                      upgrade_id: Union[int, str],
                                      applied_only: bool,
-                                     restrict:
-                                     Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]
-                                              ] = Field(default_factory=list),
+                                     restrict: Sequence[RestrictTuple] = Field(default_factory=list),
                                      ts_group_by: Sequence[Union[AnyColType, tuple[str, str]]
                                                            ] = Field(default_factory=list)):
         ...
@@ -46,9 +44,9 @@ class BuildStockSavings:
         sort: bool = True,
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
         weights: Sequence[Union[str, tuple]] = Field(default_factory=list),
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]
-                           ] = Field(default_factory=list),
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         applied_only: bool = False,
+        applied_in: Optional[Sequence[Union[str, int]]] = None,
         get_quartiles: bool = False,
         unload_to: str = '',
         partition_by: Optional[Sequence[str]] = None,
@@ -69,9 +67,9 @@ class BuildStockSavings:
         sort: bool = True,
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
         weights: Sequence[Union[str, tuple]] = Field(default_factory=list),
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]
-                           ] = Field(default_factory=list),
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         applied_only: bool = False,
+        applied_in: Optional[Sequence[Union[str, int]]] = None,
         get_quartiles: bool = False,
         unload_to: str = '',
         partition_by: Optional[Sequence[str]] = None,
@@ -92,9 +90,9 @@ class BuildStockSavings:
         sort: bool = True,
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
         weights: Sequence[Union[str, tuple]] = Field(default_factory=list),
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]
-                           ] = Field(default_factory=list),
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         applied_only: bool = False,
+        applied_in: Optional[Sequence[Union[str, int]]] = None,
         get_quartiles: bool = False,
         unload_to: str = '',
         partition_by: Optional[Sequence[str]] = None,
@@ -115,6 +113,9 @@ class BuildStockSavings:
                         where baseline_column_name and new_column_name are the columns on which the new_table
                         should be joined to baseline table.
             applied_only: Calculate savings shape based on only buildings to which the upgrade applied
+            applied_in: Optional list of upgrade ids. When set alongside `applied_only=True`, the query is further
+                        restricted to buildings for which all listed upgrades satisfy the run's success/applicability
+                        condition.
             weights: The additional columns to use as weight. The "build_existing_model.sample_weight" is already used.
                      It is specified as either list of string or list of tuples. When only string is used, the string
                      is the column name, when tuple is passed, the second element is the table name.

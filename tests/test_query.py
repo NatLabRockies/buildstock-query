@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from typing import Generator
+from pyathena.error import OperationalError
 from buildstock_query import BuildStockQuery
 from buildstock_query.schema.utilities import MappedColumn
 
@@ -11,12 +12,15 @@ from buildstock_query.schema.utilities import MappedColumn
 def bsq() -> Generator[BuildStockQuery, None, None]:  # pylint: disable=invalid-name
     """Shared BuildStockQuery instance for all tests."""
     """Shared BuildStockQuery instance for all tests."""
-    obj = BuildStockQuery(
-        db_name="resstock_core",
-        table_name="sdr_magic17",
-        workgroup="rescore",
-        buildstock_type="resstock",
-    )
+    try:
+        obj = BuildStockQuery(
+            db_name="resstock_core",
+            table_name="sdr_magic17",
+            workgroup="rescore",
+            buildstock_type="resstock",
+        )
+    except OperationalError as exc:
+        pytest.skip(f"Athena integration tests unavailable: {exc}")
     # Warm-up – ensures that subsequent queries can leverage the local cache when available
     obj.save_cache()
     yield obj

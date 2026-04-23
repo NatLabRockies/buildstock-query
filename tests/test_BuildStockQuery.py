@@ -1,26 +1,33 @@
 from __future__ import annotations
 
 import ast
+import pathlib
 from typing import Generator
 
 import pandas as pd
 import pytest
 import sqlalchemy as sa
+import toml
+from pyathena.error import OperationalError
 
 from buildstock_query.main import BuildStockQuery
-from buildstock_query.schema.query_params import Query, BaseQuery
+from buildstock_query.db_schema.db_schema_model import DBSchema
+from buildstock_query.schema.query_params import Query, BaseQuery, SavingsQuery
 
 
 @pytest.fixture(scope="module")
 def bsq() -> Generator[BuildStockQuery, None, None]:
     """Shared BuildStockQuery instance backed by the sdr_magic17 run."""
-    obj = BuildStockQuery(
-        db_name="resstock_core",
-        table_name="sdr_magic17",
-        workgroup="rescore",
-        buildstock_type="resstock",
-        skip_reports=True,
-    )
+    try:
+        obj = BuildStockQuery(
+            db_name="resstock_core",
+            table_name="sdr_magic17",
+            workgroup="rescore",
+            buildstock_type="resstock",
+            skip_reports=True,
+        )
+    except OperationalError as exc:
+        pytest.skip(f"Athena integration tests unavailable: {exc}")
     # Warm cache once so subsequent calls can reuse local artifacts where possible.
     obj.save_cache()
     yield obj
@@ -201,6 +208,321 @@ class TestBuildStockQuery:
         )
 
         assert f"{bsq.ts_table.name}.{bsq.building_id_column_name} = 1" in query
+
+    @pytest.mark.parametrize("table_name", ["shared_run", ("shared_run_baseline", None, "shared_run_baseline")])
+    def test_get_tables_keeps_exported_columns_for_shared_baseline_table(
+        self, table_name: str | tuple[str, None, str]
+    ) -> None:
+        schema_path = pathlib.Path(__file__).resolve().parents[1] / "buildstock_query" / "db_schema" / "resstock_default.toml"
+        db_schema_dict = toml.load(schema_path)
+        db_schema_dict["table_suffix"]["upgrades"] = db_schema_dict["table_suffix"]["baseline"]
+
+        bsq = BuildStockQuery.__new__(BuildStockQuery)
+        bsq.region_name = "us-west-2"
+        bsq.db_name = "resstock_core"
+        bsq.workgroup = "rescore"
+        bsq.db_schema = DBSchema.model_validate(db_schema_dict)
+
+        metadata = sa.MetaData()
+        source_table = sa.Table(
+            "shared_run_baseline",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("upgrade", sa.String),
+            sa.Column("completed_status", sa.String),
+        )
+        tables = {source_table.name: source_table}
+
+        bsq._create_athena_engine = lambda **kwargs: object()
+
+        def _get_local_table(requested_table_name, missing_ok=False):
+            if requested_table_name in tables:
+                return tables[requested_table_name]
+            if missing_ok:
+                return None
+            raise sa.exc.NoSuchTableError(requested_table_name)
+
+        bsq._get_table = _get_local_table
+
+        baseline_table, ts_table, upgrade_table = bsq._get_tables(table_name)
+
+        assert ts_table is None
+        assert baseline_table.c["building_id"].name == "building_id"
+        assert upgrade_table.c["building_id"].name == "building_id"
+
+        compiled_baseline = " ".join(bsq._compile(sa.select(baseline_table.c["building_id"])).split())
+        compiled_upgrade = " ".join(bsq._compile(sa.select(upgrade_table.c["building_id"])).split())
+        assert f"SELECT * FROM {source_table.name}" in compiled_baseline
+        assert f"SELECT * FROM {source_table.name}" in compiled_upgrade
+
+    def test_timeseries_query_supports_subquery_restrict_with_ts_column(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        table_name = "small_run_baseline_20230810_100"
+
+        metadata = sa.MetaData()
+        baseline = sa.Table(
+            f"{table_name}_baseline",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("completed_status", sa.String),
+        )
+        timeseries = sa.Table(
+            f"{table_name}_timeseries",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("time", sa.DateTime),
+            sa.Column("upgrade", sa.String),
+            sa.Column("fuel_use__electricity__total__kwh", sa.Float),
+        )
+        upgrades = sa.Table(
+            f"{table_name}_upgrades",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("upgrade", sa.String),
+            sa.Column("state", sa.String),
+            sa.Column("applicability", sa.Boolean),
+        )
+
+        def _get_local_tables(self, requested_table_name):
+            assert requested_table_name == table_name
+            return baseline, timeseries, upgrades
+
+        monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
+        bsq = BuildStockQuery(
+            db_name="resstock_core",
+            table_name=table_name,
+            workgroup="rescore",
+            buildstock_type="resstock",
+            skip_reports=True,
+            sample_weight_override=1,
+        )
+        monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1", "2", "3", "4"])
+
+        eligible_buildings = (
+            sa.select(upgrades.c.building_id)
+            .where(
+                upgrades.c.state == "CO",
+                upgrades.c.upgrade.in_(["1", "2", "3", "4"]),
+                upgrades.c.applicability.is_(True),
+            )
+            .group_by(upgrades.c.building_id)
+            .having(sa.func.count() == 4)
+        )
+
+        query = bsq.query(
+            annual_only=False,
+            upgrade_id="1",
+            enduses=["fuel_use__electricity__total__kwh"],
+            restrict=[(bsq.ts_bldgid_column, eligible_buildings)],
+            get_query_only=True,
+        )
+
+        assert "IN (SELECT" in query
+        assert "HAVING count(*) = 4" in query
+        assert "applicability IS true" in query
+
+    def test_query_model_rejects_applied_in_without_applied_only(self) -> None:
+        with pytest.raises(ValueError, match="applied_in cannot be set when applied_only is False"):
+            Query.model_validate(
+                {
+                    "upgrade_id": "1",
+                    "enduses": ["fuel_use__electricity__total__kwh"],
+                    "applied_only": False,
+                    "applied_in": ["1", "2"],
+                }
+            )
+
+        with pytest.raises(ValueError, match="applied_in cannot be set when applied_only is False"):
+            SavingsQuery.model_validate(
+                {
+                    "upgrade_id": "1",
+                    "enduses": ["fuel_use__electricity__total__kwh"],
+                    "applied_only": False,
+                    "applied_in": ["1", "2"],
+                }
+            )
+
+    @pytest.mark.parametrize(
+        "query_runner",
+        [
+            lambda bsq, restrict: bsq.query(
+                annual_only=False,
+                upgrade_id="1",
+                enduses=["fuel_use__electricity__total__kwh"],
+                restrict=restrict,
+                get_query_only=True,
+            ),
+            lambda bsq, restrict: bsq.savings.savings_shape(
+                annual_only=False,
+                upgrade_id="1",
+                enduses=["fuel_use__electricity__total__kwh"],
+                restrict=restrict,
+                get_query_only=True,
+            ),
+        ],
+    )
+    def test_timeseries_upgrade_restrict_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, query_runner
+    ) -> None:
+        table_name = "small_run_baseline_20230810_100"
+
+        metadata = sa.MetaData()
+        baseline = sa.Table(
+            f"{table_name}_baseline",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("completed_status", sa.String),
+        )
+        timeseries = sa.Table(
+            f"{table_name}_timeseries",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("time", sa.DateTime),
+            sa.Column("upgrade", sa.Integer),
+            sa.Column("fuel_use__electricity__total__kwh", sa.Float),
+        )
+        upgrades = sa.Table(
+            f"{table_name}_upgrades",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("upgrade", sa.String),
+            sa.Column("completed_status", sa.String),
+        )
+
+        def _get_local_tables(self, requested_table_name):
+            assert requested_table_name == table_name
+            return baseline, timeseries, upgrades
+
+        monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
+        bsq = BuildStockQuery(
+            db_name="resstock_core",
+            table_name=table_name,
+            workgroup="rescore",
+            buildstock_type="resstock",
+            skip_reports=True,
+            sample_weight_override=1,
+        )
+        monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1"])
+
+        with pytest.raises(
+            ValueError,
+            match="Use `upgrade_id` instead of a `restrict` on the timeseries `upgrade` column",
+        ):
+            query_runner(bsq, [("upgrade", [1])])
+
+    def test_timeseries_query_applied_in_adds_subquery_restrict(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        table_name = "small_run_baseline_20230810_100"
+
+        metadata = sa.MetaData()
+        baseline = sa.Table(
+            f"{table_name}_baseline",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("completed_status", sa.String),
+        )
+        timeseries = sa.Table(
+            f"{table_name}_timeseries",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("time", sa.DateTime),
+            sa.Column("upgrade", sa.String),
+            sa.Column("fuel_use__electricity__total__kwh", sa.Float),
+        )
+        upgrades = sa.Table(
+            f"{table_name}_upgrades",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("upgrade", sa.String),
+            sa.Column("completed_status", sa.String),
+        )
+
+        def _get_local_tables(self, requested_table_name):
+            assert requested_table_name == table_name
+            return baseline, timeseries, upgrades
+
+        monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
+        bsq = BuildStockQuery(
+            db_name="resstock_core",
+            table_name=table_name,
+            workgroup="rescore",
+            buildstock_type="resstock",
+            skip_reports=True,
+            sample_weight_override=1,
+        )
+        monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1", "2", "3", "4"])
+
+        query = bsq.query(
+            annual_only=False,
+            upgrade_id="1",
+            enduses=["fuel_use__electricity__total__kwh"],
+            applied_in=["1", "2", "3", "4"],
+            get_query_only=True,
+        )
+
+        assert "IN (SELECT" in query
+        assert "HAVING count(distinct" in query
+        assert "IN ('1', '2', '3', '4')" in query
+        assert "completed_status = 'Success'" in query
+
+    def test_savings_shape_applied_in_adds_subquery_restrict(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        table_name = "small_run_baseline_20230810_100"
+
+        metadata = sa.MetaData()
+        baseline = sa.Table(
+            f"{table_name}_baseline",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("completed_status", sa.String),
+        )
+        timeseries = sa.Table(
+            f"{table_name}_timeseries",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("time", sa.DateTime),
+            sa.Column("upgrade", sa.String),
+            sa.Column("fuel_use__electricity__total__kwh", sa.Float),
+        )
+        upgrades = sa.Table(
+            f"{table_name}_upgrades",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("upgrade", sa.String),
+            sa.Column("completed_status", sa.String),
+        )
+
+        def _get_local_tables(self, requested_table_name):
+            assert requested_table_name == table_name
+            return baseline, timeseries, upgrades
+
+        monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
+        bsq = BuildStockQuery(
+            db_name="resstock_core",
+            table_name=table_name,
+            workgroup="rescore",
+            buildstock_type="resstock",
+            skip_reports=True,
+            sample_weight_override=1,
+        )
+        monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1", "2", "3", "4"])
+
+        query = bsq.savings.savings_shape(
+            annual_only=False,
+            upgrade_id="1",
+            enduses=["fuel_use__electricity__total__kwh"],
+            applied_only=True,
+            applied_in=["1", "2", "3", "4"],
+            get_query_only=True,
+        )
+
+        assert "IN (SELECT" in query
+        assert "HAVING count(distinct" in query
+        assert "IN ('1', '2', '3', '4')" in query
+        assert "completed_status = 'Success'" in query
 
     def test_timeseries_matches_query(self, bsq: BuildStockQuery) -> None:
         agg_df = bsq.agg.aggregate_timeseries(

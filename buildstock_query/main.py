@@ -954,21 +954,21 @@ class BuildStockQuery(QueryCore):
         return self._get_completed_status_col(table) == self.db_schema.completion_values.success
 
     def _get_applied_in_subquery(self, applied_in: Optional[Sequence[str | int]]):
-        """Return a building-id subquery for buildings where all listed upgrades applied successfully."""
+        """Return a unique-key subquery for rows where all listed upgrades applied successfully."""
         if not applied_in:
             return None
         if self.up_table is None:
             raise ValueError("No upgrades table found.")
 
         upgrade_ids = list(dict.fromkeys(self._validate_upgrade(upgrade_id) for upgrade_id in applied_in))
-        bldg_id_col = self.up_table.c[self.building_id_column_name]
+        up_key_cols = self.up_key_cols
         return (
-            sa.select(bldg_id_col)
+            sa.select(*up_key_cols)
             .where(
                 self._up_upgrade_col.in_(upgrade_ids),
                 self._up_successful_condition,
             )
-            .group_by(bldg_id_col)
+            .group_by(*up_key_cols)
             .having(sa.func.count(sa.func.distinct(self._up_upgrade_col)) == len(upgrade_ids))
         )
 
@@ -979,14 +979,18 @@ class BuildStockQuery(QueryCore):
         applied_in: Optional[Sequence[str | int]],
         annual_only: bool,
     ) -> list[RestrictTuple]:
-        """Append the applied-in building filter to the existing restrict list when requested."""
+        """Append the applied-in filter to the existing restrict list when requested."""
         updated_restrict = list(restrict) if restrict else []
         applied_subquery = self._get_applied_in_subquery(applied_in)
         if applied_subquery is None:
             return updated_restrict
 
-        bldg_col = self.bs_bldgid_column if annual_only or self.ts_table is None else self.ts_bldgid_column
-        updated_restrict.append((bldg_col, applied_subquery))
+        use_ts_side = not (annual_only or self.ts_table is None)
+        filter_cols = self.ts_key_cols if use_ts_side else self.bs_key_cols
+        if len(filter_cols) == 1:
+            updated_restrict.append((filter_cols[0], applied_subquery))
+        else:
+            updated_restrict.append((tuple(filter_cols), applied_subquery))
         return updated_restrict
 
     @typing.overload

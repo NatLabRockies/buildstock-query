@@ -280,7 +280,7 @@ class BuildStockReport:
         if get_query_only:
             return self._bsq._compile(up_query)
         df = self._bsq.execute(up_query)
-    return df[self._bsq.bs_bldgid_column.name].to_numpy(dtype="int32").tolist()
+        return df[self._bsq.bs_bldgid_column.name].to_numpy(dtype="int32").tolist()
 
     @typing.overload
     def _get_up_success_report(self, *, get_query_only: Literal[True], trim_missing_bs: bool = True) -> str: ...

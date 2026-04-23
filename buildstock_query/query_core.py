@@ -1215,23 +1215,42 @@ class QueryCore:
         return label
 
     @staticmethod
-    def _normalize_restrict_subquery(criteria):
+    def _normalize_restrict_subquery(criteria, expected_width: int = 1):
         if isinstance(criteria, SelectBase):
-            if len(criteria.selected_columns) != 1:
-                raise ValueError("Subquery restrictions must select exactly one column.")
+            if len(criteria.selected_columns) != expected_width:
+                raise ValueError(
+                    f"Subquery restrictions must select exactly {expected_width} column(s)."
+                )
             return criteria
 
         if isinstance(criteria, Subquery):
-            if len(criteria.c) != 1:
-                raise ValueError("Subquery restrictions must select exactly one column.")
-            return sa.select(next(iter(criteria.c)))
+            if len(criteria.c) != expected_width:
+                raise ValueError(
+                    f"Subquery restrictions must select exactly {expected_width} column(s)."
+                )
+            return sa.select(*criteria.c)
 
         return None
 
+    @staticmethod
+    def _is_column_tuple(col_ref) -> bool:
+        if not isinstance(col_ref, tuple) or len(col_ref) == 0:
+            return False
+        return all(isinstance(c, (sa.Column, SALabel)) for c in col_ref)
+
     def _get_restrict_clauses(self, restrict, annual_only=False):
         clauses = []
-        for col_str, criteria in restrict:
-            col = self._get_column(col_str, annual_only=annual_only)
+        for col_ref, criteria in restrict:
+            if self._is_column_tuple(col_ref):
+                subquery = self._normalize_restrict_subquery(criteria, expected_width=len(col_ref))
+                if subquery is None:
+                    raise ValueError(
+                        "Multi-column restrict keys must be paired with a subquery criteria."
+                    )
+                clauses.append(sa.tuple_(*col_ref).in_(subquery))
+                continue
+
+            col = self._get_column(col_ref, annual_only=annual_only)
             subquery = self._normalize_restrict_subquery(criteria)
             if subquery is not None:
                 clauses.append(col.in_(subquery))

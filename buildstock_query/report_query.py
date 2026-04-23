@@ -14,6 +14,7 @@ from collections.abc import Hashable, Sequence
 from buildstock_query.schema.utilities import AnyColType, validate_arguments
 from pydantic import Field
 from typing_extensions import assert_never
+pd.set_option('future.no_silent_downcasting', True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,7 +74,7 @@ class BuildStockReport:
         chng_types = ["no-chng", "bad-chng", "ok-chng", "true-bad-chng", "true-ok-chng", "null", "any"]
         for ch_type in chng_types:
             up_query = sa.select(*[self._bsq.up_table.c["upgrade"], safunc.count().label("change")])
-            up_query = up_query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
+            up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             conditions = self._get_change_conditions(change_type=ch_type)
             up_query = up_query.where(
                 sa.and_(self._bsq._bs_successful_condition, self._bsq._up_successful_condition, conditions)
@@ -136,7 +137,7 @@ class BuildStockReport:
             raise ValueError("No upgrade table is available .")
         up_query = sa.select(*[self._bsq.up_bldgid_column])
         if trim_missing_bs:
-            up_query = up_query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
+            up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             up_query = up_query.where(
                 sa.and_(
                     self._bsq._bs_successful_condition,
@@ -265,7 +266,7 @@ class BuildStockReport:
         up_query = sa.select(
             *[self._bsq.bs_bldgid_column, self._bsq._bs_completed_status_col, self._bsq._up_completed_status_col]
         )
-        up_query = up_query.join(self._bsq.up_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
+        up_query = up_query.join(self._bsq.up_table, self._bsq._baseline_upgrade_join_condition())
 
         conditions = self._get_change_conditions(change_type)
         up_query = up_query.where(
@@ -279,7 +280,7 @@ class BuildStockReport:
         if get_query_only:
             return self._bsq._compile(up_query)
         df = self._bsq.execute(up_query)
-        return df[self._bsq.bs_bldgid_column.name].to_numpy(dtype="int32").tolist()
+    return df[self._bsq.bs_bldgid_column.name].to_numpy(dtype="int32").tolist()
 
     @typing.overload
     def _get_up_success_report(self, *, get_query_only: Literal[True], trim_missing_bs: bool = True) -> str: ...
@@ -311,7 +312,7 @@ class BuildStockReport:
             *[self._bsq.up_table.c["upgrade"], self._bsq._up_completed_status_col, safunc.count().label("count")]
         )
         if trim_missing_bs:
-            up_query = up_query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
+            up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             up_query = up_query.where(self._bsq._bs_successful_condition)
 
         up_query = up_query.group_by(sa.text("1"), sa.text("2"))
@@ -359,7 +360,7 @@ class BuildStockReport:
               safunc.array_agg(self._bsq.up_bldgid_column)]
         )
         if trim_missing_bs:
-            query = query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
+            query = query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             query = query.where(self._bsq._bs_successful_condition)
         grouping_texts = [sa.text(str(i + 1)) for i in range(1 + len(opt_name_cols))]
         query = query.group_by(*grouping_texts)

@@ -201,20 +201,21 @@ class BuildStockQuery(QueryCore):
 
     @validate_arguments
     def _get_rows_per_building(self, get_query_only: bool = False) -> Union[int, str]:
-        select_cols = []
-        if self.up_table is not None and self.ts_table is not None:
-            select_cols.append(self.ts_table.c["upgrade"])
-        select_cols.extend((self.ts_bldgid_column, safunc.count().label("row_count")))
-        ts_query = sa.select(*select_cols)
+        if self.ts_table is None:
+            raise ValueError("No timeseries table is available.")
+        ts_join_keys = self._get_unique_keys("timeseries")
+        group_cols: list = []
         if self.up_table is not None:
-            ts_query = ts_query.group_by(sa.text("1"), sa.text("2"))
-        else:
-            ts_query = ts_query.group_by(sa.text("1"))
+            group_cols.append(self.ts_table.c["upgrade"])
+        group_cols.extend(self.ts_table.c[key] for key in ts_join_keys)
+        select_cols = [*group_cols, safunc.count().label("row_count")]
+        ts_query = sa.select(*select_cols)
+        ts_query = ts_query.group_by(*(sa.text(str(i + 1)) for i in range(len(group_cols))))
 
         if get_query_only:
             return self._compile(ts_query)
         df = self.execute(ts_query)
-        if (df["row_count"] == df["row_count"][0]).all():  # verify all buildings got same number of rows
+        if (df["row_count"] == df["row_count"][0]).all():
             return df["row_count"][0]
         else:
             raise ValueError("Not all buildings have same number of rows.")
@@ -730,7 +731,12 @@ class BuildStockQuery(QueryCore):
         Returns:
             list: List of upgrades
         """
-        return list([str(u) for u in self.report.get_success_report().index])
+        if self.up_table is None:
+            return ["0"]
+
+        query = sa.select(self.up_table.c["upgrade"]).distinct().order_by(sa.text("1"))
+        upgrades = self.execute(query)["upgrade"].dropna().map(str).to_list()
+        return list(dict.fromkeys(["0", *upgrades]))
 
     def _validate_upgrade(self, upgrade_id: Union[int, str]) -> str:
         upgrade_id = "0" if upgrade_id in (None, "0") else str(upgrade_id)
@@ -842,15 +848,16 @@ class BuildStockQuery(QueryCore):
 
     def _get_simulation_timesteps_count(self):
         # find the simulation time interval
-        query = sa.select(self.ts_bldgid_column, safunc.sum(1).label("count"))
-        query = query.group_by(self.ts_bldgid_column)
+        ts_key_cols = self.ts_key_cols
+        query = sa.select(*ts_key_cols, safunc.sum(1).label("count"))
+        query = query.group_by(*ts_key_cols)
         sim_timesteps_count = self.execute(query)
         bld0_step_count = sim_timesteps_count["count"].iloc[0]
         n_buildings_with_same_count = sum(sim_timesteps_count["count"] == bld0_step_count)
         if n_buildings_with_same_count != len(sim_timesteps_count):
             logger.warning(
-                "Not all buildings have the same number of timestamps. This can cause wrong"
-                "scaled_units_count and other problems."
+                "Not all building partitions have the same number of timestamps. This can cause wrong"
+                " scaled_units_count and other problems."
             )
 
         return bld0_step_count

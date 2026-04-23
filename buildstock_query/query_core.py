@@ -218,7 +218,99 @@ class QueryCore:
             self.ts_bldgid_column = self.ts_table.c[self.building_id_column_name]
         if self.up_table is not None:
             self.up_bldgid_column = self.up_table.c[self.building_id_column_name]
+
+        metadata_keys = tuple(self._get_unique_keys("metadata"))
+        timeseries_keys = tuple(self._get_unique_keys("timeseries"))
+        self.bs_key: tuple[str, ...] = metadata_keys
+        self.up_key: tuple[str, ...] = metadata_keys
+        self.ts_key: tuple[str, ...] = timeseries_keys
+
         self.sample_wt = self._get_sample_weight(self.sample_weight)
+
+    @property
+    def bs_key_cols(self) -> list[sa.Column]:
+        return [self.bs_table.c[k] for k in self.bs_key]
+
+    @property
+    def up_key_cols(self) -> list[sa.Column]:
+        if self.up_table is None:
+            raise ValueError("No upgrade table is available.")
+        return [self.up_table.c[k] for k in self.up_key]
+
+    @property
+    def ts_key_cols(self) -> list[sa.Column]:
+        if self.ts_table is None:
+            raise ValueError("No timeseries table is available.")
+        return [self.ts_table.c[k] for k in self.ts_key]
+
+    @staticmethod
+    def _unique_columns_by_name(columns: Sequence[DBColType]) -> list[DBColType]:
+        unique_columns: list[DBColType] = []
+        seen_names = set()
+        for column in columns:
+            if column.name in seen_names:
+                continue
+            seen_names.add(column.name)
+            unique_columns.append(column)
+        return unique_columns
+
+    def _get_unique_keys(self, kind: Literal["metadata", "timeseries"]) -> list[str]:
+        configured_keys = getattr(self.db_schema.unique_keys, kind, None)
+        return configured_keys or [self.building_id_column_name]
+
+    def _join_condition(
+        self,
+        left_table: AnyTableType,
+        right_table: AnyTableType,
+        kind: Literal["metadata", "timeseries"],
+        extra_keys: Sequence[str] = (),
+    ) -> sa.ColumnElement:
+        keys = list(dict.fromkeys([*self._get_unique_keys(kind), *extra_keys]))
+        return sa.and_(*(left_table.c[key] == right_table.c[key] for key in keys))
+
+    def _baseline_timeseries_join_condition(
+        self,
+        baseline_table: AnyTableType | None = None,
+        timeseries_table: AnyTableType | None = None,
+    ) -> sa.ColumnElement:
+        return self._join_condition(
+            baseline_table if baseline_table is not None else self.bs_table,
+            timeseries_table if timeseries_table is not None else self.ts_table,
+            "timeseries",
+        )
+
+    def _baseline_upgrade_join_condition(
+        self,
+        baseline_table: AnyTableType | None = None,
+        upgrade_table: AnyTableType | None = None,
+    ) -> sa.ColumnElement:
+        return self._join_condition(
+            baseline_table if baseline_table is not None else self.bs_table,
+            upgrade_table if upgrade_table is not None else self.up_table,
+            "metadata",
+        )
+
+    def _timeseries_pair_join_condition(
+        self,
+        left_timeseries_table: AnyTableType,
+        right_timeseries_table: AnyTableType,
+    ) -> sa.ColumnElement:
+        return self._join_condition(
+            left_timeseries_table,
+            right_timeseries_table,
+            "timeseries",
+            [self.timestamp_column_name],
+        )
+
+    @staticmethod
+    def _count_distinct(columns: Sequence[sa.Column]) -> sa.ColumnElement:
+        if len(columns) == 1:
+            return safunc.count(safunc.distinct(columns[0]))
+        return safunc.count(safunc.distinct(*columns))
+
+    @staticmethod
+    def _scalar_or_tuple(row: Sequence):
+        return row[0] if len(row) == 1 else tuple(row)
 
     def _get_sample_weight(self, sample_weight):
         if not sample_weight:
@@ -492,8 +584,8 @@ class QueryCore:
             self.seen_execution_ids.add(execution_id)
 
         logger.info(
-            f"{execution_id} cost {scanned_GB:.1f} GB (${cost:.1f}). Session total:"
-            f" {self.execution_cost['GB']:.1f} GB (${self.execution_cost['Dollars']:.1f})"
+            f"{execution_id} cost {scanned_GB:.2f} GB (${cost:.2f}). Session total:"
+            f" {self.execution_cost['GB']:.2f} GB (${self.execution_cost['Dollars']:.2f})"
         )
 
     def _compile(self, query) -> str:
@@ -681,6 +773,8 @@ class QueryCore:
         failed_queries: list[str] = []
         if stats:
             for i, exe_id in enumerate(stats["submitted_execution_ids"]):
+                if exe_id == "CACHED":
+                    continue
                 completion_stat = self.get_query_status(exe_id)
                 if completion_stat in ["FAILED", "CANCELLED"]:
                     failed_query_ids.append(exe_id)
@@ -713,6 +807,8 @@ class QueryCore:
         """
         failed_ids = []
         for i, exe_id in enumerate(self._batch_query_status_map[batch_id]["submitted_execution_ids"]):
+            if exe_id == "CACHED":
+                continue
             completion_stat = self.get_query_status(exe_id)
             if completion_stat in ["FAILED", "CANCELLED"]:
                 failed_ids.append(exe_id)

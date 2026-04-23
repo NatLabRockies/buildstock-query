@@ -553,7 +553,7 @@ class BuildStockQuery(QueryCore):
 
         """
         restrict = list(restrict) if restrict else []
-        query = sa.select(self.bs_bldgid_column)
+        query = sa.select(*self.bs_key_cols)
         query = self._add_restrict(query, restrict, annual_only=True)
         if get_query_only:
             return self._compile(query)
@@ -892,9 +892,10 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe consisting of the building ids belonging to the provided list of locations.
 
         """
-        query = sa.select(self.bs_bldgid_column)
+        bs_key_cols = self.bs_key_cols
+        query = sa.select(*bs_key_cols)
         query = query.where(self._get_column(location_col, [self.bs_table]).in_(locations))
-        query = self._add_order_by(query, [self.bs_bldgid_column])
+        query = self._add_order_by(query, bs_key_cols)
         if get_query_only:
             return self._compile(query)
         res = self.execute(query)

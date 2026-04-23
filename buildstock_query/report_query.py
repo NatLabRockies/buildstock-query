@@ -33,6 +33,12 @@ class BuildStockReport:
         df["completed_status"] = df["completed_status"].map(rev_value_map)
         return df
 
+    @staticmethod
+    def _rows_as_keys(df: DataFrame, key: tuple[str, ...]):
+        if len(key) == 1:
+            return df[key[0]].to_numpy(dtype="int32").tolist()
+        return list(df[list(key)].itertuples(index=False, name=None))
+
     @typing.overload
     def _get_bs_success_report(self, get_query_only: Literal[False] = False) -> DataFrame: ...
 
@@ -118,7 +124,7 @@ class BuildStockReport:
     @typing.overload
     def _get_upgrade_buildings(
         self, *, upgrade_id: Union[int, str], trim_missing_bs: bool = True, get_query_only: Literal[False] = False
-    ) -> list[int]: ...
+    ) -> Union[list[int], list[tuple]]: ...
 
     @typing.overload
     def _get_upgrade_buildings(
@@ -128,14 +134,15 @@ class BuildStockReport:
     @typing.overload
     def _get_upgrade_buildings(
         self, *, upgrade_id: Union[int, str], get_query_only: bool, trim_missing_bs: bool = True
-    ) -> Union[list[int], str]: ...
+    ) -> Union[list[int], list[tuple], str]: ...
 
     def _get_upgrade_buildings(
         self, *, upgrade_id: Union[int, str], trim_missing_bs: bool = True, get_query_only: bool = False
     ):
         if self._bsq.up_table is None:
             raise ValueError("No upgrade table is available .")
-        up_query = sa.select(*[self._bsq.up_bldgid_column])
+        up_key_cols = self._bsq.up_key_cols
+        up_query = sa.select(*up_key_cols)
         if trim_missing_bs:
             up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             up_query = up_query.where(
@@ -152,7 +159,7 @@ class BuildStockReport:
         if get_query_only:
             return self._bsq._compile(up_query)
         df = self._bsq.execute(up_query)
-        return df[self._bsq.bs_bldgid_column.name].to_numpy(dtype="int32").tolist()
+        return self._rows_as_keys(df, self._bsq.up_key)
 
     def _get_change_conditions(self, change_type: str):
         if self._bsq.up_table is None:
@@ -263,8 +270,11 @@ class BuildStockReport:
     ):
         if self._bsq.up_table is None:
             raise ValueError("No upgrade table is available .")
+        bs_key_cols = self._bsq.bs_key_cols
         up_query = sa.select(
-            *[self._bsq.bs_bldgid_column, self._bsq._bs_completed_status_col, self._bsq._up_completed_status_col]
+            *bs_key_cols,
+            self._bsq._bs_completed_status_col,
+            self._bsq._up_completed_status_col,
         )
         up_query = up_query.join(self._bsq.up_table, self._bsq._baseline_upgrade_join_condition())
 
@@ -280,7 +290,7 @@ class BuildStockReport:
         if get_query_only:
             return self._bsq._compile(up_query)
         df = self._bsq.execute(up_query)
-        return df[self._bsq.bs_bldgid_column.name].to_numpy(dtype="int32").tolist()
+        return self._rows_as_keys(df, self._bsq.bs_key)
 
     @typing.overload
     def _get_up_success_report(self, *, get_query_only: Literal[True], trim_missing_bs: bool = True) -> str: ...
@@ -353,11 +363,16 @@ class BuildStockReport:
             for c in self._bsq.up_table.columns
             if c.name.startswith("upgrade_costs.option_") and c.name.endswith("name")
         ]
+        up_key_cols = self._bsq.up_key_cols
+        if len(up_key_cols) == 1:
+            applied_agg = safunc.array_agg(up_key_cols[0])
+        else:
+            applied_agg = safunc.array_agg(sa.func.row(*up_key_cols))
         query = sa.select(
             *[self._bsq.up_table.c["upgrade"],
               *opt_name_cols,
               safunc.count().label("success"),
-              safunc.array_agg(self._bsq.up_bldgid_column)]
+              applied_agg]
         )
         if trim_missing_bs:
             query = query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())

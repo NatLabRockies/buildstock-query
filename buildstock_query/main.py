@@ -317,10 +317,9 @@ class BuildStockQuery(QueryCore):
             return compiled_query
         self._session_queries.add(compiled_query)
         if compiled_query in self._query_cache:
-            return self._query_cache[compiled_query].copy().set_index(self.bs_bldgid_column.name)
+            return self._query_cache[compiled_query].copy()
         logger.info("Making results_csv query ...")
-        result = self.execute(query)
-        return result.set_index(self.bs_bldgid_column.name)
+        return self.execute(query)
 
     def _download_results_csv(self) -> str:
         """Downloads the results csv from s3 and returns the path to the downloaded file.
@@ -372,8 +371,8 @@ class BuildStockQuery(QueryCore):
         """
         local_copy_path = self._download_results_csv()
         df = pd.read_parquet(local_copy_path)
-        if df.index.name != self.bs_bldgid_column.name:
-            df = df.set_index(self.bs_bldgid_column.name)
+        if df.index.name == self.bs_bldgid_column.name:
+            df = df.reset_index()
         return df
 
     @typing.overload
@@ -434,9 +433,9 @@ class BuildStockQuery(QueryCore):
             return compiled_query
         self._session_queries.add(compiled_query)
         if compiled_query in self._query_cache:
-            return self._query_cache[compiled_query].copy().set_index(self.bs_bldgid_column.name)
+            return self._query_cache[compiled_query].copy()
         logger.info("Making results_csv query for upgrade ...")
-        return self.execute(query).set_index(self.bs_bldgid_column.name)
+        return self.execute(query)
 
     def _download_upgrades_csv(self, upgrade_id: Union[int, str]) -> str:
         """Downloads the upgrades csv from s3 and returns the path to the downloaded file."""
@@ -504,8 +503,8 @@ class BuildStockQuery(QueryCore):
         """
         local_copy_path = self._download_upgrades_csv(upgrade_id)
         df = pd.read_parquet(local_copy_path)
-        if df.index.name != self.up_bldgid_column.name:
-            df = df.set_index(self.up_bldgid_column.name)
+        if df.index.name == self.up_bldgid_column.name:
+            df = df.reset_index()
         if "upgrade" not in df.columns:
             df.insert(0, "upgrade", upgrade_id)
         return df

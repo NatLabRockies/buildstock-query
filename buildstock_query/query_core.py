@@ -306,7 +306,7 @@ class QueryCore:
     def _count_distinct(columns: Sequence[sa.Column]) -> sa.ColumnElement:
         if len(columns) == 1:
             return safunc.count(safunc.distinct(columns[0]))
-        return safunc.count(safunc.distinct(*columns))
+        return safunc.count(sa.distinct(sa.tuple_(*columns)))
 
     @staticmethod
     def _scalar_or_tuple(row: Sequence):

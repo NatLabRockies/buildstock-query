@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import pathlib
 from typing import Generator
 
@@ -35,6 +34,263 @@ def bsq() -> Generator[BuildStockQuery, None, None]:
 
 
 class TestBuildStockQuery:
+    @staticmethod
+    def _custom_join_key_bsq(monkeypatch: pytest.MonkeyPatch) -> BuildStockQuery:
+        schema_path = (
+            pathlib.Path(__file__).resolve().parents[1]
+            / "buildstock_query"
+            / "db_schema"
+            / "comstock_oedi_state_and_county.toml"
+        )
+        db_schema_dict = toml.load(schema_path)
+        metadata = sa.MetaData()
+        baseline = sa.Table(
+            "custom_run_metadata",
+            metadata,
+            sa.Column("bldg_id", sa.Integer),
+            sa.Column("county", sa.String),
+            sa.Column("state", sa.String),
+            sa.Column("applicability", sa.String),
+            sa.Column("out.electricity.total.energy_consumption", sa.Float),
+        )
+        timeseries = sa.Table(
+            "custom_run_by_state",
+            metadata,
+            sa.Column("bldg_id", sa.Integer),
+            sa.Column("state", sa.String),
+            sa.Column("timestamp", sa.DateTime),
+            sa.Column("upgrade", sa.String),
+            sa.Column("out.electricity.total.energy_consumption", sa.Float),
+        )
+        upgrades = sa.Table(
+            "custom_run_upgrades",
+            metadata,
+            sa.Column("bldg_id", sa.Integer),
+            sa.Column("county", sa.String),
+            sa.Column("state", sa.String),
+            sa.Column("upgrade", sa.String),
+            sa.Column("applicability", sa.String),
+            sa.Column("out.electricity.total.energy_consumption", sa.Float),
+        )
+
+        def _get_local_tables(self, requested_table_name):
+            assert requested_table_name == "custom_run"
+            return baseline, timeseries, upgrades
+
+        monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
+        bsq = BuildStockQuery(
+            db_name="comstock_oedi",
+            table_name="custom_run",
+            workgroup="comstock",
+            buildstock_type="comstock",
+            db_schema=db_schema_dict,
+            skip_reports=True,
+            sample_weight_override=1,
+        )
+        monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1"])
+        return bsq
+
+    def test_schema_accepts_custom_unique_keys(self) -> None:
+        schema_path = (
+            pathlib.Path(__file__).resolve().parents[1]
+            / "buildstock_query"
+            / "db_schema"
+            / "comstock_oedi_state_and_county.toml"
+        )
+        db_schema_dict = toml.load(schema_path)
+        db_schema_dict["unique_keys"] = {
+            "metadata": ["bldg_id", "county", "state"],
+            "timeseries": ["bldg_id", "state"],
+        }
+
+        db_schema = DBSchema.model_validate(db_schema_dict)
+
+        assert db_schema.unique_keys.metadata == ["bldg_id", "county", "state"]
+        assert db_schema.unique_keys.timeseries == ["bldg_id", "state"]
+
+    def test_schema_rejects_timeseries_keys_not_in_metadata(self) -> None:
+        schema_path = (
+            pathlib.Path(__file__).resolve().parents[1]
+            / "buildstock_query"
+            / "db_schema"
+            / "comstock_oedi_state_and_county.toml"
+        )
+        db_schema_dict = toml.load(schema_path)
+        db_schema_dict["unique_keys"] = {
+            "metadata": ["bldg_id", "county"],
+            "timeseries": ["bldg_id", "state"],
+        }
+
+        with pytest.raises(ValueError, match="subset of unique_keys.metadata"):
+            DBSchema.model_validate(db_schema_dict)
+
+    def test_annual_query_uses_metadata_unique_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+
+        query_sql = bsq.query(
+            upgrade_id="1",
+            annual_only=True,
+            enduses=["out.electricity.total.energy_consumption"],
+            get_query_only=True,
+        )
+        aggregate_sql = bsq.agg.aggregate_annual(
+            upgrade_id="1",
+            enduses=["out.electricity.total.energy_consumption"],
+            get_query_only=True,
+        )
+
+        for query in [query_sql, aggregate_sql]:
+            assert "custom_run_metadata.bldg_id = custom_run_upgrades.bldg_id" in query
+            assert "custom_run_metadata.county = custom_run_upgrades.county" in query
+            assert "custom_run_metadata.state = custom_run_upgrades.state" in query
+
+    def test_timeseries_query_uses_timeseries_unique_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+
+        query = bsq.agg.aggregate_timeseries(
+            enduses=["out.electricity.total.energy_consumption"],
+            get_query_only=True,
+        )
+
+        assert "custom_run_metadata.bldg_id = custom_run_by_state.bldg_id" in query
+        assert "custom_run_metadata.state = custom_run_by_state.state" in query
+
+    def test_timeseries_savings_uses_unique_keys_in_subqueries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+
+        query = bsq.query(
+            upgrade_id="1",
+            annual_only=False,
+            include_savings=True,
+            include_baseline=True,
+            include_upgrade=False,
+            enduses=["out.electricity.total.energy_consumption"],
+            get_query_only=True,
+        )
+
+        assert "ts_b.bldg_id = ts_u.bldg_id" in query
+        assert "ts_b.state = ts_u.state" in query
+        assert "ts_b.timestamp = ts_u.timestamp" in query
+        assert "custom_run_metadata.state = ts_b.state" in query
+
+    def test_timeseries_pair_join_defaults_to_building_id_when_unconfigured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+        bsq.db_schema.unique_keys.metadata = None
+        bsq.db_schema.unique_keys.timeseries = None
+
+        query = bsq.query(
+            upgrade_id="1",
+            annual_only=False,
+            include_savings=True,
+            include_baseline=True,
+            include_upgrade=False,
+            enduses=["out.electricity.total.energy_consumption"],
+            get_query_only=True,
+        )
+
+        assert "ts_b.bldg_id = ts_u.bldg_id" in query
+        assert "ts_b.state = ts_u.state" not in query
+        assert "ts_b.timestamp = ts_u.timestamp" in query
+
+    def test_key_attributes_reflect_configured_unique_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+        assert bsq.bs_key == ("bldg_id", "county", "state")
+        assert bsq.up_key == ("bldg_id", "county", "state")
+        assert bsq.ts_key == ("bldg_id", "state")
+        assert [c.name for c in bsq.bs_key_cols] == list(bsq.bs_key)
+        assert [c.name for c in bsq.ts_key_cols] == list(bsq.ts_key)
+
+    def test_key_attributes_default_to_building_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+        bsq.db_schema.unique_keys.metadata = None
+        bsq.db_schema.unique_keys.timeseries = None
+        bsq._initialize_tables()
+        assert bsq.bs_key == ("bldg_id",)
+        assert bsq.up_key == ("bldg_id",)
+        assert bsq.ts_key == ("bldg_id",)
+
+    def test_applied_in_uses_tuple_filter_for_multi_metadata_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+        query = bsq.query(
+            upgrade_id="1",
+            annual_only=True,
+            enduses=["out.electricity.total.energy_consumption"],
+            applied_in=["1"],
+            get_query_only=True,
+        )
+        assert "(custom_run_metadata.bldg_id, custom_run_metadata.county, custom_run_metadata.state) IN" in query
+        assert "SELECT custom_run_upgrades.bldg_id, custom_run_upgrades.county, custom_run_upgrades.state" in query
+
+    def test_applied_in_single_key_preserves_scalar_in_clause(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+        bsq.db_schema.unique_keys.metadata = None
+        bsq.db_schema.unique_keys.timeseries = None
+        bsq._initialize_tables()
+        query = bsq.query(
+            upgrade_id="1",
+            annual_only=True,
+            enduses=["out.electricity.total.energy_consumption"],
+            applied_in=["1"],
+            get_query_only=True,
+        )
+        assert "custom_run_metadata.bldg_id IN (SELECT custom_run_upgrades.bldg_id" in query
+        assert "(custom_run_metadata.bldg_id," not in query
+
+    @staticmethod
+    def _stub_sim_info(bsq: BuildStockQuery, monkeypatch: pytest.MonkeyPatch) -> None:
+        from buildstock_query.main import SimInfo
+
+        monkeypatch.setattr(bsq, "_get_simulation_info", lambda: SimInfo(2018, 3600, 0, "second"))
+
+    def test_aggregate_uses_multi_column_count_distinct(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+        self._stub_sim_info(bsq, monkeypatch)
+        query = bsq.agg.aggregate_timeseries(
+            enduses=["out.electricity.total.energy_consumption"],
+            timestamp_grouping_func="month",
+            get_query_only=True,
+        )
+        assert "count(DISTINCT (custom_run_by_state.bldg_id, custom_run_by_state.state))" in query
+
+    def test_aggregate_single_key_preserves_scalar_count_distinct(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+        bsq.db_schema.unique_keys.metadata = None
+        bsq.db_schema.unique_keys.timeseries = None
+        bsq._initialize_tables()
+        self._stub_sim_info(bsq, monkeypatch)
+        query = bsq.agg.aggregate_timeseries(
+            enduses=["out.electricity.total.energy_consumption"],
+            timestamp_grouping_func="month",
+            get_query_only=True,
+        )
+        assert "count(distinct(custom_run_by_state.bldg_id))" in query
+        assert "count(distinct(custom_run_by_state.bldg_id," not in query
+
+    def test_get_building_ids_returns_all_metadata_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bsq = self._custom_join_key_bsq(monkeypatch)
+        query = bsq.get_building_ids(get_query_only=True)
+        assert "SELECT custom_run_metadata.bldg_id, custom_run_metadata.county, custom_run_metadata.state" in query
+
     def test_clean_group_by(self, bsq: BuildStockQuery) -> None:
         group_by = [
             "time",
@@ -98,6 +354,33 @@ class TestBuildStockQuery:
         assert not df.empty
         assert df["geometry_building_type_recs"].notna().all()
         assert df["fuel_use_electricity_total_m_btu"].ge(0).all()
+
+    def test_get_available_upgrades_does_not_use_success_report(self) -> None:
+        metadata = sa.MetaData()
+        upgrades = sa.Table(
+            "test_upgrades",
+            metadata,
+            sa.Column("building_id", sa.Integer),
+            sa.Column("upgrade", sa.Integer),
+        )
+        bsq = BuildStockQuery.__new__(BuildStockQuery)
+        bsq.up_table = upgrades
+
+        class Report:
+            def get_success_report(self):
+                pytest.fail("get_available_upgrades should not call get_success_report")
+
+        executed_queries = []
+
+        def execute(query):
+            executed_queries.append(query)
+            return pd.DataFrame({"upgrade": [1, 2, 3]})
+
+        bsq.report = Report()
+        bsq.execute = execute
+
+        assert bsq.get_available_upgrades() == ["0", "1", "2", "3"]
+        assert executed_queries
 
     def test_aggregate_annual_nonzero_count(self, bsq: BuildStockQuery) -> None:
         df = bsq.agg.aggregate_annual(
@@ -213,7 +496,12 @@ class TestBuildStockQuery:
     def test_get_tables_keeps_exported_columns_for_shared_baseline_table(
         self, table_name: str | tuple[str, None, str]
     ) -> None:
-        schema_path = pathlib.Path(__file__).resolve().parents[1] / "buildstock_query" / "db_schema" / "resstock_default.toml"
+        schema_path = (
+            pathlib.Path(__file__).resolve().parents[1]
+            / "buildstock_query"
+            / "db_schema"
+            / "resstock_default.toml"
+        )
         db_schema_dict = toml.load(schema_path)
         db_schema_dict["table_suffix"]["upgrades"] = db_schema_dict["table_suffix"]["baseline"]
 
@@ -254,6 +542,21 @@ class TestBuildStockQuery:
         compiled_upgrade = " ".join(bsq._compile(sa.select(upgrade_table.c["building_id"])).split())
         assert f"SELECT * FROM {source_table.name}" in compiled_baseline
         assert f"SELECT * FROM {source_table.name}" in compiled_upgrade
+        assert "AS upgrade" in compiled_upgrade
+
+        compiled_available_upgrades = []
+
+        def execute(query):
+            compiled_available_upgrades.append(" ".join(bsq._compile(query).split()))
+            return pd.DataFrame({"upgrade": [1, 2, 3]})
+
+        bsq.up_table = upgrade_table
+        bsq.execute = execute
+
+        assert bsq.get_available_upgrades() == ["0", "1", "2", "3"]
+        assert "SELECT DISTINCT upgrade.upgrade" in compiled_available_upgrades[0]
+        assert "ORDER BY upgrade.upgrade" not in compiled_available_upgrades[0]
+        assert "ORDER BY 1" in compiled_available_upgrades[0]
 
     def test_timeseries_query_supports_subquery_restrict_with_ts_column(
         self, monkeypatch: pytest.MonkeyPatch

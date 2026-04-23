@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 
 
@@ -36,9 +36,26 @@ class Structure(BaseModel):
     inapplicables_have_ts: bool
 
 
+class UniqueKeys(BaseModel):
+    metadata: Optional[list[str]] = None
+    timeseries: Optional[list[str]] = None
+
+    @model_validator(mode="after")
+    def _timeseries_subset_of_metadata(self) -> "UniqueKeys":
+        if self.metadata is not None and self.timeseries is not None:
+            extra = set(self.timeseries) - set(self.metadata)
+            if extra:
+                raise ValueError(
+                    "unique_keys.timeseries must be a subset of unique_keys.metadata; "
+                    f"unexpected key(s): {sorted(extra)}"
+                )
+        return self
+
+
 class DBSchema(BaseModel):
     table_suffix: TableSuffix
     column_prefix: ColumnPrefix
     column_names: ColumnNames
     completion_values: CompletionValues
     structure: Structure
+    unique_keys: UniqueKeys = Field(default_factory=UniqueKeys)

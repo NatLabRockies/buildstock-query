@@ -1066,6 +1066,11 @@ class TestBuildStockQuery:
             get_query_only=False,
             sort=True,
         )
+        # UNLOAD writes result as multiple parquet files; row order across chunks
+        # is not guaranteed when read back, so re-sort in pandas before comparing.
+        sort_cols = group_by + ["time"]
+        df1 = df1.sort_values(sort_cols).reset_index(drop=True)
+        df2 = df2.sort_values(sort_cols).reset_index(drop=True)
         pd.testing.assert_frame_equal(df1, df2)
 
     def test_mapped_column_with_query(self, bsq: BuildStockQuery):

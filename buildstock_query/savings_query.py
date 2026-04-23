@@ -40,8 +40,11 @@ class BuildStockSavings:
 
         ts = self._bsq.ts_table
         base = self._bsq.bs_table
-        sa_ts_cols = [ts.c[self._bsq.building_id_column_name], ts.c[self._bsq.timestamp_column_name], *ts_group_by]
-        sa_ts_cols.extend(enduses)
+        join_key_names = self._bsq._get_unique_keys("timeseries")
+        join_key_cols = [ts.c[key] for key in join_key_names]
+        timestamp_col = ts.c[self._bsq.timestamp_column_name]
+        ts_group_cols = [g for g in ts_group_by if g.name not in {col.name for col in [*join_key_cols, timestamp_col]}]
+        sa_ts_cols = self._bsq._unique_columns_by_name([*join_key_cols, timestamp_col, *ts_group_cols, *enduses])
         ucol = self._bsq._ts_upgrade_col
         ts_b = self._bsq._add_restrict(sa.select(*sa_ts_cols), [[ucol, ("0")], *restrict]).alias("ts_b")
         ts_u = self._bsq._add_restrict(sa.select(*sa_ts_cols), [[ucol, (upgrade_id)], *restrict]).alias("ts_u")
@@ -49,19 +52,13 @@ class BuildStockSavings:
         if applied_only:
             tbljoin = ts_b.join(
                 ts_u,
-                sa.and_(
-                    ts_b.c[self._bsq.building_id_column_name] == ts_u.c[self._bsq.building_id_column_name],
-                    ts_b.c[self._bsq.timestamp_column_name] == ts_u.c[self._bsq.timestamp_column_name],
-                ),
-            ).join(base, ts_b.c[self._bsq.building_id_column_name] == base.c[self._bsq.building_id_column_name])
+                self._bsq._timeseries_pair_join_condition(ts_b, ts_u),
+            ).join(base, self._bsq._baseline_timeseries_join_condition(base, ts_b))
         else:
             tbljoin = ts_b.outerjoin(
                 ts_u,
-                sa.and_(
-                    ts_b.c[self._bsq.building_id_column_name] == ts_u.c[self._bsq.building_id_column_name],
-                    ts_b.c[self._bsq.timestamp_column_name] == ts_u.c[self._bsq.timestamp_column_name],
-                ),
-            ).join(base, ts_b.c[self._bsq.building_id_column_name] == base.c[self._bsq.building_id_column_name])
+                self._bsq._timeseries_pair_join_condition(ts_b, ts_u),
+            ).join(base, self._bsq._baseline_timeseries_join_condition(base, ts_b))
         return ts_b, ts_u, tbljoin
 
     @validate_arguments
@@ -72,8 +69,7 @@ class BuildStockSavings:
             tbljoin = self._bsq.bs_table.join(
                 self._bsq.up_table,
                 sa.and_(
-                    self._bsq.bs_table.c[self._bsq.building_id_column_name]
-                    == self._bsq.up_table.c[self._bsq.building_id_column_name],
+                    self._bsq._baseline_upgrade_join_condition(),
                     self._bsq._up_upgrade_col == upgrade_id,
                     self._bsq._up_successful_condition,
                 ),
@@ -82,8 +78,7 @@ class BuildStockSavings:
             tbljoin = self._bsq.bs_table.outerjoin(
                 self._bsq.up_table,
                 sa.and_(
-                    self._bsq.bs_table.c[self._bsq.building_id_column_name]
-                    == self._bsq.up_table.c[self._bsq.building_id_column_name],
+                    self._bsq._baseline_upgrade_join_condition(),
                     self._bsq._up_upgrade_col == upgrade_id,
                     self._bsq._up_successful_condition,
                 ),
@@ -179,16 +174,12 @@ class BuildStockSavings:
             ]
         elif params.timestamp_grouping_func:
             colname = self._bsq.timestamp_column_name
-            # sa.func.dis
-            bldg_id_col = ts_b.c[self._bsq.building_id_column_name]
+            ts_b_key_cols = [ts_b.c[k] for k in self._bsq.ts_key]
+            distinct_ts_keys = self._bsq._count_distinct(ts_b_key_cols)
             grouping_metrics_selection = [
-                safunc.count(sa.func.distinct(bldg_id_col)).label("sample_count"),
-                (
-                    safunc.count(sa.func.distinct(bldg_id_col))
-                    * safunc.sum(total_weight)
-                    / safunc.sum(1)
-                ).label("units_count"),
-                (safunc.sum(1) / safunc.count(sa.func.distinct(bldg_id_col))).label("rows_per_sample"),
+                distinct_ts_keys.label("sample_count"),
+                (distinct_ts_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
+                (safunc.sum(1) / distinct_ts_keys).label("rows_per_sample"),
             ]
             sim_info = self._bsq._get_simulation_info()
             time_col = ts_b.c[self._bsq.timestamp_column_name]

@@ -45,7 +45,7 @@ class BuildStockAggregate:
                 tbljoin = ts.join(
                     base,
                     sa.and_(
-                        self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column,
+                        self._bsq._baseline_timeseries_join_condition(base, ts),
                         *self._bsq._get_restrict_clauses(restrict, annual_only=True),
                     ),
                 )
@@ -53,7 +53,7 @@ class BuildStockAggregate:
                 tbljoin = ts.join(
                     base,
                     sa.and_(
-                        self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column,
+                        self._bsq._baseline_timeseries_join_condition(base, ts),
                         ucol == upgrade_id,
                         *self._bsq._get_restrict_clauses(restrict, annual_only=True),
                     ),
@@ -66,18 +66,25 @@ class BuildStockAggregate:
         bs_group_by = [g for g in group_by if g.name not in ts.columns]
 
         # Build column list for subquery
-        must_have_col_names = [self._bsq.building_id_column_name, self._bsq.timestamp_column_name]
+        must_have_col_names = list(
+            dict.fromkeys(
+                [
+                    *self._bsq._get_unique_keys("timeseries"),
+                    self._bsq.timestamp_column_name,
+                ]
+            )
+        )
         must_have_cols = [ts.c[col_name] for col_name in must_have_col_names]
         ts_group_cols = [g for g in ts_group_by if g.name not in must_have_col_names]
         group_col_names = [g.name for g in ts_group_cols]
         enduse_cols = [e for e in enduses if e.name not in must_have_col_names + group_col_names]
 
         # Include all necessary columns in the subquery
-        subquery_cols = must_have_cols + ts_group_cols + bs_group_by + enduse_cols
+        subquery_cols = self._bsq._unique_columns_by_name(must_have_cols + ts_group_cols + bs_group_by + enduse_cols)
 
         # Create subquery with proper join to baseline table
         subquery_base = sa.select(*subquery_cols).select_from(
-            ts.join(base, ts.c[self._bsq.building_id_column_name] == base.c[self._bsq.building_id_column_name])
+            ts.join(base, self._bsq._baseline_timeseries_join_condition(base, ts))
         )
         ts_b = self._bsq._add_restrict(subquery_base, [[ucol, "0"], *restrict]).alias("ts_b")
         ts_u = self._bsq._add_restrict(subquery_base, [[ucol, upgrade_id], *restrict]).alias("ts_u")
@@ -89,19 +96,13 @@ class BuildStockAggregate:
         if applied_only:
             tbljoin = ts_b.join(
                 ts_u,
-                sa.and_(
-                    ts_b.c[self._bsq.building_id_column_name] == ts_u.c[self._bsq.building_id_column_name],
-                    ts_b.c[self._bsq.timestamp_column_name] == ts_u.c[self._bsq.timestamp_column_name],
-                ),
-            ).join(base, ts_b.c[self._bsq.building_id_column_name] == base.c[self._bsq.building_id_column_name])
+                self._bsq._timeseries_pair_join_condition(ts_b, ts_u),
+            ).join(base, self._bsq._baseline_timeseries_join_condition(base, ts_b))
         else:
             tbljoin = ts_b.outerjoin(
                 ts_u,
-                sa.and_(
-                    ts_b.c[self._bsq.building_id_column_name] == ts_u.c[self._bsq.building_id_column_name],
-                    ts_b.c[self._bsq.timestamp_column_name] == ts_u.c[self._bsq.timestamp_column_name],
-                ),
-            ).join(base, ts_b.c[self._bsq.building_id_column_name] == base.c[self._bsq.building_id_column_name])
+                self._bsq._timeseries_pair_join_condition(ts_b, ts_u),
+            ).join(base, self._bsq._baseline_timeseries_join_condition(base, ts_b))
 
         return ts_b, ts_u, tbljoin, remapped_group_by
 
@@ -116,8 +117,7 @@ class BuildStockAggregate:
             tbljoin = self._bsq.bs_table.join(
                 self._bsq.up_table,
                 sa.and_(
-                    self._bsq.bs_table.c[self._bsq.building_id_column_name]
-                    == self._bsq.up_table.c[self._bsq.building_id_column_name],
+                    self._bsq._baseline_upgrade_join_condition(),
                     self._bsq._up_upgrade_col == upgrade_id,
                     self._bsq._up_successful_condition,
                 ),
@@ -126,8 +126,7 @@ class BuildStockAggregate:
             tbljoin = self._bsq.bs_table.outerjoin(
                 self._bsq.up_table,
                 sa.and_(
-                    self._bsq.bs_table.c[self._bsq.building_id_column_name]
-                    == self._bsq.up_table.c[self._bsq.building_id_column_name],
+                    self._bsq._baseline_upgrade_join_condition(),
                     self._bsq._up_upgrade_col == upgrade_id,
                     self._bsq._up_successful_condition,
                 ),
@@ -199,8 +198,7 @@ class BuildStockAggregate:
             tbljoin = self._bsq.bs_table.join(
                 self._bsq.up_table,
                 sa.and_(
-                    self._bsq.bs_table.c[self._bsq.building_id_column_name]
-                    == self._bsq.up_table.c[self._bsq.building_id_column_name],
+                    self._bsq._baseline_upgrade_join_condition(),
                     self._bsq.up_table.c["upgrade"] == str(upgrade_id),
                     self._bsq._up_successful_condition,
                 ),
@@ -305,14 +303,13 @@ class BuildStockAggregate:
             ]
 
         if (colname := self._bsq.timestamp_column_name) in group_by and params.timestamp_grouping_func:
-            # sample_count = count(distinct(building_id))
-            # units_count = count(distinct(buuilding_id)) * sum(total_weight) / sum(1)
+            # sample_count = count(distinct(timeseries unique key))
+            # units_count = count(distinct(timeseries unique key)) * sum(total_weight) / sum(1)
+            distinct_ts_keys = self._bsq._count_distinct(self._bsq.ts_key_cols)
             grouping_metrics_selection = [
-                safunc.count(safunc.distinct(self._bsq.ts_bldgid_column)).label("sample_count"),
-                (
-                    safunc.count(safunc.distinct(self._bsq.ts_bldgid_column)) * safunc.sum(total_weight) / safunc.sum(1)
-                ).label("units_count"),
-                (safunc.sum(1) / safunc.count(safunc.distinct(self._bsq.ts_bldgid_column))).label("rows_per_sample"),
+                distinct_ts_keys.label("sample_count"),
+                (distinct_ts_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
+                (safunc.sum(1) / distinct_ts_keys).label("rows_per_sample"),
             ]
             indx = group_by.index(colname)
             sim_info = self._bsq._get_simulation_info()
@@ -329,7 +326,7 @@ class BuildStockAggregate:
         group_by_selection = self._bsq._process_groupby_cols(group_by, annual_only=False)
 
         query = sa.select(*(group_by_selection + grouping_metrics_selection + enduse_selection))
-        query = query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column)
+        query = query.join(self._bsq.bs_table, self._bsq._baseline_timeseries_join_condition())
         if params.join_list:
             query = self._bsq._add_join(query, params.join_list)
 
@@ -445,10 +442,11 @@ class BuildStockAggregate:
         lower_timestamps = [get_lower_timestamps(d - 1, h) for d, h in zip(at_days, at_hour)]
         upper_timestamps = [get_upper_timestamps(d - 1, h) for d, h in zip(at_days, at_hour)]
 
-        query = sa.select(*[self._bsq.ts_bldgid_column] + grouping_metrics_selection + enduse_selection)
-        query = query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column)
-        query = self._bsq._add_group_by(query, [self._bsq.ts_bldgid_column])
-        query = self._bsq._add_order_by(query, [self._bsq.ts_bldgid_column])
+        ts_key_cols = self._bsq.ts_key_cols
+        query = sa.select(*ts_key_cols + grouping_metrics_selection + enduse_selection)
+        query = query.join(self._bsq.bs_table, self._bsq._baseline_timeseries_join_condition())
+        query = self._bsq._add_group_by(query, ts_key_cols)
+        query = self._bsq._add_order_by(query, ts_key_cols)
 
         lower_val_query = self._bsq._add_restrict(query, [(self._bsq.timestamp_column_name, lower_timestamps)])
         upper_val_query = self._bsq._add_restrict(query, [(self._bsq.timestamp_column_name, upper_timestamps)])
@@ -644,15 +642,12 @@ class BuildStockAggregate:
             ]
         elif params.timestamp_grouping_func:
             colname = self._bsq.timestamp_column_name
-            bldg_id_col = bs_tbl.c[self._bsq.building_id_column_name]
+            bs_key_cols = [bs_tbl.c[k] for k in self._bsq.bs_key]
+            distinct_bs_keys = self._bsq._count_distinct(bs_key_cols)
             grouping_metrics_selection = [
-                safunc.count(sa.func.distinct(bldg_id_col)).label("sample_count"),
-                (
-                    safunc.count(sa.func.distinct(bldg_id_col))
-                    * safunc.sum(total_weight)
-                    / safunc.sum(1)
-                ).label("units_count"),
-                (safunc.sum(1) / safunc.count(sa.func.distinct(bldg_id_col))).label("rows_per_sample"),
+                distinct_bs_keys.label("sample_count"),
+                (distinct_bs_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
+                (safunc.sum(1) / distinct_bs_keys).label("rows_per_sample"),
             ]
             sim_info = self._bsq._get_simulation_info()
             time_col = bs_tbl.c[self._bsq.timestamp_column_name]

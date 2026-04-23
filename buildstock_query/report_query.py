@@ -14,6 +14,7 @@ from collections.abc import Hashable, Sequence
 from buildstock_query.schema.utilities import AnyColType, validate_arguments
 from pydantic import Field
 from typing_extensions import assert_never
+pd.set_option('future.no_silent_downcasting', True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,6 +32,12 @@ class BuildStockReport:
         rev_value_map = {db_val: normal_val for normal_val, db_val in self._bsq.db_schema.completion_values}
         df["completed_status"] = df["completed_status"].map(rev_value_map)
         return df
+
+    @staticmethod
+    def _rows_as_keys(df: DataFrame, key: tuple[str, ...]):
+        if len(key) == 1:
+            return df[key[0]].to_numpy(dtype="int32").tolist()
+        return list(df[list(key)].itertuples(index=False, name=None))
 
     @typing.overload
     def _get_bs_success_report(self, get_query_only: Literal[False] = False) -> DataFrame: ...
@@ -73,7 +80,7 @@ class BuildStockReport:
         chng_types = ["no-chng", "bad-chng", "ok-chng", "true-bad-chng", "true-ok-chng", "null", "any"]
         for ch_type in chng_types:
             up_query = sa.select(*[self._bsq.up_table.c["upgrade"], safunc.count().label("change")])
-            up_query = up_query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
+            up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             conditions = self._get_change_conditions(change_type=ch_type)
             up_query = up_query.where(
                 sa.and_(self._bsq._bs_successful_condition, self._bsq._up_successful_condition, conditions)
@@ -117,7 +124,7 @@ class BuildStockReport:
     @typing.overload
     def _get_upgrade_buildings(
         self, *, upgrade_id: Union[int, str], trim_missing_bs: bool = True, get_query_only: Literal[False] = False
-    ) -> list[int]: ...
+    ) -> Union[list[int], list[tuple]]: ...
 
     @typing.overload
     def _get_upgrade_buildings(
@@ -127,16 +134,17 @@ class BuildStockReport:
     @typing.overload
     def _get_upgrade_buildings(
         self, *, upgrade_id: Union[int, str], get_query_only: bool, trim_missing_bs: bool = True
-    ) -> Union[list[int], str]: ...
+    ) -> Union[list[int], list[tuple], str]: ...
 
     def _get_upgrade_buildings(
         self, *, upgrade_id: Union[int, str], trim_missing_bs: bool = True, get_query_only: bool = False
     ):
         if self._bsq.up_table is None:
             raise ValueError("No upgrade table is available .")
-        up_query = sa.select(*[self._bsq.up_bldgid_column])
+        up_key_cols = self._bsq.up_key_cols
+        up_query = sa.select(*up_key_cols)
         if trim_missing_bs:
-            up_query = up_query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
+            up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             up_query = up_query.where(
                 sa.and_(
                     self._bsq._bs_successful_condition,
@@ -151,7 +159,7 @@ class BuildStockReport:
         if get_query_only:
             return self._bsq._compile(up_query)
         df = self._bsq.execute(up_query)
-        return df[self._bsq.bs_bldgid_column.name].to_numpy(dtype="int32").tolist()
+        return self._rows_as_keys(df, self._bsq.up_key)
 
     def _get_change_conditions(self, change_type: str):
         if self._bsq.up_table is None:
@@ -262,10 +270,13 @@ class BuildStockReport:
     ):
         if self._bsq.up_table is None:
             raise ValueError("No upgrade table is available .")
+        bs_key_cols = self._bsq.bs_key_cols
         up_query = sa.select(
-            *[self._bsq.bs_bldgid_column, self._bsq._bs_completed_status_col, self._bsq._up_completed_status_col]
+            *bs_key_cols,
+            self._bsq._bs_completed_status_col,
+            self._bsq._up_completed_status_col,
         )
-        up_query = up_query.join(self._bsq.up_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
+        up_query = up_query.join(self._bsq.up_table, self._bsq._baseline_upgrade_join_condition())
 
         conditions = self._get_change_conditions(change_type)
         up_query = up_query.where(
@@ -279,7 +290,7 @@ class BuildStockReport:
         if get_query_only:
             return self._bsq._compile(up_query)
         df = self._bsq.execute(up_query)
-        return df[self._bsq.bs_bldgid_column.name].to_numpy(dtype="int32").tolist()
+        return self._rows_as_keys(df, self._bsq.bs_key)
 
     @typing.overload
     def _get_up_success_report(self, *, get_query_only: Literal[True], trim_missing_bs: bool = True) -> str: ...
@@ -311,7 +322,7 @@ class BuildStockReport:
             *[self._bsq.up_table.c["upgrade"], self._bsq._up_completed_status_col, safunc.count().label("count")]
         )
         if trim_missing_bs:
-            up_query = up_query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
+            up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             up_query = up_query.where(self._bsq._bs_successful_condition)
 
         up_query = up_query.group_by(sa.text("1"), sa.text("2"))
@@ -352,14 +363,19 @@ class BuildStockReport:
             for c in self._bsq.up_table.columns
             if c.name.startswith("upgrade_costs.option_") and c.name.endswith("name")
         ]
+        up_key_cols = self._bsq.up_key_cols
+        if len(up_key_cols) == 1:
+            applied_agg = safunc.array_agg(up_key_cols[0])
+        else:
+            applied_agg = safunc.array_agg(sa.func.row(*up_key_cols))
         query = sa.select(
             *[self._bsq.up_table.c["upgrade"],
               *opt_name_cols,
               safunc.count().label("success"),
-              safunc.array_agg(self._bsq.up_bldgid_column)]
+              applied_agg]
         )
         if trim_missing_bs:
-            query = query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.up_bldgid_column)
+            query = query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             query = query.where(self._bsq._bs_successful_condition)
         grouping_texts = [sa.text(str(i + 1)) for i in range(1 + len(opt_name_cols))]
         query = query.group_by(*grouping_texts)
@@ -634,11 +650,12 @@ class BuildStockReport:
         )
         ts_queries: list[str] = []
         ts_upgrade_col = sa.cast(self._bsq.ts_table.c["upgrade"], sa.String)
+        distinct_ts_keys = self._bsq._count_distinct(self._bsq.ts_key_cols)
         for upgrade in available_upgrades:
             query = (
                 sa.select(
                     sa.literal(upgrade).label("upgrade"),
-                    safunc.count(self._bsq.ts_bldgid_column.distinct()).label("count"),
+                    distinct_ts_keys.label("count"),
                 )
                 .select_from(self._bsq.ts_table)
                 .where(ts_upgrade_col == upgrade)
@@ -662,36 +679,117 @@ class BuildStockReport:
         result_df = result_df.rename(columns={"count": "success"})
         return result_df
 
+    def _get_metadata_distinct_bldg_count(self) -> dict[str, int]:
+        """Distinct baseline/upgrade unique-key count per upgrade (including inapplicable
+        rows when the schema declares inapplicables_have_ts).
+        """
+        bsq = self._bsq
+        distinct_expr = bsq._count_distinct(bsq.bs_key_cols)
+
+        include_inapplicable = bsq.db_schema.structure.inapplicables_have_ts
+        inapplicable_val = bsq.db_schema.completion_values.inapplicable
+        if include_inapplicable:
+            bs_where = sa.or_(
+                bsq._bs_successful_condition,
+                bsq._bs_completed_status_col == inapplicable_val,
+            )
+        else:
+            bs_where = bsq._bs_successful_condition
+        baseline_query = sa.select(sa.literal("0").label("upgrade"), distinct_expr.label("count")).where(bs_where)
+        counts: dict[str, int] = {"0": int(bsq.execute(baseline_query)["count"].iloc[0])}
+
+        if bsq.up_table is None:
+            return counts
+
+        up_distinct_expr = bsq._count_distinct(bsq.up_key_cols)
+        if include_inapplicable:
+            up_where = sa.or_(
+                bsq._up_successful_condition,
+                bsq._up_completed_status_col == inapplicable_val,
+            )
+        else:
+            up_where = bsq._up_successful_condition
+        up_query = (
+            sa.select(bsq.up_table.c["upgrade"].label("upgrade"), up_distinct_expr.label("count"))
+            .where(up_where)
+            .group_by(bsq.up_table.c["upgrade"])
+        )
+        up_df = bsq.execute(up_query)
+        for _, row in up_df.iterrows():
+            counts[str(row["upgrade"])] = int(row["count"])
+        return counts
+
+    def _find_duplicate_rows(self, table, key_columns: Sequence[sa.Column], limit: int = 5):
+        """Return up to `limit` rows of key-tuples that appear more than once in `table`."""
+        query = (
+            sa.select(*key_columns, safunc.count().label("n"))
+            .select_from(table)
+            .group_by(*key_columns)
+            .having(safunc.count() > 1)
+            .limit(limit)
+        )
+        return self._bsq.execute(query)
+
     def check_ts_bs_integrity(self) -> bool:
         """Checks the integrity between the timeseries and baseline (metadata) tables.
+
+        Runs four checks:
+        1. Distinct-building parity per upgrade between timeseries and baseline/upgrade tables.
+        2. No duplicate rows in the baseline table (grouped by bs_key).
+        3. No duplicate rows in the upgrade table (grouped by up_key + upgrade).
+        4. No duplicate rows in the timeseries table (grouped by ts_key + timestamp, plus upgrade
+           when the timeseries table contains multiple upgrades).
 
         Returns:
             bool: Whether or not the integrity check passed.
         """
+        bsq = self._bsq
         logger.info("Checking integrity with ts_tables ...")
-        raw_ts_report = self._get_ts_report()
-        raw_success_report = self.get_success_report(trim_missing_bs=False)
-        if self._bsq.db_schema.structure.inapplicables_have_ts:
-            bs_dict = raw_success_report[["inapplicable", "success"]].sum(axis=1).to_dict()
-        else:
-            bs_dict = raw_success_report["success"].to_dict()
-        ts_dict = raw_ts_report.to_dict()["success"]
         check_pass = True
+
+        raw_ts_report = self._get_ts_report()
+        bs_dict = self._get_metadata_distinct_bldg_count()
+        ts_dict = raw_ts_report.to_dict()["success"]
         for upgrade, count in ts_dict.items():
             if count != bs_dict.get(upgrade, 0):
                 print_r(
-                    f"Upgrade {upgrade} has {count} samples in timeseries table, but {bs_dict.get(upgrade, 0)}"
-                    " samples in baseline/upgrade table."
+                    f"Upgrade {upgrade} has {count} distinct buildings in timeseries table,"
+                    f" but {bs_dict.get(upgrade, 0)} in baseline/upgrade table."
                 )
                 check_pass = False
         if check_pass:
-            print_g("Annual and timeseries tables are verified to have the same number of buildings.")
+            print_g("Baseline/upgrade and timeseries tables have matching distinct building counts.")
+
+        # duplicate checks
+        dup_specs: list[tuple[str, sa.Table, list[sa.Column]]] = [
+            ("baseline", bsq.bs_table, bsq.bs_key_cols),
+        ]
+        if bsq.up_table is not None:
+            dup_specs.append(
+                ("upgrade", bsq.up_table, bsq.up_key_cols + [bsq.up_table.c["upgrade"]])
+            )
+        if bsq.ts_table is not None:
+            ts_dup_cols = bsq.ts_key_cols + [bsq.ts_table.c[bsq.timestamp_column_name]]
+            if "upgrade" in bsq.ts_table.c:
+                ts_dup_cols.append(bsq.ts_table.c["upgrade"])
+            dup_specs.append(("timeseries", bsq.ts_table, ts_dup_cols))
+
+        for label, tbl, key_cols in dup_specs:
+            dup_df = self._find_duplicate_rows(tbl, key_cols)
+            if len(dup_df) > 0:
+                key_names = [c.name for c in key_cols]
+                print_r(f"Duplicate rows detected in {label} table on keys {key_names}:")
+                print_r(dup_df.to_string(index=False))
+                check_pass = False
+            else:
+                print_g(f"No duplicate rows in {label} table on {[c.name for c in key_cols]}.")
+
         try:
-            rowcount = self._bsq._get_rows_per_building()
-            print_g(f"All buildings are verified to have the same number of ({rowcount}) timeseries rows.")
+            rowcount = bsq._get_rows_per_building()
+            print_g(f"All building partitions have the same number of ({rowcount}) timeseries rows.")
         except ValueError:
             check_pass = False
-            print_r("Different buildings have different number of timeseries rows.")
+            print_r("Different building partitions have different numbers of timeseries rows.")
         return check_pass
 
     @validate_arguments

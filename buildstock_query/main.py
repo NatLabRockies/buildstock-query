@@ -201,20 +201,21 @@ class BuildStockQuery(QueryCore):
 
     @validate_arguments
     def _get_rows_per_building(self, get_query_only: bool = False) -> Union[int, str]:
-        select_cols = []
-        if self.up_table is not None and self.ts_table is not None:
-            select_cols.append(self.ts_table.c["upgrade"])
-        select_cols.extend((self.ts_bldgid_column, safunc.count().label("row_count")))
-        ts_query = sa.select(*select_cols)
+        if self.ts_table is None:
+            raise ValueError("No timeseries table is available.")
+        ts_join_keys = self._get_unique_keys("timeseries")
+        group_cols: list = []
         if self.up_table is not None:
-            ts_query = ts_query.group_by(sa.text("1"), sa.text("2"))
-        else:
-            ts_query = ts_query.group_by(sa.text("1"))
+            group_cols.append(self.ts_table.c["upgrade"])
+        group_cols.extend(self.ts_table.c[key] for key in ts_join_keys)
+        select_cols = [*group_cols, safunc.count().label("row_count")]
+        ts_query = sa.select(*select_cols)
+        ts_query = ts_query.group_by(*(sa.text(str(i + 1)) for i in range(len(group_cols))))
 
         if get_query_only:
             return self._compile(ts_query)
         df = self.execute(ts_query)
-        if (df["row_count"] == df["row_count"][0]).all():  # verify all buildings got same number of rows
+        if (df["row_count"] == df["row_count"][0]).all():
             return df["row_count"][0]
         else:
             raise ValueError("Not all buildings have same number of rows.")
@@ -316,10 +317,9 @@ class BuildStockQuery(QueryCore):
             return compiled_query
         self._session_queries.add(compiled_query)
         if compiled_query in self._query_cache:
-            return self._query_cache[compiled_query].copy().set_index(self.bs_bldgid_column.name)
+            return self._query_cache[compiled_query].copy().set_index(list(self.bs_key))
         logger.info("Making results_csv query ...")
-        result = self.execute(query)
-        return result.set_index(self.bs_bldgid_column.name)
+        return self.execute(query).set_index(list(self.bs_key))
 
     def _download_results_csv(self) -> str:
         """Downloads the results csv from s3 and returns the path to the downloaded file.
@@ -367,12 +367,15 @@ class BuildStockQuery(QueryCore):
         """Returns the full results csv table. This is the same as get_results_csv without any restrictions. It uses
         the stored parquet files in s3 to download the results which is faster than querying athena.
         Returns:
-            pd.DataFrame: The full results csv.
+            pd.DataFrame: The full results csv, indexed by bs_key.
         """
         local_copy_path = self._download_results_csv()
         df = pd.read_parquet(local_copy_path)
-        if df.index.name != self.bs_bldgid_column.name:
-            df = df.set_index(self.bs_bldgid_column.name)
+        index_keys = list(self.bs_key)
+        if list(df.index.names) != index_keys:
+            if df.index.name is not None or any(n is not None for n in df.index.names):
+                df = df.reset_index()
+            df = df.set_index(index_keys)
         return df
 
     @typing.overload
@@ -433,9 +436,9 @@ class BuildStockQuery(QueryCore):
             return compiled_query
         self._session_queries.add(compiled_query)
         if compiled_query in self._query_cache:
-            return self._query_cache[compiled_query].copy().set_index(self.bs_bldgid_column.name)
+            return self._query_cache[compiled_query].copy().set_index(list(self.up_key))
         logger.info("Making results_csv query for upgrade ...")
-        return self.execute(query).set_index(self.bs_bldgid_column.name)
+        return self.execute(query).set_index(list(self.up_key))
 
     def _download_upgrades_csv(self, upgrade_id: Union[int, str]) -> str:
         """Downloads the upgrades csv from s3 and returns the path to the downloaded file."""
@@ -499,12 +502,15 @@ class BuildStockQuery(QueryCore):
     def get_upgrades_csv_full(self, upgrade_id: Union[int, str]) -> pd.DataFrame:
         """Returns the full results csv table for upgrades. This is the same as get_upgrades_csv without any
         restrictions. It uses the stored parquet files in s3 to download the results which is faster than querying
-        athena.
+        athena. Indexed by up_key.
         """
         local_copy_path = self._download_upgrades_csv(upgrade_id)
         df = pd.read_parquet(local_copy_path)
-        if df.index.name != self.up_bldgid_column.name:
-            df = df.set_index(self.up_bldgid_column.name)
+        index_keys = list(self.up_key)
+        if list(df.index.names) != index_keys:
+            if df.index.name is not None or any(n is not None for n in df.index.names):
+                df = df.reset_index()
+            df = df.set_index(index_keys)
         if "upgrade" not in df.columns:
             df.insert(0, "upgrade", upgrade_id)
         return df
@@ -552,7 +558,7 @@ class BuildStockQuery(QueryCore):
 
         """
         restrict = list(restrict) if restrict else []
-        query = sa.select(self.bs_bldgid_column)
+        query = sa.select(*self.bs_key_cols)
         query = self._add_restrict(query, restrict, annual_only=True)
         if get_query_only:
             return self._compile(query)
@@ -730,7 +736,12 @@ class BuildStockQuery(QueryCore):
         Returns:
             list: List of upgrades
         """
-        return list([str(u) for u in self.report.get_success_report().index])
+        if self.up_table is None:
+            return ["0"]
+
+        query = sa.select(self.up_table.c["upgrade"]).distinct().order_by(sa.text("1"))
+        upgrades = self.execute(query)["upgrade"].dropna().map(str).to_list()
+        return list(dict.fromkeys(["0", *upgrades]))
 
     def _validate_upgrade(self, upgrade_id: Union[int, str]) -> str:
         upgrade_id = "0" if upgrade_id in (None, "0") else str(upgrade_id)
@@ -840,21 +851,6 @@ class BuildStockQuery(QueryCore):
             return []
         return [self._get_gcol(entry, annual_only=annual_only) for entry in group_by]
 
-    def _get_simulation_timesteps_count(self):
-        # find the simulation time interval
-        query = sa.select(self.ts_bldgid_column, safunc.sum(1).label("count"))
-        query = query.group_by(self.ts_bldgid_column)
-        sim_timesteps_count = self.execute(query)
-        bld0_step_count = sim_timesteps_count["count"].iloc[0]
-        n_buildings_with_same_count = sum(sim_timesteps_count["count"] == bld0_step_count)
-        if n_buildings_with_same_count != len(sim_timesteps_count):
-            logger.warning(
-                "Not all buildings have the same number of timestamps. This can cause wrong"
-                "scaled_units_count and other problems."
-            )
-
-        return bld0_step_count
-
     @typing.overload
     def get_buildings_by_locations(
         self, location_col: str, locations: list[str], get_query_only: Literal[False] = False
@@ -885,9 +881,10 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe consisting of the building ids belonging to the provided list of locations.
 
         """
-        query = sa.select(self.bs_bldgid_column)
+        bs_key_cols = self.bs_key_cols
+        query = sa.select(*bs_key_cols)
         query = query.where(self._get_column(location_col, [self.bs_table]).in_(locations))
-        query = self._add_order_by(query, [self.bs_bldgid_column])
+        query = self._add_order_by(query, bs_key_cols)
         if get_query_only:
             return self._compile(query)
         res = self.execute(query)
@@ -947,21 +944,21 @@ class BuildStockQuery(QueryCore):
         return self._get_completed_status_col(table) == self.db_schema.completion_values.success
 
     def _get_applied_in_subquery(self, applied_in: Optional[Sequence[str | int]]):
-        """Return a building-id subquery for buildings where all listed upgrades applied successfully."""
+        """Return a unique-key subquery for rows where all listed upgrades applied successfully."""
         if not applied_in:
             return None
         if self.up_table is None:
             raise ValueError("No upgrades table found.")
 
         upgrade_ids = list(dict.fromkeys(self._validate_upgrade(upgrade_id) for upgrade_id in applied_in))
-        bldg_id_col = self.up_table.c[self.building_id_column_name]
+        up_key_cols = self.up_key_cols
         return (
-            sa.select(bldg_id_col)
+            sa.select(*up_key_cols)
             .where(
                 self._up_upgrade_col.in_(upgrade_ids),
                 self._up_successful_condition,
             )
-            .group_by(bldg_id_col)
+            .group_by(*up_key_cols)
             .having(sa.func.count(sa.func.distinct(self._up_upgrade_col)) == len(upgrade_ids))
         )
 
@@ -972,14 +969,18 @@ class BuildStockQuery(QueryCore):
         applied_in: Optional[Sequence[str | int]],
         annual_only: bool,
     ) -> list[RestrictTuple]:
-        """Append the applied-in building filter to the existing restrict list when requested."""
+        """Append the applied-in filter to the existing restrict list when requested."""
         updated_restrict = list(restrict) if restrict else []
         applied_subquery = self._get_applied_in_subquery(applied_in)
         if applied_subquery is None:
             return updated_restrict
 
-        bldg_col = self.bs_bldgid_column if annual_only or self.ts_table is None else self.ts_bldgid_column
-        updated_restrict.append((bldg_col, applied_subquery))
+        use_ts_side = not (annual_only or self.ts_table is None)
+        filter_cols = self.ts_key_cols if use_ts_side else self.bs_key_cols
+        if len(filter_cols) == 1:
+            updated_restrict.append((filter_cols[0], applied_subquery))
+        else:
+            updated_restrict.append((tuple(filter_cols), applied_subquery))
         return updated_restrict
 
     @typing.overload

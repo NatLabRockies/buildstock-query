@@ -845,22 +845,6 @@ class BuildStockQuery(QueryCore):
             return []
         return [self._get_gcol(entry, annual_only=annual_only) for entry in group_by]
 
-    def _get_simulation_timesteps_count(self):
-        # find the simulation time interval
-        ts_key_cols = self.ts_key_cols
-        query = sa.select(*ts_key_cols, safunc.sum(1).label("count"))
-        query = query.group_by(*ts_key_cols)
-        sim_timesteps_count = self.execute(query)
-        bld0_step_count = sim_timesteps_count["count"].iloc[0]
-        n_buildings_with_same_count = sum(sim_timesteps_count["count"] == bld0_step_count)
-        if n_buildings_with_same_count != len(sim_timesteps_count):
-            logger.warning(
-                "Not all building partitions have the same number of timestamps. This can cause wrong"
-                " scaled_units_count and other problems."
-            )
-
-        return bld0_step_count
-
     @typing.overload
     def get_buildings_by_locations(
         self, location_col: str, locations: list[str], get_query_only: Literal[False] = False

@@ -687,8 +687,12 @@ class BuildStockReport:
         distinct_expr = bsq._count_distinct(bsq.bs_key_cols)
 
         include_inapplicable = bsq.db_schema.structure.inapplicables_have_ts
+        inapplicable_val = bsq.db_schema.completion_values.inapplicable
         if include_inapplicable:
-            bs_where = sa.or_(bsq._bs_successful_condition, bsq._bs_completed_status_col == bsq.db_schema.completion_values.inapplicable)
+            bs_where = sa.or_(
+                bsq._bs_successful_condition,
+                bsq._bs_completed_status_col == inapplicable_val,
+            )
         else:
             bs_where = bsq._bs_successful_condition
         baseline_query = sa.select(sa.literal("0").label("upgrade"), distinct_expr.label("count")).where(bs_where)
@@ -699,7 +703,10 @@ class BuildStockReport:
 
         up_distinct_expr = bsq._count_distinct(bsq.up_key_cols)
         if include_inapplicable:
-            up_where = sa.or_(bsq._up_successful_condition, bsq._up_completed_status_col == bsq.db_schema.completion_values.inapplicable)
+            up_where = sa.or_(
+                bsq._up_successful_condition,
+                bsq._up_completed_status_col == inapplicable_val,
+            )
         else:
             up_where = bsq._up_successful_condition
         up_query = (

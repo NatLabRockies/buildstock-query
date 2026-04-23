@@ -36,4 +36,4 @@ jobs:
       - name: Pytest
         run: uv run --python ${{ matrix.python-version }} pytest -vv
       - name: Lint
-        run: uv run --python ${{ matrix.python-version }} ruff check buildstock_query
+        run: uv run --python ${{ matrix.python-version }} flake8 buildstock_query

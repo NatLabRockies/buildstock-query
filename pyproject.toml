@@ -45,8 +45,7 @@ full = [
 [dependency-groups]
 dev = [
     "pytest >= 7.1.3",
-    "ruff >= 0.6.0",
-    "pre-commit >= 3.5.0",
+    "flake8 >= 5.0.4",
     "pdoc3 >= 0.10.0",
     "dash-bootstrap-components >= 1.2.1",
     "dash-extensions >= 0.1.6",
@@ -68,34 +67,6 @@ Repository = "https://github.com/NREL/buildstock-query"
 
 [tool.hatch.build.targets.wheel]
 packages = ["buildstock_query"]
-
-[tool.ruff]
-line-length = 120
-target-version = "py312"
-extend-exclude = [
-    ".history",
-    ".bsq_cache*",
-    "example_usage",
-    "build",
-    "htmlcov",
-]
-
-[tool.ruff.lint]
-select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort
-    "UP",  # pyupgrade
-    "B",   # flake8-bugbear
-]
-ignore = [
-    "E501",  # line length handled by formatter
-]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
 
 [tool.hatch.build.targets.sdist]
 exclude = [

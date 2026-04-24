@@ -642,7 +642,10 @@ class BuildStockAggregate:
             ]
         elif params.timestamp_grouping_func:
             colname = self._bsq.timestamp_column_name
-            bs_key_cols = [bs_tbl.c[k] for k in self._bsq.bs_key]
+            # bs_tbl is a ts-side table/subquery in this branch; use the
+            # timeseries unique key (which is guaranteed to exist in ts
+            # columns) rather than the metadata key.
+            bs_key_cols = [bs_tbl.c[k] for k in self._bsq.ts_key]
             distinct_bs_keys = self._bsq._count_distinct(bs_key_cols)
             grouping_metrics_selection = [
                 distinct_bs_keys.label("sample_count"),

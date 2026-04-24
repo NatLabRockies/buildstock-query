@@ -20,7 +20,10 @@ from buildstock_query.schema.utilities import MappedColumn
 from buildstock_query.schema.query_params import Query
 
 import os
+import pathlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from tqdm.auto import tqdm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -321,47 +324,167 @@ class BuildStockQuery(QueryCore):
         logger.info("Making results_csv query ...")
         return self.execute(query).set_index(list(self.bs_key))
 
-    def _download_results_csv(self) -> str:
-        """Downloads the results csv from s3 and returns the path to the downloaded file.
-        Returns:
-            str: The path to the downloaded file.
-        """
-        local_copy_path = self.cache_folder / f"{self.db_name}_{self.bs_table.name}.parquet"
-        if os.path.exists(local_copy_path):
-            return local_copy_path
+    def _s3_list_all(self, bucket: str, prefix: str) -> list[dict]:
+        """Return all S3 objects under `prefix` by paginating list_objects_v2."""
+        paginator = self._aws_s3.get_paginator("list_objects_v2")
+        contents: list[dict] = []
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            contents.extend(page.get("Contents", []))
+        return contents
 
-        if isinstance(self.table_name, str):
-            db_table_name = f"{self.table_name}{self.db_schema.table_suffix.baseline}"
+    @staticmethod
+    def _upgrade_file_variants(upgrade_id: Union[str, int]) -> list[str]:
+        """Return the set of filename tokens that would mark a parquet as belonging to
+        the given upgrade.
+
+        For baseline (upgrade 0): baseline.parquet, up00.parquet, up0.parquet, upgrade00.parquet,
+            upgrade0.parquet.
+        For upgrade N: up{N}.parquet, up{N:02}.parquet, upgrade{N}.parquet, upgrade{N:02}.parquet.
+        """
+        try:
+            num = int(upgrade_id)
+        except (TypeError, ValueError):
+            num = None
+        tokens: list[str] = []
+        if num is not None:
+            short = str(num)
+            padded = f"{num:02d}"
+            for p in ("up", "upgrade"):
+                tokens.append(f"{p}{short}.parquet")
+                if padded != short:
+                    tokens.append(f"{p}{padded}.parquet")
+            if num == 0:
+                tokens.append("baseline.parquet")
         else:
-            db_table_name = self.table_name[0]
-        baseline_path = self._aws_glue.get_table(DatabaseName=self.db_name, Name=db_table_name)["Table"][
+            s = str(upgrade_id)
+            for p in ("up", "upgrade"):
+                tokens.append(f"{p}{s}.parquet")
+        # preserve order while dedup
+        return list(dict.fromkeys(tokens))
+
+    def download_metadata_and_annual_results(
+        self,
+        upgrade_id: Union[str, int] = "0",
+        folder: Optional[Union[str, pathlib.Path]] = None,
+    ) -> pathlib.Path:
+        """Download all annual-results parquet files for a given upgrade from S3.
+
+        The Glue-registered table for metadata lives at `s3://<bucket>/<key>/...`. Many runs
+        store their parquet inside Hive-style partition subfolders (e.g. `state=AK/county=.../`),
+        each partition holding one parquet per upgrade. This method recursively walks the glue
+        location and downloads every parquet whose filename ends with one of the known
+        upgrade-specific tokens (see `_upgrade_file_variants`).
+
+        Files already present locally are skipped. Downloads are done via a thread pool
+        (size = min(10, N files)). Local layout mirrors the S3 layout under `folder`.
+
+        Args:
+            upgrade_id: 0/"0" for baseline, else the upgrade number.
+            folder: Destination root; defaults to `cache_folder/metadata_and_annual_results/`.
+
+        Returns:
+            The local destination folder (pathlib.Path).
+        """
+        upgrade_id_str = str(upgrade_id)
+        if folder is None:
+            folder = self.cache_folder / "metadata_and_annual_results"
+        folder = pathlib.Path(folder)
+        # nest per-upgrade so baseline (upgrade_id="0") and upgrade-N live in separate subdirs.
+        # Callers want to pd.read_parquet(folder) and get only that upgrade's rows.
+        upgrade_root = folder / f"upgrade={upgrade_id_str}"
+
+        # pick the right glue-registered table for this upgrade_id
+        is_baseline = upgrade_id_str in ("0", "00")
+        if isinstance(self.table_name, str):
+            suffix = (
+                self.db_schema.table_suffix.baseline if is_baseline else self.db_schema.table_suffix.upgrades
+            )
+            db_table_name = f"{self.table_name}{suffix}"
+        else:
+            db_table_name = self.table_name[0] if is_baseline else self.table_name[2]
+
+        table_loc = self._aws_glue.get_table(DatabaseName=self.db_name, Name=db_table_name)["Table"][
             "StorageDescriptor"
         ]["Location"]
-        bucket = baseline_path.split("/")[2]
-        key = "/".join(baseline_path.split("/")[3:])
-        s3_data = self._aws_s3.list_objects(Bucket=bucket, Prefix=key)
+        bucket = table_loc.split("/")[2]
+        key_prefix = "/".join(table_loc.split("/")[3:])
+        if not key_prefix.endswith("/"):
+            key_prefix += "/"
 
-        if "Contents" not in s3_data:
-            raise ValueError(f"Results parquet not found in s3 at {baseline_path}")
-        matching_files = [
-            path["Key"]
-            for path in s3_data["Contents"]
-            if "up00.parquet" in path["Key"] or "baseline.parquet" in path["Key"]
-        ]
+        tokens = self._upgrade_file_variants(upgrade_id_str)
+        contents = self._s3_list_all(bucket, key_prefix)
+        if not contents:
+            raise ValueError(f"No parquet files found in s3://{bucket}/{key_prefix}")
 
-        if len(matching_files) > 1:
+        def matches(path_key: str) -> bool:
+            basename = path_key.rsplit("/", 1)[-1]
+            return any(basename.endswith(tok) for tok in tokens)
+
+        matching_keys = [obj["Key"] for obj in contents if matches(obj["Key"])]
+        if not matching_keys:
+            sample = [obj["Key"] for obj in contents[:10]]
             raise ValueError(
-                f"Multiple results parquet found in s3 at {baseline_path} for baseline."
-                f"These files matched: {matching_files}"
-            )
-        if len(matching_files) == 0:
-            raise ValueError(
-                f"No results parquet found in s3 at {baseline_path} for baseline."
-                f"Here are the files: {[content[0]['Key'] for content in s3_data['Contents']]}"
+                f"No results parquet matching upgrade={upgrade_id_str} found in s3://{bucket}/{key_prefix}. "
+                f"Looked for filenames ending in {tokens}. Example files: {sample}"
             )
 
-        self._aws_s3.download_file(bucket, matching_files[0], local_copy_path)
-        return local_copy_path
+        # group-by-directory uniqueness guard: in any single S3 "folder", we should have at
+        # most one file per upgrade. Multiple matches in the same folder means ambiguity.
+        by_dir: dict[str, list[str]] = {}
+        for k in matching_keys:
+            d = k.rsplit("/", 1)[0]
+            by_dir.setdefault(d, []).append(k)
+        ambiguous = {d: ks for d, ks in by_dir.items() if len(ks) > 1}
+        if ambiguous:
+            raise ValueError(
+                f"Multiple parquet files match upgrade={upgrade_id_str} in the same S3 folder: "
+                f"{ambiguous}"
+            )
+
+        tasks: list[tuple[str, pathlib.Path]] = []
+        for k in matching_keys:
+            rel = k[len(key_prefix):] if k.startswith(key_prefix) else k
+            local_path = upgrade_root / rel
+            if local_path.exists():
+                continue
+            tasks.append((k, local_path))
+
+        total_matches = len(matching_keys)
+        already_cached = total_matches - len(tasks)
+        if not tasks:
+            logger.info(
+                f"All {total_matches} parquet file(s) for upgrade={upgrade_id_str} already present locally "
+                f"at {upgrade_root}; skipping download."
+            )
+        else:
+            if already_cached:
+                logger.info(
+                    f"{already_cached}/{total_matches} parquet file(s) for upgrade={upgrade_id_str} already "
+                    f"present locally; downloading the remaining {len(tasks)}."
+                )
+            else:
+                logger.info(
+                    f"Downloading {len(tasks)} parquet file(s) for upgrade={upgrade_id_str} to {upgrade_root}."
+                )
+            max_workers = min(10, len(tasks))
+
+            def _download(k_and_path):
+                k, local_path = k_and_path
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                self._aws_s3.download_file(bucket, k, str(local_path))
+                return local_path
+
+            desc = f"Downloading parquet for upgrade={upgrade_id_str}"
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = [pool.submit(_download, t) for t in tasks]
+                for fut in tqdm(as_completed(futures), total=len(futures), desc=desc, unit="file"):
+                    fut.result()
+
+        return upgrade_root
+
+    def _download_results_csv(self) -> pathlib.Path:
+        """Download the baseline results parquet(s). See `download_metadata_and_annual_results`."""
+        return self.download_metadata_and_annual_results(upgrade_id="0")
 
     def get_results_csv_full(self) -> pd.DataFrame:
         """Returns the full results csv table. This is the same as get_results_csv without any restrictions. It uses
@@ -440,64 +563,20 @@ class BuildStockQuery(QueryCore):
         logger.info("Making results_csv query for upgrade ...")
         return self.execute(query).set_index(list(self.up_key))
 
-    def _download_upgrades_csv(self, upgrade_id: Union[int, str]) -> str:
-        """Downloads the upgrades csv from s3 and returns the path to the downloaded file."""
+    def _download_upgrades_csv(self, upgrade_id: Union[int, str]) -> pathlib.Path:
+        """Download the upgrade-N results parquet(s). See `download_metadata_and_annual_results`."""
         if self.up_table is None:
             raise ValueError("This run has no upgrades")
 
-        available_upgrades = list(self.get_available_upgrades())
-        available_upgrades.remove("0")
         if isinstance(upgrade_id, int):
             upgrade_id = f"{upgrade_id:02}"
-
+        available_upgrades = list(self.get_available_upgrades())
+        if "0" in available_upgrades:
+            available_upgrades.remove("0")
         if str(upgrade_id) not in available_upgrades:
             raise ValueError(f"Upgrade {upgrade_id} not found")
 
-        local_copy_path = self.cache_folder / f"{self.db_name}_{self.up_table.name}_{upgrade_id}.parquet"
-        if os.path.exists(local_copy_path):
-            return local_copy_path
-
-        if isinstance(self.table_name, str):
-            db_table_name = f"{self.table_name}{self.db_schema.table_suffix.upgrades}"
-        else:
-            db_table_name = self.table_name[2]
-        upgrades_path = self._aws_glue.get_table(DatabaseName=self.db_name, Name=db_table_name)["Table"][
-            "StorageDescriptor"
-        ]["Location"]
-        bucket = upgrades_path.split("/")[2]
-        key = "/".join(upgrades_path.split("/")[3:])
-        s3_data = self._aws_s3.list_objects(Bucket=bucket, Prefix=key)
-
-        if "Contents" not in s3_data:
-            raise ValueError(f"Results parquet not found in s3 at {upgrades_path}")
-
-        # out of the contents find the key with name matching the pattern results_up{upgrade_id}.parquet
-        def is_match(upgrade_id, key):
-            try:
-                upgrade_id = int(upgrade_id)
-                alternative_id = f"{upgrade_id:02}"
-            except ValueError:
-                alternative_id = str(upgrade_id)
-            for prefix in ["up", "upgrade"]:
-                if f"{prefix}{upgrade_id}.parquet" in key or f"{prefix}{alternative_id}.parquet" in key:
-                    return True
-            return False
-
-        matching_files = [path["Key"] for path in s3_data["Contents"] if is_match(upgrade_id, path["Key"])]
-
-        if len(matching_files) > 1:
-            raise ValueError(
-                f"Multiple results parquet found in s3 at {upgrades_path} for upgrade {upgrade_id}."
-                f"These files matched: {matching_files}"
-            )
-        if len(matching_files) == 0:
-            raise ValueError(
-                f"No results parquet found in s3 at {upgrades_path} for upgrade {upgrade_id}."
-                f"Here are the files: {[content[0]['Key'] for content in s3_data['Contents']]}"
-            )
-
-        self._aws_s3.download_file(bucket, matching_files[0], local_copy_path)
-        return local_copy_path
+        return self.download_metadata_and_annual_results(upgrade_id=str(upgrade_id))
 
     def get_upgrades_csv_full(self, upgrade_id: Union[int, str]) -> pd.DataFrame:
         """Returns the full results csv table for upgrades. This is the same as get_upgrades_csv without any
@@ -758,8 +837,11 @@ class BuildStockQuery(QueryCore):
         ts_restrict = []  # restrict to apply to timeseries table
         for col, restrict_vals in restrict:
             if self._restrict_targets_ts(col):  # prioritize ts table
-                col_name = col if isinstance(col, str) else col.name
-                ts_restrict.append([self.ts_table.c[col_name], restrict_vals])
+                if isinstance(col, tuple):
+                    ts_restrict.append([col, restrict_vals])
+                else:
+                    col_name = col if isinstance(col, str) else col.name
+                    ts_restrict.append([self.ts_table.c[col_name], restrict_vals])
             else:
                 bs_restrict.append([self._get_gcol(col, annual_only=True), restrict_vals])
         return bs_restrict, ts_restrict
@@ -774,6 +856,10 @@ class BuildStockQuery(QueryCore):
         if isinstance(col, SALabel):
             source_col = getattr(col, "element", None)
             return isinstance(source_col, SACol) and getattr(source_col, "table", None) is self.ts_table
+        if isinstance(col, tuple) and col:
+            return all(
+                isinstance(c, SACol) and getattr(c, "table", None) is self.ts_table for c in col
+            )
         return False
 
     def _is_timeseries_upgrade_restrict(self, col: AnyColType) -> bool:
@@ -943,15 +1029,25 @@ class BuildStockQuery(QueryCore):
     def _get_success_condition(self, table: AnyTableType):
         return self._get_completed_status_col(table) == self.db_schema.completion_values.success
 
-    def _get_applied_in_subquery(self, applied_in: Optional[Sequence[str | int]]):
-        """Return a unique-key subquery for rows where all listed upgrades applied successfully."""
+    def _get_applied_in_subquery(
+        self,
+        applied_in: Optional[Sequence[str | int]],
+        *,
+        key_kind: Literal["metadata", "timeseries"] = "metadata",
+    ):
+        """Return a unique-key subquery for rows where all listed upgrades applied successfully.
+
+        `key_kind` selects which unique-key columns to project — use "timeseries" when the
+        subquery will filter the timeseries table (whose key may be narrower than metadata's).
+        """
         if not applied_in:
             return None
         if self.up_table is None:
             raise ValueError("No upgrades table found.")
 
         upgrade_ids = list(dict.fromkeys(self._validate_upgrade(upgrade_id) for upgrade_id in applied_in))
-        up_key_cols = self.up_key_cols
+        key_names = self._get_unique_keys(key_kind)
+        up_key_cols = [self.up_table.c[name] for name in key_names]
         return (
             sa.select(*up_key_cols)
             .where(
@@ -971,11 +1067,13 @@ class BuildStockQuery(QueryCore):
     ) -> list[RestrictTuple]:
         """Append the applied-in filter to the existing restrict list when requested."""
         updated_restrict = list(restrict) if restrict else []
-        applied_subquery = self._get_applied_in_subquery(applied_in)
+        use_ts_side = not (annual_only or self.ts_table is None)
+        applied_subquery = self._get_applied_in_subquery(
+            applied_in, key_kind="timeseries" if use_ts_side else "metadata"
+        )
         if applied_subquery is None:
             return updated_restrict
 
-        use_ts_side = not (annual_only or self.ts_table is None)
         filter_cols = self.ts_key_cols if use_ts_side else self.bs_key_cols
         if len(filter_cols) == 1:
             updated_restrict.append((filter_cols[0], applied_subquery))

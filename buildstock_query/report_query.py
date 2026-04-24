@@ -96,7 +96,7 @@ class BuildStockReport:
             if df.empty:
                 df = pd.DataFrame(columns=["upgrade", "change"])
             df.rename(columns={"change": chng_type}, inplace=True)
-            # df['upgrade'] = df['upgrade'].map(int)
+            df["upgrade"] = df["upgrade"].map(str)
             df = df.set_index("upgrade").sort_index()
             change_df = change_df.join(df, how="outer") if len(change_df) > 0 else df
         with pd.option_context("future.no_silent_downcasting", True):
@@ -680,11 +680,15 @@ class BuildStockReport:
         return result_df
 
     def _get_metadata_distinct_bldg_count(self) -> dict[str, int]:
-        """Distinct baseline/upgrade unique-key count per upgrade (including inapplicable
-        rows when the schema declares inapplicables_have_ts).
+        """Distinct count over the *timeseries* unique-key columns, computed on the
+        baseline/upgrade tables. Uses ts_key (not bs_key) so the count is comparable
+        to the timeseries-side count: when metadata has more key columns than
+        timeseries (e.g. baseline fanned out by tract, timeseries by state), counting
+        on bs_key would over-count. ts_key ⊆ bs_key is enforced by the schema model.
         """
         bsq = self._bsq
-        distinct_expr = bsq._count_distinct(bsq.bs_key_cols)
+        bs_ts_key_cols = [bsq.bs_table.c[c] for c in bsq.ts_key]
+        distinct_expr = bsq._count_distinct(bs_ts_key_cols)
 
         include_inapplicable = bsq.db_schema.structure.inapplicables_have_ts
         inapplicable_val = bsq.db_schema.completion_values.inapplicable
@@ -701,7 +705,8 @@ class BuildStockReport:
         if bsq.up_table is None:
             return counts
 
-        up_distinct_expr = bsq._count_distinct(bsq.up_key_cols)
+        up_ts_key_cols = [bsq.up_table.c[c] for c in bsq.ts_key]
+        up_distinct_expr = bsq._count_distinct(up_ts_key_cols)
         if include_inapplicable:
             up_where = sa.or_(
                 bsq._up_successful_condition,
@@ -733,12 +738,13 @@ class BuildStockReport:
     def check_ts_bs_integrity(self) -> bool:
         """Checks the integrity between the timeseries and baseline (metadata) tables.
 
-        Runs four checks:
+        Runs these checks:
         1. Distinct-building parity per upgrade between timeseries and baseline/upgrade tables.
         2. No duplicate rows in the baseline table (grouped by bs_key).
         3. No duplicate rows in the upgrade table (grouped by up_key + upgrade).
-        4. No duplicate rows in the timeseries table (grouped by ts_key + timestamp, plus upgrade
-           when the timeseries table contains multiple upgrades).
+        4. Uniform timeseries row count per (upgrade, ts_key) — a dup in the ts table would
+           show up as a non-uniform count, and this is cheap relative to `count(DISTINCT ...)`
+           which can exhaust Athena's memory on large ts tables.
 
         Returns:
             bool: Whether or not the integrity check passed.
@@ -760,21 +766,16 @@ class BuildStockReport:
         if check_pass:
             print_g("Baseline/upgrade and timeseries tables have matching distinct building counts.")
 
-        # duplicate checks
-        dup_specs: list[tuple[str, sa.Table, list[sa.Column]]] = [
+        # duplicate checks on baseline/upgrade (small enough for the exact GROUP BY)
+        small_dup_specs: list[tuple[str, sa.Table, list[sa.Column]]] = [
             ("baseline", bsq.bs_table, bsq.bs_key_cols),
         ]
         if bsq.up_table is not None:
-            dup_specs.append(
+            small_dup_specs.append(
                 ("upgrade", bsq.up_table, bsq.up_key_cols + [bsq.up_table.c["upgrade"]])
             )
-        if bsq.ts_table is not None:
-            ts_dup_cols = bsq.ts_key_cols + [bsq.ts_table.c[bsq.timestamp_column_name]]
-            if "upgrade" in bsq.ts_table.c:
-                ts_dup_cols.append(bsq.ts_table.c["upgrade"])
-            dup_specs.append(("timeseries", bsq.ts_table, ts_dup_cols))
 
-        for label, tbl, key_cols in dup_specs:
+        for label, tbl, key_cols in small_dup_specs:
             dup_df = self._find_duplicate_rows(tbl, key_cols)
             if len(dup_df) > 0:
                 key_names = [c.name for c in key_cols]
@@ -784,6 +785,9 @@ class BuildStockReport:
             else:
                 print_g(f"No duplicate rows in {label} table on {[c.name for c in key_cols]}.")
 
+        # ts-table duplicate detection: if any (upgrade, ts_key) has an off-cadence row count,
+        # that's a duplicate (or missing-row) signal. Cheaper and more memory-safe than
+        # count(distinct (keys)) on the full ts table.
         try:
             rowcount = bsq._get_rows_per_building()
             print_g(f"All building partitions have the same number of ({rowcount}) timeseries rows.")

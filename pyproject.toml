@@ -30,6 +30,10 @@ dependencies = [
     "sqlglot",
     "filelock",
     "pyparsing",
+    "tqdm",
+    "altair>=6.1.0",
+    "vegafusion>=2.0.3",
+    "vl-convert-python>=1.9.0.post1",
 ]
 
 [project.optional-dependencies]
@@ -54,6 +58,7 @@ dev = [
     "coverage >= 6.5.0",
     "plotly >= 5.10.0",
     "dash >= 2.6.2",
+    "ipywidgets>=8.1.8",
 ]
 
 [project.scripts]

@@ -31,5 +31,5 @@ inapplicable = "false"
 inapplicables_have_ts = "true"
 
 [unique_keys]
-metadata = ["bldg_id", "county", "state"]
+metadata = ["bldg_id", "in.nhgis_tract_gisjoin", "state"]
 timeseries = ["bldg_id", "state"]

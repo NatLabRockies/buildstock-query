@@ -43,6 +43,10 @@ class TestBuildStockQuery:
             / "comstock_oedi_state_and_county.toml"
         )
         db_schema_dict = toml.load(schema_path)
+        db_schema_dict["unique_keys"] = {
+            "metadata": ["bldg_id", "county", "state"],
+            "timeseries": ["bldg_id", "state"],
+        }
         metadata = sa.MetaData()
         baseline = sa.Table(
             "custom_run_metadata",

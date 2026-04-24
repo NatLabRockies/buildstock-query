@@ -25,6 +25,11 @@ class MappedColumn(BaseModel):
 
 AnyColType = DBColType | str | MappedColumn
 RestrictValue = str | int | bool | Sequence[int | str | bool] | SelectBase | Subquery
-RestrictTuple = tuple[AnyColType, RestrictValue]
+RestrictColTuple = tuple[DBColType, ...]
+RestrictRowValue = tuple[str | int | bool, ...]
+RestrictTuple = (
+    tuple[AnyColType, RestrictValue]
+    | tuple[RestrictColTuple, SelectBase | Subquery | Sequence[RestrictRowValue]]
+)
 
 validate_arguments = validate_call(config=ConfigDict(arbitrary_types_allowed=True))

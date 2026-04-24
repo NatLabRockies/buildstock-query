@@ -109,7 +109,10 @@ class QueryCore:
         self._query_cache: dict[str, pd.DataFrame] = {}  # {"query": query_result_df} to cache queries
         self._session_queries: set[str] = set()  # Set of all queries that is run in current session.
 
-        self._aws_s3 = boto3.client("s3")
+        # pool matches the download_metadata_and_annual_results thread pool (10 workers) with
+        # headroom for incidental per-request metadata calls, so parallel downloads don't
+        # churn the HTTPS pool and spam "Connection pool is full" warnings.
+        self._aws_s3 = boto3.client("s3", config=Config(max_pool_connections=32))
         self._aws_athena = boto3.client("athena", region_name=params.region_name)
         self._aws_glue = boto3.client("glue", region_name=params.region_name)
         self._async_conn = Connection(
@@ -606,6 +609,10 @@ class QueryCore:
                 try:
                     df = pd.read_parquet(result_location)
                 except FileNotFoundError:  # empty result
+                    # SUCCEEDED + empty destination = UNLOAD wrote zero files, result is genuinely empty.
+                    # Drop an _EMPTY sentinel so future runs can recognize this as a cache hit instead of
+                    # re-executing the (possibly expensive) query.
+                    self._write_empty_marker(result_location)
                     df = pd.DataFrame()
                 return df
             elif stat.upper() in ["FAILED", "CANCELLED"]:
@@ -619,19 +626,36 @@ class QueryCore:
                 time.sleep(1)
         raise TimeoutError("Query failed to complete within 30 mins.")
 
+    _EMPTY_MARKER_KEY = "_EMPTY"
+
+    def _write_empty_marker(self, result_location: str) -> None:
+        """Write a 0-byte _EMPTY sentinel inside `result_location` to cache a zero-row UNLOAD."""
+        if not result_location.startswith("s3://"):
+            return
+        bucket_name, prefix = result_location.replace("s3://", "").split("/", 1)
+        marker_key = prefix.rstrip("/") + "/" + self._EMPTY_MARKER_KEY
+        try:
+            self._aws_s3.put_object(Bucket=bucket_name, Key=marker_key, Body=b"")
+        except ClientError as e:
+            logger.warning("Could not write _EMPTY marker to %s: %s", result_location, e)
+
     def _get_query_result_location(self, result_path: str) -> Optional[str]:
         """Check if the UNLOAD result already exists in S3.
 
         Args:
             result_path (str): The S3 path where the UNLOAD result would be stored.
         Returns:
-            Optional[str]: The S3 path to the result if it exists, otherwise None.
+            Optional[str]: The S3 path to the result if it exists, otherwise None. When the
+                cached result is a zero-row UNLOAD, returns a path ending in "/<folder>/_EMPTY"
+                (caller must recognize this sentinel and return an empty DataFrame without
+                calling read_parquet).
         """
         bucket_name, prefix = result_path.replace("s3://", "").split("/", 1)
         normalized_prefix = prefix.rstrip("/") + "/"
         try:
             paginator = self._aws_s3.get_paginator("list_objects_v2")
             folders: dict[str, datetime.datetime] = {}
+            empty_folders: set[str] = set()
             for page in paginator.paginate(Bucket=bucket_name, Prefix=normalized_prefix):
                 for obj in page.get("Contents", []):
                     key = obj.get("Key", "")
@@ -641,26 +665,32 @@ class QueryCore:
                     if not remainder or "/" not in remainder:
                         continue
 
-                    folder = remainder.split("/", 1)[0]
-                    last_modified = obj.get("LastModified")
-                    if not folder or last_modified is None:
+                    folder, _, basename = remainder.partition("/")
+                    if not folder:
                         continue
-
+                    if basename == self._EMPTY_MARKER_KEY:
+                        empty_folders.add(folder)
+                        continue
+                    last_modified = obj.get("LastModified")
+                    if last_modified is None:
+                        continue
                     current = folders.get(folder)
                     if current is None or last_modified > current:
                         folders[folder] = last_modified
 
-            if not folders:
-                return None
-
-            chosen_folder = max(folders.items(), key=lambda item: (item[1], item[0]))[0]
-            if len(folders) > 1:
-                logger.warning(
-                    "Multiple cached UNLOAD result folders found for prefix %s; using newest folder %s.",
-                    normalized_prefix,
-                    chosen_folder,
-                )
-            return f"s3://{bucket_name}/{normalized_prefix}{chosen_folder}/"
+            if folders:
+                chosen_folder = max(folders.items(), key=lambda item: (item[1], item[0]))[0]
+                if len(folders) > 1:
+                    logger.warning(
+                        "Multiple cached UNLOAD result folders found for prefix %s; using newest folder %s.",
+                        normalized_prefix,
+                        chosen_folder,
+                    )
+                return f"s3://{bucket_name}/{normalized_prefix}{chosen_folder}/"
+            if empty_folders:
+                chosen_folder = sorted(empty_folders)[0]
+                return f"s3://{bucket_name}/{normalized_prefix}{chosen_folder}/{self._EMPTY_MARKER_KEY}"
+            return None
         except ClientError as e:
             logger.error(f"Error accessing S3: {e}")
             return None
@@ -704,7 +734,10 @@ class QueryCore:
         result_path = f"s3://{self.run_params.query_unload_s3_bucket}/bsq_athena_unload_results/{query_hash}"
         # check if result already exists in s3
         if (result_location := self._get_query_result_location(result_path)):
-            self._query_cache[query] = pd.read_parquet(result_location)
+            if result_location.endswith("/" + self._EMPTY_MARKER_KEY):
+                self._query_cache[query] = pd.DataFrame()
+            else:
+                self._query_cache[query] = pd.read_parquet(result_location)
             if run_async:
                 return "CACHED", CachedFutureDf(self._query_cache[query].copy())
             return self._query_cache[query].copy()
@@ -1238,16 +1271,31 @@ class QueryCore:
             return False
         return all(isinstance(c, (sa.Column, SALabel)) for c in col_ref)
 
+    def _multi_column_membership(self, col_ref, criteria):
+        """Build a (cols) IN (...) expression. `criteria` may be a subquery or a sequence of row-tuples."""
+        subquery = self._normalize_restrict_subquery(criteria, expected_width=len(col_ref))
+        if subquery is not None:
+            return sa.tuple_(*col_ref).in_(subquery)
+
+        if isinstance(criteria, Sequence) and not isinstance(criteria, str):
+            if not criteria:
+                raise ValueError("Multi-column membership criteria cannot be empty.")
+            for row in criteria:
+                if not isinstance(row, tuple) or len(row) != len(col_ref):
+                    raise ValueError(
+                        f"Each row in multi-column criteria must be a tuple of length {len(col_ref)}."
+                    )
+            return sa.tuple_(*col_ref).in_([sa.tuple_(*row) for row in criteria])
+
+        raise ValueError(
+            "Multi-column restrict keys must be paired with a subquery or a sequence of row-tuples."
+        )
+
     def _get_restrict_clauses(self, restrict, annual_only=False):
         clauses = []
         for col_ref, criteria in restrict:
             if self._is_column_tuple(col_ref):
-                subquery = self._normalize_restrict_subquery(criteria, expected_width=len(col_ref))
-                if subquery is None:
-                    raise ValueError(
-                        "Multi-column restrict keys must be paired with a subquery criteria."
-                    )
-                clauses.append(sa.tuple_(*col_ref).in_(subquery))
+                clauses.append(self._multi_column_membership(col_ref, criteria))
                 continue
 
             col = self._get_column(col_ref, annual_only=annual_only)
@@ -1276,8 +1324,12 @@ class QueryCore:
         if not avoid:
             return query
         where_clauses = []
-        for col_str, criteria in avoid:
-            col = self._get_column(col_str, annual_only=annual_only)
+        for col_ref, criteria in avoid:
+            if self._is_column_tuple(col_ref):
+                where_clauses.append(sa.not_(self._multi_column_membership(col_ref, criteria)))
+                continue
+
+            col = self._get_column(col_ref, annual_only=annual_only)
             subquery = self._normalize_restrict_subquery(criteria)
             if subquery is not None:
                 where_clauses.append(col.not_in(subquery))

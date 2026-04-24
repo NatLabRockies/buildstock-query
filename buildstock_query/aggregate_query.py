@@ -31,6 +31,7 @@ class BuildStockAggregate:
         applied_only: bool | None,
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         group_by: Sequence[DBColType] = Field(default_factory=list),
+        upgrade_only: bool = False,
     ):
         if self._bsq.ts_table is None:
             raise ValueError("No timeseries table found in database.")
@@ -39,9 +40,12 @@ class BuildStockAggregate:
         base = self._bsq.bs_table
         ucol = self._bsq._ts_upgrade_col
 
-        if upgrade_id == "0":
-            # For baseline, return original tables with group_by as-is
-            if self._bsq.up_table is None:  # There are no upgrades so just return the timeseries table as is
+        if upgrade_id == "0" or upgrade_only:
+            # Single-upgrade path: aggregate only the requested upgrade's ts rows.
+            # Used for the baseline (upgrade_id="0") and for upgrade-only queries that need
+            # neither savings nor baseline values, so no ts_b/ts_u pairing is required.
+            # This path also supports runs whose timeseries table lacks upgrade=0 rows.
+            if self._bsq.up_table is None:
                 tbljoin = ts.join(
                     base,
                     sa.and_(
@@ -307,8 +311,19 @@ class BuildStockAggregate:
             bs_tbl, up_tbl, tbljoin = self.__get_annual_bs_up_table(upgrade_id, params.applied_only)
         else:
             bs_restrict, ts_restrict = self._bsq._split_restrict(bs_restrict)
+            # When the caller wants only upgrade values (no savings, no baseline), skip the
+            # ts_b/ts_u subquery pairing. Required for applied_only=True since the column
+            # expressions for applied_only reference only up_tbl; also lets runs without
+            # upgrade=0 timeseries rows aggregate upgrade data directly.
+            upgrade_only = (
+                upgrade_id != "0"
+                and params.applied_only
+                and not params.include_savings
+                and not params.include_baseline
+            )
             bs_tbl, up_tbl, tbljoin, group_by_selection = self.__get_timeseries_bs_up_table(
-                enduse_cols, upgrade_id, params.applied_only, ts_restrict, group_by_selection
+                enduse_cols, upgrade_id, params.applied_only, ts_restrict, group_by_selection,
+                upgrade_only=upgrade_only,
             )
 
         def get_col(tbl, col):  # column could be MappedColumn not available in tbl

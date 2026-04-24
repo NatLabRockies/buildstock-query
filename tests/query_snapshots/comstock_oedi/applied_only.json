@@ -1,0 +1,28 @@
+[
+  {
+    "name": "applied_only_upgrade1_annual_CO",
+    "description": "Annual upgrade 1 electricity restricted to applied buildings only, CO.",
+    "sql_file": "applied_only_upgrade1_annual_CO.sql",
+    "data_file": "applied_only_upgrade1_annual_CO.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption..kwh"],
+      "upgrade_id": "1",
+      "group_by": ["comstock_building_type"],
+      "restrict": [["state", ["CO"]]],
+      "applied_only": true
+    }
+  },
+  {
+    "name": "all_buildings_upgrade1_annual_CO",
+    "description": "Annual upgrade 1 including unapplied buildings, CO.",
+    "sql_file": "all_buildings_upgrade1_annual_CO.sql",
+    "data_file": "all_buildings_upgrade1_annual_CO.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption..kwh"],
+      "upgrade_id": "1",
+      "group_by": ["comstock_building_type"],
+      "restrict": [["state", ["CO"]]],
+      "applied_only": false
+    }
+  }
+]

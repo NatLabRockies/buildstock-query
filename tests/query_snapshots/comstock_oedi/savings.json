@@ -1,0 +1,17 @@
+[
+  {
+    "name": "savings_annual_upgrade1_electricity_CO",
+    "description": "Annual savings for upgrade 1, electricity, grouped by building_type, CO.",
+    "sql_file": "savings_annual_upgrade1_electricity_CO.sql",
+    "data_file": "savings_annual_upgrade1_electricity_CO.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption..kwh"],
+      "upgrade_id": "1",
+      "group_by": ["comstock_building_type"],
+      "restrict": [["state", ["CO"]]],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true
+    }
+  }
+]

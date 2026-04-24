@@ -1,0 +1,22 @@
+[
+  {
+    "name": "mapped_column_simple_bldg_type_group_by",
+    "description": "Annual electricity grouped by a MappedColumn that collapses building types into MH/SF/MF, CO only.",
+    "sql_file": "mapped_column_simple_bldg_type_group_by.sql",
+    "data_file": "mapped_column_simple_bldg_type_group_by.parquet",
+    "args": {
+      "target": "group_by",
+      "mapped_name": "simple_bldg_type",
+      "key_column": "in.geometry_building_type_recs",
+      "mapping_dict": {
+        "Mobile Home": "MH",
+        "Single-Family Detached": "SF",
+        "Single-Family Attached": "SF",
+        "Multi-Family with 2 - 4 Units": "MF",
+        "Multi-Family with 5+ Units": "MF"
+      },
+      "enduses": ["out.electricity.total.energy_consumption"],
+      "restrict": [["in.state", ["CO"]]]
+    }
+  }
+]

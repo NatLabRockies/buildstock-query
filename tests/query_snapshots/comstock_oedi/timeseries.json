@@ -1,0 +1,42 @@
+[
+  {
+    "name": "ts_monthly_electricity_by_state_CO",
+    "description": "Monthly electricity grouped by state + time, CO only.",
+    "sql_file": "ts_monthly_electricity_by_state_CO.sql",
+    "data_file": "ts_monthly_electricity_by_state_CO.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption"],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "month",
+      "group_by": ["state", "time"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "ts_year_collapse_electricity_CO",
+    "description": "Year-collapsed timeseries electricity, CO only.",
+    "sql_file": "ts_year_collapse_electricity_CO.sql",
+    "data_file": "ts_year_collapse_electricity_CO.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption"],
+      "annual_only": false,
+      "timestamp_grouping_func": "year",
+      "group_by": ["comstock_building_type"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "ts_monthly_electricity_by_building_type_CO",
+    "description": "Monthly electricity grouped by building_type + time, CO only. Used by invariant tests.",
+    "sql_file": "ts_monthly_electricity_by_building_type_CO.sql",
+    "data_file": "ts_monthly_electricity_by_building_type_CO.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption"],
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": ["comstock_building_type", "time"],
+      "restrict": [["state", ["CO"]]]
+    }
+  }
+]

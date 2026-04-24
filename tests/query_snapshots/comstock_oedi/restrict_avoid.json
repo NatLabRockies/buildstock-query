@@ -1,0 +1,24 @@
+[
+  {
+    "name": "restrict_single_state_CO",
+    "description": "Annual electricity restricted to CO.",
+    "sql_file": "restrict_single_state_CO.sql",
+    "data_file": "restrict_single_state_CO.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption..kwh"],
+      "group_by": ["comstock_building_type"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "restrict_two_states",
+    "description": "Annual electricity restricted to CO + WY.",
+    "sql_file": "restrict_two_states.sql",
+    "data_file": "restrict_two_states.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption..kwh"],
+      "group_by": ["state"],
+      "restrict": [["state", ["CO", "WY"]]]
+    }
+  }
+]

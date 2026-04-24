@@ -1,0 +1,36 @@
+[
+  {
+    "name": "annual_totals_overall_CO",
+    "description": "Annual electricity + natural gas totals restricted to CO.",
+    "sql_file": "annual_totals_overall_CO.sql",
+    "data_file": "annual_totals_overall_CO.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption..kwh", "out.natural_gas.total.energy_consumption..kwh"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "annual_totals_by_building_type_CO",
+    "description": "Annual totals grouped by building_type, CO only.",
+    "sql_file": "annual_totals_by_building_type_CO.sql",
+    "data_file": "annual_totals_by_building_type_CO.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption..kwh", "out.natural_gas.total.energy_consumption..kwh"],
+      "group_by": ["comstock_building_type"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "annual_electricity_by_vintage_sort_CO",
+    "description": "Annual electricity grouped by vintage with sort + limit, CO only.",
+    "sql_file": "annual_electricity_by_vintage_sort_CO.sql",
+    "data_file": "annual_electricity_by_vintage_sort_CO.parquet",
+    "args": {
+      "enduses": ["out.electricity.total.energy_consumption..kwh"],
+      "group_by": ["in.vintage"],
+      "restrict": [["state", ["CO"]]],
+      "sort": true,
+      "limit": 5
+    }
+  }
+]

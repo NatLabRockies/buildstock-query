@@ -269,14 +269,24 @@ def test_comstock_annual_equals_ts_year_equals_ts_monthly_sum(
     _assert_series_close("annual vs ts_year_collapse", annual_totals, ts_year_totals)
     _assert_series_close("annual vs sum(ts_monthly)", annual_totals, ts_monthly_totals)
 
-    # Count-column checks (sample_count / units_count) are omitted for comstock.
-    # The comstock baseline view is multi-row-per-building (one row per building ×
-    # county/tract), which inflates sample_count relative to the TS per-building
-    # count. On top of that the TS year-collapse path currently disagrees with the
-    # TS monthly path on comstock by the same ~50× factor — likely a library bug
-    # in how baseline keys are joined into the TS year-collapse query. The counts
-    # invariant is meaningful for resstock (single-row baseline) but not here;
-    # enabling it would need the library-side discrepancy fixed first.
+    # sample_count / units_count are per-group metadata — constant on every monthly
+    # row — so collapsing the monthly frame requires mean, not sum. Counting over
+    # the full metadata key (bs_key) in the TS-grouping path was fixed in 25fa3fa
+    # so these now agree across all three legs on comstock.
+    for count_col in ("sample_count", "units_count"):
+        annual_counts = _scalar_first_by_group(annual_df, count_col, [group_col])
+        ts_year_counts = _scalar_first_by_group(ts_year_df, count_col, [group_col])
+        ts_monthly_counts = _scalar_mean_by_group(ts_monthly_df, count_col, [group_col])
+        _assert_series_close(
+            f"{count_col}: ts_year_collapse vs mean(ts_monthly)",
+            ts_year_counts,
+            ts_monthly_counts,
+        )
+        _assert_series_close(
+            f"{count_col}: annual vs ts_year_collapse",
+            annual_counts,
+            ts_year_counts,
+        )
 
 
 # --- savings decomposition: baseline - upgrade ≈ savings ---------------------

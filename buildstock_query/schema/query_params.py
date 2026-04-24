@@ -32,7 +32,7 @@ class BaseQuery(BaseModel):
 
 
 class TSQuery(BaseQuery):
-    timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None
+    timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = None
 
 
 class UtilityTSQuery(TSQuery):

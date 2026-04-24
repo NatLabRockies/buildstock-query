@@ -40,7 +40,7 @@ class BuildStockUtility:
                                                         AnyColType]] = Field(default_factory=list),
                               weights: Sequence[Union[str, tuple]] = [],
                               restrict: Sequence[tuple[str, Union[str, int, Sequence[int], Sequence[str]]]] = [],
-                              timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None,
+                              timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = None,
                               query_group_size: int = 20,
                               limit: Optional[int] = None,
                               ) -> str:
@@ -57,7 +57,7 @@ class BuildStockUtility:
                                                         AnyColType]] = Field(default_factory=list),
                               weights: Sequence[Union[str, tuple]] = [],
                               restrict: Sequence[tuple[str, Union[str, int, Sequence[int], Sequence[str]]]] = [],
-                              timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None,
+                              timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = None,
                               get_query_only: Literal[False] = False,
                               query_group_size: int = 20,
                               limit: Optional[int] = None,
@@ -76,7 +76,7 @@ class BuildStockUtility:
                                                         AnyColType]] = Field(default_factory=list),
                               weights: Sequence[Union[str, tuple]] = [],
                               restrict: Sequence[tuple[str, Union[str, int, Sequence[int], Sequence[str]]]] = [],
-                              timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None,
+                              timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = None,
                               query_group_size: int = 20,
                               limit: Optional[int] = None,
                               ) -> Union[str, pd.DataFrame]:

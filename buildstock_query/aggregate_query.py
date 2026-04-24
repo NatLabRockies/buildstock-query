@@ -471,7 +471,7 @@ class BuildStockAggregate:
         query = self._bsq._add_join(query, params.join_list)
         if params.annual_only:
             query = query.where(self._bsq._bs_successful_condition)
-        query = self._bsq._add_restrict(query, bs_restrict)
+        query = self._bsq._add_restrict(query, bs_restrict, annual_only=params.annual_only)
         query = self._bsq._add_avoid(query, params.avoid, annual_only=params.annual_only)
         query = self._bsq._add_group_by(query, group_by_selection)
         query = self._bsq._add_order_by(query, group_by_selection if params.sort else [])

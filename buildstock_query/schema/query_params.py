@@ -32,26 +32,7 @@ class BaseQuery(BaseModel):
 
 
 class TSQuery(BaseQuery):
-    split_enduses: bool = False
-    collapse_ts: bool = False
     timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None
-
-
-class SavingsQuery(TSQuery):
-    annual_only: bool = True
-    applied_only: bool = False
-    applied_in: Optional[Sequence[Union[str, int]]] = None
-    unload_to: str = ""
-    partition_by: Sequence[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_consistency(self) -> Self:
-        self.applied_in = _normalize_applied_in(self.applied_in)
-        if self.applied_in and not self.applied_only:
-            raise ValueError("applied_in cannot be set when applied_only is False")
-        if self.applied_only and self.upgrade_id == "0":
-            raise ValueError("applied_only cannot be set when upgrade_id is '0'")
-        return self
 
 
 class UtilityTSQuery(TSQuery):

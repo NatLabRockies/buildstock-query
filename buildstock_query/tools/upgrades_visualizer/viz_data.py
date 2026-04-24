@@ -135,12 +135,13 @@ class VizData:
             ts_cols = self._get_ts_enduse_cols(upgrade)
             print(f"Getting monthly results for {upgrade}")
             run_obj = self.run_obj(upgrade)
-            monthly_vals_query = run_obj.agg.aggregate_timeseries(get_query_only=True,
-                                                                  enduses=ts_cols,
-                                                                  group_by=[run_obj.bs_bldgid_column],
-                                                                  upgrade_id=upgrade,
-                                                                  timestamp_grouping_func='month',
-                                                                  )
+            monthly_vals_query = run_obj.query(get_query_only=True,
+                                               enduses=ts_cols,
+                                               group_by=[run_obj.bs_bldgid_column],
+                                               upgrade_id=upgrade,
+                                               annual_only=False,
+                                               timestamp_grouping_func='month',
+                                               )
             if monthly_vals_query in run_obj._query_cache:
                 monthly_vals = run_obj._query_cache[monthly_vals_query].copy()
             else:

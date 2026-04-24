@@ -102,14 +102,11 @@ class BuildStockQuery(QueryCore):
         super(BuildStockQuery, self).__init__(params=self._run_params)
         from buildstock_query.report_query import BuildStockReport
         from buildstock_query.aggregate_query import BuildStockAggregate
-        from buildstock_query.savings_query import BuildStockSavings
         from buildstock_query.utility_query import BuildStockUtility
         #: `buildstock_query.report_query.BuildStockReport` object to perform report queries
         self.report: BuildStockReport = BuildStockReport(self)
         #: `buildstock_query.aggregate_query.BuildStockAggregate` object to perform aggregate queries
         self.agg: BuildStockAggregate = BuildStockAggregate(self)
-        #: `buildstock_query.savings_query.BuildStockSavings` object to perform savings queries
-        self.savings = BuildStockSavings(self)
         #: `buildstock_query.utility_query.BuildStockUtility` object to perform utility queries
         self.utility = BuildStockUtility(self)
 
@@ -1208,6 +1205,4 @@ class BuildStockQuery(QueryCore):
          Returns:
                 if get_query_only is True, returns the query_string, otherwise returns a pandas dataframe
         """
-        # TODO: Replace with contents of agg._query(*args, **kwargs) when aggregate_query module is deprecated
-        # or implement via a Mixin
         return self.agg._query(*args, **kwargs)

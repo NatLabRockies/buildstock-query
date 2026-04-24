@@ -3,31 +3,27 @@
 - - - - - - - - -
 A library to run AWS Athena queries to get various data from a BuildStock run. The main class is called BuildStockQuery.
 An object of BuildStockQuery needs to be created to perform various queries. In addition to supporting various
-query member functions, the BuildStockQuery object contains 4 member objects that can be used to perform certain
-class of queries and analysis. These 4 member objects can be accessed as follows::
+query member functions, the BuildStockQuery object contains 3 member objects that can be used to perform certain
+class of queries and analysis. These member objects can be accessed as follows::
 
-bsq = BuildStockQuery(...)  `BuildStockQuery` object  
-bsq.agg  `buildstock_query.aggregate_query.BuildStockAggregate`  
-bsq.report  `buildstock_query.report_query.BuildStockReport`  
-bsq.savings  `buildstock_query.savings_query.BuildStockSavings`  
-bsq.utility  `buildstock_query.utility_query.BuildStockUtility`  
+bsq = BuildStockQuery(...)  `BuildStockQuery` object
+bsq.agg  `buildstock_query.aggregate_query.BuildStockAggregate`
+bsq.report  `buildstock_query.report_query.BuildStockReport`
+bsq.utility  `buildstock_query.utility_query.BuildStockUtility`
 
 ```
-# Some basic query can be done directly using the BuildStockQuery object. For example:
-from buildstock_query import BuildStockQuery 
+# The core query API lives on the BuildStockQuery object itself:
+from buildstock_query import BuildStockQuery
 bsq = BuildStockQuery(...)
 bsq.get_results_csv()
 bsq.get_upgrades_csv()
+bsq.query(enduses=[...], annual_only=True, ...)                 # annual baseline / upgrade results
+bsq.query(enduses=[...], annual_only=False, ...)                # timeseries aggregations
+bsq.query(enduses=[...], upgrade_id="1", include_savings=True)  # savings shape
 
-# Other more specific queries can be done using specific query class objects. For example:
-bsq.agg.aggregate_annual(...)
-bsq.agg.aggregate_timeseries(...)
-...
+# Reports and utility-specific helpers:
 bsq.report.get_success_report(...)
 bsq.report.get_successful_simulation_count(...)
-...
-bsq.savings.savings_shape(...)
-...
 bsq.utility.aggregate_annual_by_eiaid(...)
 ```
 

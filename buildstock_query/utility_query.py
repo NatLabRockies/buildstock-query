@@ -6,7 +6,7 @@ import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy.sql import functions as safunc
 from collections import defaultdict
-from buildstock_query.schema.query_params import UtilityTSQuery, TSQuery
+from buildstock_query.schema.query_params import UtilityTSQuery, Query
 from buildstock_query.schema.helpers import gather_params
 from buildstock_query.schema.utilities import AnyColType, AnyTableType, MappedColumn, validate_arguments
 from buildstock_query.helpers import read_csv
@@ -60,7 +60,6 @@ class BuildStockUtility:
             eia_mapping_version: The EIA mapping version to use.
         """
         self._bsq = buildstock_query
-        self._agg = buildstock_query.agg
         self._group_query_id = 0
         self.eia_mapping_year = eia_mapping_year
         self.eia_mapping_version = eia_mapping_version
@@ -84,11 +83,11 @@ class BuildStockUtility:
         logger.info(f"Will submit request for {id_list}")
         gs = params.query_group_size
         id_list_batches = [id_list[i: i + gs] for i in range(0, len(id_list), gs)]
-        results_array = []
+        queries = []
         for current_ids in id_list_batches:
             if len(current_ids) == 1:
                 current_ids = current_ids[0]
-            new_params = TSQuery(
+            query_params = Query(
                 enduses=params.enduses,
                 group_by=params.group_by,
                 upgrade_id=params.upgrade_id,
@@ -96,29 +95,20 @@ class BuildStockUtility:
                 join_list=params.join_list,
                 weights=params.weights,
                 restrict=[(new_table.c[id_column], current_ids)] + list(params.restrict),
-                collapse_ts=params.collapse_ts,
+                annual_only=False,
                 timestamp_grouping_func=params.timestamp_grouping_func,
                 limit=params.limit,
-                split_enduses=params.split_enduses,
                 get_quartiles=params.get_quartiles,
-                get_query_only=False if params.split_enduses else True,
+                get_query_only=True,
             )
             logger.info(f"Submitting query for {current_ids}")
-            result = self._agg.aggregate_timeseries(params=new_params)
-            results_array.append(result)
+            queries.append(self._bsq.query(params=query_params))
 
         if params.get_query_only:
-            return results_array
+            return queries
 
-        if params.split_enduses:
-            # In this case, the results_array will contain the result dataframes
-            logger.info("Concatenating the results from all IDs")
-            all_dfs = pd.concat(results_array)
-            return all_dfs
-        else:
-            # In this case, results_array will contain the queries
-            batch_query_id = self._bsq.submit_batch_query(results_array)
-            return self._bsq.get_batch_query_result(batch_id=batch_query_id)
+        batch_query_id = self._bsq.submit_batch_query(queries)
+        return self._bsq.get_batch_query_result(batch_id=batch_query_id)
 
     def get_eiaid_map(self) -> tuple[str, str, str]:
         if self.eia_mapping_version == 1:
@@ -154,7 +144,6 @@ class BuildStockUtility:
             get_query_only: If set to true, returns the list of queries to run instead of the result.
             query_group_size: The number of eiaids to be grouped together when running athena queries. This should be
                               used as large as possible that doesn't result in query timeout.
-            split_endues: Query each enduses separately to spread load on Athena
 
         Returns:
             Pandas dataframe with the aggregated timeseries and the requested enduses grouped by utilities
@@ -392,8 +381,7 @@ class BuildStockUtility:
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
         weights: Sequence[Union[str, tuple]] = Field(default_factory=list),
         restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
-        collapse_ts: bool = False,
-        timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = "month",
+        timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = "month",
         limit: Optional[int] = None,
         get_query_only: bool = False,
     ):
@@ -425,7 +413,7 @@ class BuildStockUtility:
         for col in TOU_enduse:
             enduses_list.append((TOU_enduse[col] * rate_col / 100).label(f"{col}__dollars"))
 
-        ts_query = TSQuery(
+        return self._bsq.query(
             enduses=enduses_list,
             group_by=group_by,
             upgrade_id=str(upgrade_id),
@@ -433,9 +421,8 @@ class BuildStockUtility:
             join_list=join_list,
             weights=weights,
             restrict=restrict,
-            collapse_ts=collapse_ts,
+            annual_only=False,
             timestamp_grouping_func=timestamp_grouping_func,
             limit=limit,
             get_query_only=get_query_only,
         )
-        return self._agg.aggregate_timeseries(params=ts_query)

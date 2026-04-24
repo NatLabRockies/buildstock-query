@@ -40,8 +40,6 @@ class BuildStockUtility:
                                                         AnyColType]] = Field(default_factory=list),
                               weights: Sequence[Union[str, tuple]] = [],
                               restrict: Sequence[tuple[str, Union[str, int, Sequence[int], Sequence[str]]]] = [],
-                              split_enduses: bool = False,
-                              collapse_ts: bool = False,
                               timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None,
                               query_group_size: int = 20,
                               limit: Optional[int] = None,
@@ -59,8 +57,6 @@ class BuildStockUtility:
                                                         AnyColType]] = Field(default_factory=list),
                               weights: Sequence[Union[str, tuple]] = [],
                               restrict: Sequence[tuple[str, Union[str, int, Sequence[int], Sequence[str]]]] = [],
-                              split_enduses: bool = False,
-                              collapse_ts: bool = False,
                               timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None,
                               get_query_only: Literal[False] = False,
                               query_group_size: int = 20,
@@ -80,8 +76,6 @@ class BuildStockUtility:
                                                         AnyColType]] = Field(default_factory=list),
                               weights: Sequence[Union[str, tuple]] = [],
                               restrict: Sequence[tuple[str, Union[str, int, Sequence[int], Sequence[str]]]] = [],
-                              split_enduses: bool = False,
-                              collapse_ts: bool = False,
                               timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = None,
                               query_group_size: int = 20,
                               limit: Optional[int] = None,
@@ -100,8 +94,6 @@ class BuildStockUtility:
                         form ['weight_column' or ('weight_column', 'weight_table')]
             restrict: The list of restrictions to be applied to the query. Each restriction should be specified as a
                             list of form [('column_name', restric_list / restric_value)]
-            split_endues: If true, query each enduses separately to spread load on Athena.
-            collapse_ts: If true, collapse the timeseries (i.e. sum them up) into a single row.
             get_query_only: If set to true, returns the list of queries to run instead of the result.
             timestamp_grouping_func: The function to be used to group the timeseries. If None, the timeseries are
             query_group_size: The number of eiaids to be grouped together when running athena queries. This should be
@@ -271,8 +263,7 @@ class BuildStockUtility:
                            restrict: Sequence[
                                tuple[AnyColType, Union[str, int,
                                                        Sequence[Union[int, str]]]]] = Field(default_factory=list),
-                           collapse_ts: bool = False,
-                           timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = "month",
+                           timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = "month",
                            limit: Optional[int] = None,
                            ) -> str:
         ...
@@ -290,8 +281,7 @@ class BuildStockUtility:
                            restrict: Sequence[
                                tuple[AnyColType, Union[str, int,
                                                        Sequence[Union[int, str]]]]] = Field(default_factory=list),
-                           collapse_ts: bool = False,
-                           timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = "month",
+                           timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = "month",
                            limit: Optional[int] = None,
                            get_query_only: Literal[False] = False
                            ) -> pd.DataFrame:
@@ -311,8 +301,7 @@ class BuildStockUtility:
                            restrict: Sequence[
                                tuple[AnyColType, Union[str, int,
                                                        Sequence[Union[int, str]]]]] = Field(default_factory=list),
-                           collapse_ts: bool = False,
-                           timestamp_grouping_func: Optional[Literal["month", "day", "hour"]] = "month",
+                           timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = "month",
                            limit: Optional[int] = None,
                            ) -> Union[str, pd.DataFrame]:
         """Calculates the dollar cost of electricity for a given time of use rate schedule. Currently, makes use of the
@@ -361,11 +350,9 @@ class BuildStockUtility:
                 In the above, my_run is a BuildStockQuery object and ts_bldgid_column is a building_id column of the 
                 timeseries table.
 
-            collapse_ts (bool, optional): Whether to converge all timestamps to get annual result. Defaults to False.
-
-            timestamp_grouping_func (Literal["month", "day", "hour"]), optional): The function to use to
+            timestamp_grouping_func (Literal["year", "month", "day", "hour"]), optional): The function to use to
                 group the timestamps. Defaults to "month" to get monthly bill. Can be set to None to get the bill
-                for each timestamp, or to 'hour' to get hourly bill. Use `collapse_ts = True` to get annual bill.
+                for each timestamp, to 'hour' to get hourly bill, or to 'year' to collapse into an annual bill.
 
             limit (Optional[int], optional): To limit result to certain number of rows. Defaults to None. Useful for
                 debugging.

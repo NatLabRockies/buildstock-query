@@ -4,7 +4,7 @@ import datetime
 import numpy as np
 import logging
 from buildstock_query import main
-from buildstock_query.schema.query_params import BaseQuery, TSQuery, Query
+from buildstock_query.schema.query_params import Query
 import pandas as pd
 from buildstock_query.schema.helpers import gather_params
 from typing import Union
@@ -133,219 +133,6 @@ class BuildStockAggregate:
             )
 
         return self._bsq.bs_table, self._bsq.up_table, tbljoin
-
-    @gather_params(BaseQuery)
-    def aggregate_annual(self, *, params: BaseQuery):
-        join_list = list(params.join_list) if params.join_list else []
-        weights = list(params.weights) if params.weights else []
-        restrict = list(params.restrict) if params.restrict else []
-
-        [self._bsq._get_table(jl[0]) for jl in join_list]  # ingress all tables in join list
-        if params.upgrade_id in {None, 0, "0"}:
-            enduse_cols = self._bsq._get_enduse_cols(params.enduses, table="baseline")
-            upgrade_id = None
-        else:
-            upgrade_id = self._bsq._validate_upgrade(params.upgrade_id)
-            enduse_cols = self._bsq._get_enduse_cols(params.enduses, table="upgrade")
-        total_weight = self._bsq._get_weight(weights)
-        agg_func, agg_weight = self._bsq._get_agg_func_and_weight(weights, params.agg_func)
-        enduse_selection = [
-            agg_func(enduse if agg_weight is None else enduse * agg_weight).label(
-                self._bsq._simple_label(enduse.name, params.agg_func)
-            )
-            for enduse in enduse_cols
-        ]
-        if params.get_quartiles:
-            enduse_selection += [
-                sa.func.approx_percentile(enduse, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).label(
-                    f"{self._bsq._simple_label(enduse.name)}__quartiles"
-                )
-                for enduse in enduse_cols
-            ]
-            enduse_selection += [
-                sa.func.approx_percentile(enduse, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).filter(
-                    enduse != 0
-                ).label(
-                    f"{self._bsq._simple_label(enduse.name)}__nonzero_quartiles"
-                )
-                for enduse in enduse_cols
-            ]
-
-        if params.get_nonzero_count:
-            enduse_selection += [
-                safunc.sum(sa.case((safunc.coalesce(enduse, 0) != 0, 1), else_=0) * total_weight).label(
-                    f"{self._bsq._simple_label(enduse.name)}__nonzero_units_count"
-                )
-                for enduse in enduse_cols
-            ]
-
-        grouping_metrics_selection = [
-            safunc.sum(1).label("sample_count"),
-            safunc.sum(total_weight).label("units_count"),
-        ]
-
-        if not params.group_by:
-            query = sa.select(*(grouping_metrics_selection + enduse_selection))
-            group_by_selection = []
-        else:
-            group_by_selection = self._bsq._process_groupby_cols(params.group_by, annual_only=True)
-            query = sa.select(*(group_by_selection + grouping_metrics_selection + enduse_selection))
-        # jj = self.bs_table.join(self.ts_table, self.ts_table.c['building_id']==self.bs_table.c['building_id'])
-        # self._compile(query.select_from(jj))
-        if upgrade_id not in [None, 0, "0"]:
-            if self._bsq.up_table is None:
-                raise ValueError("The run doesn't contain upgrades")
-            tbljoin = self._bsq.bs_table.join(
-                self._bsq.up_table,
-                sa.and_(
-                    self._bsq._baseline_upgrade_join_condition(),
-                    self._bsq.up_table.c["upgrade"] == str(upgrade_id),
-                    self._bsq._up_successful_condition,
-                ),
-            )
-            query = query.select_from(tbljoin)
-
-        restrict = [(self._bsq._bs_completed_status_col, [self._bsq.db_schema.completion_values.success])] + restrict
-        query = self._bsq._add_join(query, join_list)
-        query = self._bsq._add_restrict(query, restrict)
-        query = self._bsq._add_avoid(query, params.avoid)
-        query = self._bsq._add_group_by(query, group_by_selection)
-        query = self._bsq._add_order_by(query, group_by_selection if params.sort else [])
-
-        if params.get_query_only:
-            return self._bsq._compile(query)
-
-        return self._bsq.execute(query)
-
-    def _aggregate_timeseries_light(self, params: TSQuery):
-        """
-        Lighter version of aggregate_timeseries where each enduse is submitted as a separate query to be light on
-        Athena. For information on the input parameters, check the documentation on aggregate_timeseries.
-        """
-
-        enduse_cols = self._bsq._get_enduse_cols(params.enduses, table="timeseries")
-        batch_queries_to_submit = []
-        for enduse in enduse_cols:
-            new_query = params.copy()
-            new_query.enduses = [enduse.name]
-            new_query.split_enduses = False
-            query = self.aggregate_timeseries(params=new_query)
-            batch_queries_to_submit.append(query)
-
-        if params.get_query_only:
-            logger.warning(
-                "Not recommended to use get_query_only and split_enduses used together."
-                " The results from the queries cannot be directly combined to get the desired result."
-                " There are further processing done in the function. The queries should be used for"
-                " information or debugging purpose only. Use get_query_only=False to get proper result."
-            )
-            return batch_queries_to_submit
-
-        batch_query_id = self._bsq.submit_batch_query(batch_queries_to_submit)
-
-        result_dfs = self._bsq.get_batch_query_result(batch_id=batch_query_id, combine=False)
-        logger.info("Joining the individual enduses result into a single DataFrame")
-        group_by = self._bsq._clean_group_by(params.group_by)
-        for res in result_dfs:
-            res.set_index(group_by, inplace=True)
-        self.result_dfs = result_dfs
-        joined_enduses_df = result_dfs[0].drop(columns=["query_id"])
-        for enduse, res in list(zip(params.enduses, result_dfs))[1:]:
-            if not isinstance(enduse, str):
-                enduse = enduse.name
-            joined_enduses_df = joined_enduses_df.join(res[[enduse]])
-
-        logger.info("Joining Completed.")
-        return joined_enduses_df.reset_index()
-
-    @gather_params(TSQuery)
-    def aggregate_timeseries(self, params: TSQuery):
-        if self._bsq.ts_table is None:
-            raise ValueError("Not timeseries table available")
-
-        upgrade_id = self._bsq._validate_upgrade(params.upgrade_id)
-        if params.timestamp_grouping_func and params.timestamp_grouping_func not in ["hour", "day", "month"]:
-            raise ValueError("timestamp_grouping_func must be one of ['hour', 'day', 'month']")
-
-        if params.split_enduses:
-            return self._aggregate_timeseries_light(params)
-        [self._bsq._get_table(jl[0]) for jl in params.join_list]  # ingress all tables in join list
-        enduses_cols = self._bsq._get_enduse_cols(params.enduses, table="timeseries")
-        total_weight = self._bsq._get_weight(params.weights)
-        agg_func, agg_weight = self._bsq._get_agg_func_and_weight(params.weights, params.agg_func)
-        enduse_selection = [
-            agg_func(enduse if agg_weight is None else enduse * agg_weight).label(
-                self._bsq._simple_label(enduse.name, params.agg_func)
-            )
-            for enduse in enduses_cols
-        ]
-        group_by = list(params.group_by)
-        if self._bsq.timestamp_column_name not in group_by and params.collapse_ts:
-            logger.info("Aggregation done across timestamps. Result no longer a timeseries.")
-            # The aggregation is done across time so we should correct sample_count and units_count
-            rows_per_building = self._bsq._get_rows_per_building()
-            grouping_metrics_selection = [
-                (safunc.sum(1) / rows_per_building).label("sample_count"),
-                safunc.sum(total_weight / rows_per_building).label("units_count"),
-            ]
-        elif self._bsq.timestamp_column_name not in group_by:
-            group_by.append(self._bsq.timestamp_column_name)
-            grouping_metrics_selection = [
-                safunc.sum(1).label("sample_count"),
-                safunc.sum(total_weight).label("units_count"),
-            ]
-        elif params.collapse_ts:
-            raise ValueError("collapse_ts is true, but there is timestamp column in group_by.")
-        else:
-            grouping_metrics_selection = [
-                safunc.sum(1).label("sample_count"),
-                safunc.sum(total_weight).label("units_count"),
-            ]
-
-        if (colname := self._bsq.timestamp_column_name) in group_by and params.timestamp_grouping_func:
-            # sample_count = count(distinct(timeseries unique key))
-            # units_count = count(distinct(timeseries unique key)) * sum(total_weight) / sum(1)
-            distinct_ts_keys = self._bsq._count_distinct(self._bsq.ts_key_cols)
-            grouping_metrics_selection = [
-                distinct_ts_keys.label("sample_count"),
-                (distinct_ts_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
-                (safunc.sum(1) / distinct_ts_keys).label("rows_per_sample"),
-            ]
-            indx = group_by.index(colname)
-            sim_info = self._bsq._get_simulation_info()
-            if sim_info.offset > 0:
-                # If timestamps are not period beginning we should make them so for timestamp_grouping_func aggregation.
-                new_col = sa.func.date_trunc(
-                    params.timestamp_grouping_func,
-                    sa.func.date_add(sim_info.unit, -sim_info.offset, self._bsq.timestamp_column),
-                ).label(colname)
-            else:
-                new_col = sa.func.date_trunc(params.timestamp_grouping_func, self._bsq.timestamp_column).label(colname)
-            group_by[indx] = new_col
-
-        group_by_selection = self._bsq._process_groupby_cols(group_by, annual_only=False)
-
-        query = sa.select(*(group_by_selection + grouping_metrics_selection + enduse_selection))
-        query = query.join(self._bsq.bs_table, self._bsq._baseline_timeseries_join_condition())
-        if params.join_list:
-            query = self._bsq._add_join(query, params.join_list)
-
-        group_by_names = [g.name for g in group_by_selection]
-        upgrade_in_restrict = any(entry[0] == "upgrade" for entry in params.restrict)
-        if self._bsq.up_table is not None and not upgrade_in_restrict and "upgrade" not in group_by_names:
-            logger.info(f"Restricting query to Upgrade {upgrade_id}.")
-            params.restrict = list(params.restrict) + [(self._bsq._ts_upgrade_col, [upgrade_id])]
-
-        query = self._bsq._add_restrict(query, params.restrict)
-        query = self._bsq._add_avoid(query, params.avoid)
-        query = self._bsq._add_group_by(query, group_by_selection)
-        query = self._bsq._add_order_by(query, group_by_selection if params.sort else [])
-        query = query.limit(params.limit) if params.limit else query
-
-        if params.get_query_only:
-            return self._bsq._compile(query)
-
-        return self._bsq.execute(query)
 
     @validate_arguments
     def get_building_average_kws_at(
@@ -532,9 +319,7 @@ class BuildStockAggregate:
             if params.annual_only:
                 baseline_col = get_col(bs_tbl, col)
                 if upgrade_id != "0":
-                    # "and not params.include_savings" is added to restore the behavior of savings_shape query.
-                    # Can be removed once savings_shape is removed.
-                    if params.applied_only and not params.include_savings:
+                    if params.applied_only:
                         upgrade_col = get_col(up_tbl, col)
                     else:
                         upgrade_col = sa.case(
@@ -546,9 +331,7 @@ class BuildStockAggregate:
             else:
                 baseline_col = get_col(bs_tbl, col)
                 if upgrade_id != "0":
-                    # "and not params.include_savings" is added to restore the behavior of savings_shape query.
-                    # Can be removed once savings_shape is removed.
-                    if params.applied_only and not params.include_savings:
+                    if params.applied_only:
                         upgrade_col = get_col(up_tbl, col)
                     else:
                         upgrade_col = sa.case(
@@ -630,9 +413,7 @@ class BuildStockAggregate:
         if params.annual_only:  # Use annual tables
             grouping_metrics_selection = [
                 safunc.sum(1).label("sample_count"),
-                # '1 *' included in savings query to match existing behavior for testing.
-                # Can be removed after saving_shape is removed.
-                safunc.sum(1 * total_weight if params.include_savings else total_weight).label("units_count"),
+                safunc.sum(total_weight).label("units_count"),
             ]
         elif params.timestamp_grouping_func == "year":  # Use timeseries tables but collapse timeseries
             rows_per_building = self._bsq._get_rows_per_building()
@@ -661,41 +442,16 @@ class BuildStockAggregate:
                 ).label(colname)
             else:
                 new_col = sa.func.date_trunc(params.timestamp_grouping_func, time_col).label(colname)
-
-            # If include_savings is True, then the order of the columns is different. Do this
-            # to match the behavior of savings_shape query. Can be simplified after savings_shape function is removed.
-            if params.include_savings:
-                group_by_selection.append(new_col)
-            else:
-                group_by_selection.insert(time_indx, new_col)
+            group_by_selection.insert(time_indx, new_col)
         else:
             time_col = bs_tbl.c[self._bsq.timestamp_column_name].label(self._bsq.timestamp_column_name)
             grouping_metrics_selection = [
                 safunc.sum(1).label("sample_count"),
-                # '1 *' included in savings query to match existing behavior for testing.
-                # Can be removed after saving_shape is removed.
-                safunc.sum(1 * total_weight if params.include_savings else total_weight).label("units_count"),
+                safunc.sum(total_weight).label("units_count"),
             ]
-            if params.include_savings:
-                group_by_selection.append(time_col)
-            else:
-                group_by_selection.insert(time_indx, time_col)
+            group_by_selection.insert(time_indx, time_col)
 
-        # If include_savings is True, then the order of the columns is different. Do this
-        # to match the behavior of savings_shape query. Can be simplified after savings_shape function is removed.
-        if params.include_savings:
-            if params.annual_only or params.timestamp_grouping_func == "year":
-                query_cols = grouping_metrics_selection + query_cols + list(group_by_selection)
-            else:  # time is the first column in this case and needs to be moved to the front to match
-                # the behavior of savings_shape query
-                query_cols = [
-                    group_by_selection[-1],
-                    *grouping_metrics_selection,
-                    *query_cols,
-                    *group_by_selection[:-1],
-                ]
-        else:
-            query_cols = list(group_by_selection) + grouping_metrics_selection + query_cols
+        query_cols = list(group_by_selection) + grouping_metrics_selection + query_cols
         query = sa.select(*query_cols).select_from(tbljoin)
         query = self._bsq._add_join(query, params.join_list)
         if params.annual_only:

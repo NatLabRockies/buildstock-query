@@ -86,7 +86,8 @@ def test_aggregate_ts_by_eiaid_monthly(bsq: BuildStockQuery, sample_eiaids: list
         .sort_index()
     )
     portfolio = (
-        bsq.agg.aggregate_timeseries(
+        bsq.query(
+            annual_only=False,
             enduses=["fuel_use__electricity__total__kwh"],
             timestamp_grouping_func="month",
         )
@@ -111,7 +112,7 @@ def test_aggregate_ts_by_eiaid_collapse(bsq: BuildStockQuery, sample_eiaids: lis
     collapsed = bsq.utility.aggregate_ts_by_eiaid(
         eiaid_list=target_ids,
         enduses=["fuel_use__electricity__total__kwh"],
-        collapse_ts=True,
+        timestamp_grouping_func="year",
     )
 
     assert not collapsed.empty
@@ -150,7 +151,7 @@ def test_aggregate_unit_counts_by_eiaid(bsq: BuildStockQuery, sample_eiaids: lis
     assert df["sample_count"].gt(0).all()
     assert df[geom_col].notna().all()
 
-    portfolio = bsq.agg.aggregate_annual(
+    portfolio = bsq.query(
         enduses=[],
         group_by=["build_existing_model.geometry_building_type_recs"],
         sort=True,
@@ -166,7 +167,7 @@ def test_aggregate_unit_counts_by_eiaid(bsq: BuildStockQuery, sample_eiaids: lis
 def test_aggregate_annual_by_eiaid_matches_overall(bsq: BuildStockQuery) -> None:
     enduse = "fuel_use_electricity_total_m_btu"
     df = bsq.utility.aggregate_annual_by_eiaid(enduses=[enduse], get_nonzero_count=True)
-    overall = bsq.agg.aggregate_annual(enduses=[enduse])
+    overall = bsq.query(enduses=[enduse])
 
     assert not df.empty
     expected_cols = {"eiaid", "sample_count", "units_count", enduse}
@@ -265,7 +266,8 @@ def test_calculate_tou_bill_monthly(
     df = df.sort_values("time").reset_index(drop=True)
     df["month"] = df["time"].dt.month
 
-    baseline = bsq.agg.aggregate_timeseries(
+    baseline = bsq.query(
+        annual_only=False,
         enduses=["fuel_use__electricity__total__kwh"],
         timestamp_grouping_func="month",
     ).sort_values("time")
@@ -306,7 +308,7 @@ def test_calculate_tou_bill_collapse_multiple_meters(
             "fuel_use__electricity__total__kwh",
             "end_use__electricity__cooling__kwh",
         ),
-        collapse_ts=True,
+        timestamp_grouping_func="year",
     )
 
     assert not df.empty

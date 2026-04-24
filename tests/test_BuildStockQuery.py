@@ -11,7 +11,7 @@ from pyathena.error import OperationalError
 
 from buildstock_query.main import BuildStockQuery
 from buildstock_query.db_schema.db_schema_model import DBSchema
-from buildstock_query.schema.query_params import Query, BaseQuery, SavingsQuery
+from buildstock_query.schema.query_params import Query
 
 
 @pytest.fixture(scope="module")
@@ -131,29 +131,24 @@ class TestBuildStockQuery:
     def test_annual_query_uses_metadata_unique_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         bsq = self._custom_join_key_bsq(monkeypatch)
 
-        query_sql = bsq.query(
+        query = bsq.query(
             upgrade_id="1",
             annual_only=True,
             enduses=["out.electricity.total.energy_consumption"],
             get_query_only=True,
         )
-        aggregate_sql = bsq.agg.aggregate_annual(
-            upgrade_id="1",
-            enduses=["out.electricity.total.energy_consumption"],
-            get_query_only=True,
-        )
 
-        for query in [query_sql, aggregate_sql]:
-            assert "custom_run_metadata.bldg_id = custom_run_upgrades.bldg_id" in query
-            assert "custom_run_metadata.county = custom_run_upgrades.county" in query
-            assert "custom_run_metadata.state = custom_run_upgrades.state" in query
+        assert "custom_run_metadata.bldg_id = custom_run_upgrades.bldg_id" in query
+        assert "custom_run_metadata.county = custom_run_upgrades.county" in query
+        assert "custom_run_metadata.state = custom_run_upgrades.state" in query
 
     def test_timeseries_query_uses_timeseries_unique_keys(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         bsq = self._custom_join_key_bsq(monkeypatch)
 
-        query = bsq.agg.aggregate_timeseries(
+        query = bsq.query(
+            annual_only=False,
             enduses=["out.electricity.total.energy_consumption"],
             get_query_only=True,
         )
@@ -265,7 +260,8 @@ class TestBuildStockQuery:
     ) -> None:
         bsq = self._custom_join_key_bsq(monkeypatch)
         self._stub_sim_info(bsq, monkeypatch)
-        query = bsq.agg.aggregate_timeseries(
+        query = bsq.query(
+            annual_only=False,
             enduses=["out.electricity.total.energy_consumption"],
             timestamp_grouping_func="month",
             get_query_only=True,
@@ -280,7 +276,8 @@ class TestBuildStockQuery:
         bsq.db_schema.unique_keys.timeseries = None
         bsq._initialize_tables()
         self._stub_sim_info(bsq, monkeypatch)
-        query = bsq.agg.aggregate_timeseries(
+        query = bsq.query(
+            annual_only=False,
             enduses=["out.electricity.total.energy_consumption"],
             timestamp_grouping_func="month",
             get_query_only=True,
@@ -316,7 +313,7 @@ class TestBuildStockQuery:
 
     def test_aggregate_annual_basic(self, bsq: BuildStockQuery) -> None:
         enduses = ["fuel_use_electricity_total_m_btu", "fuel_use_natural_gas_total_m_btu"]
-        df = bsq.agg.aggregate_annual(enduses=enduses)
+        df = bsq.query(enduses=enduses)
 
         assert len(df) == 1
         for column in ["sample_count", "units_count", *enduses]:
@@ -327,7 +324,7 @@ class TestBuildStockQuery:
         assert (df[enduses] >= 0).to_numpy().all()
 
     def test_aggregate_annual_group_by(self, bsq: BuildStockQuery) -> None:
-        df = bsq.agg.aggregate_annual(
+        df = bsq.query(
             enduses=["fuel_use_electricity_total_m_btu"],
             group_by=["geometry_building_type_recs"],
         )
@@ -338,7 +335,7 @@ class TestBuildStockQuery:
         assert df["sample_count"].gt(0).all()
 
     def test_aggregate_annual_restrict_state(self, bsq: BuildStockQuery) -> None:
-        df = bsq.agg.aggregate_annual(
+        df = bsq.query(
             enduses=["fuel_use_electricity_total_m_btu"],
             group_by=["geometry_building_type_recs", "build_existing_model.state"],
             restrict=[("build_existing_model.state", ["CA"])],
@@ -349,7 +346,7 @@ class TestBuildStockQuery:
         assert (df["state"] == "CA").all()
 
     def test_aggregate_annual_upgrade(self, bsq: BuildStockQuery) -> None:
-        df = bsq.agg.aggregate_annual(
+        df = bsq.query(
             enduses=["fuel_use_electricity_total_m_btu"],
             group_by=["geometry_building_type_recs"],
             upgrade_id="1",
@@ -387,7 +384,7 @@ class TestBuildStockQuery:
         assert executed_queries
 
     def test_aggregate_annual_nonzero_count(self, bsq: BuildStockQuery) -> None:
-        df = bsq.agg.aggregate_annual(
+        df = bsq.query(
             enduses=["fuel_use_natural_gas_total_m_btu"],
             group_by=["geometry_building_type_recs"],
             get_nonzero_count=True,
@@ -398,36 +395,21 @@ class TestBuildStockQuery:
         assert df[col].ge(0).all()
 
     def test_aggregate_annual_quartiles(self, bsq: BuildStockQuery) -> None:
-        df = bsq.agg.aggregate_annual(
+        df = bsq.query(
             enduses=["fuel_use_electricity_total_m_btu"],
             group_by=["geometry_building_type_recs"],
             get_quartiles=True,
         )
 
-        quartile_column = "fuel_use_electricity_total_m_btu__quartiles"
+        quartile_column = "fuel_use_electricity_total_m_btu__upgrade__quartiles"
         assert quartile_column in df.columns
         quartiles = df[quartile_column].iloc[0]
         assert hasattr(quartiles, "__len__")
         assert len(quartiles) == 9
 
-    def test_aggregate_annual_matches_query(self, bsq: BuildStockQuery) -> None:
-        param_dict = {
-            "enduses": ["fuel_use_electricity_total_m_btu"],
-            "group_by": ["geometry_building_type_recs"],
-            "upgrade_id": "1",
-        }
-
-        agg_df = bsq.agg.aggregate_annual(params=BaseQuery.model_validate(param_dict))
-        query_df = bsq.query(params=Query.model_validate(param_dict))
-        assert isinstance(agg_df, pd.DataFrame)
-        assert isinstance(query_df, pd.DataFrame)
-        pd.testing.assert_frame_equal(
-            agg_df.sort_values(list(agg_df.columns)).reset_index(drop=True),
-            query_df.sort_values(list(query_df.columns)).reset_index(drop=True),
-        )
-
     def test_timeseries_basic(self, bsq: BuildStockQuery) -> None:
-        df = bsq.agg.aggregate_timeseries(
+        df = bsq.query(
+            annual_only=False,
             enduses=["fuel_use__electricity__total__kwh"],
             timestamp_grouping_func="month",
         )
@@ -439,10 +421,11 @@ class TestBuildStockQuery:
         assert df["fuel_use__electricity__total__kwh"].ge(0).all()
 
     def test_timeseries_group_by_restrict(self, bsq: BuildStockQuery) -> None:
-        df = bsq.agg.aggregate_timeseries(
+        df = bsq.query(
+            annual_only=False,
             enduses=["fuel_use__electricity__total__kwh"],
             timestamp_grouping_func="month",
-            group_by=["geometry_building_type_recs", "build_existing_model.state"],
+            group_by=["geometry_building_type_recs", "build_existing_model.state", "time"],
             restrict=[("build_existing_model.state", ["TX"])],
         )
 
@@ -640,37 +623,8 @@ class TestBuildStockQuery:
                 }
             )
 
-        with pytest.raises(ValueError, match="applied_in cannot be set when applied_only is False"):
-            SavingsQuery.model_validate(
-                {
-                    "upgrade_id": "1",
-                    "enduses": ["fuel_use__electricity__total__kwh"],
-                    "applied_only": False,
-                    "applied_in": ["1", "2"],
-                }
-            )
-
-    @pytest.mark.parametrize(
-        "query_runner",
-        [
-            lambda bsq, restrict: bsq.query(
-                annual_only=False,
-                upgrade_id="1",
-                enduses=["fuel_use__electricity__total__kwh"],
-                restrict=restrict,
-                get_query_only=True,
-            ),
-            lambda bsq, restrict: bsq.savings.savings_shape(
-                annual_only=False,
-                upgrade_id="1",
-                enduses=["fuel_use__electricity__total__kwh"],
-                restrict=restrict,
-                get_query_only=True,
-            ),
-        ],
-    )
     def test_timeseries_upgrade_restrict_is_rejected(
-        self, monkeypatch: pytest.MonkeyPatch, query_runner
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         table_name = "small_run_baseline_20230810_100"
 
@@ -716,7 +670,13 @@ class TestBuildStockQuery:
             ValueError,
             match="Use `upgrade_id` instead of a `restrict` on the timeseries `upgrade` column",
         ):
-            query_runner(bsq, [("upgrade", [1])])
+            bsq.query(
+                annual_only=False,
+                upgrade_id="1",
+                enduses=["fuel_use__electricity__total__kwh"],
+                restrict=[("upgrade", [1])],
+                get_query_only=True,
+            )
 
     def test_timeseries_query_applied_in_adds_subquery_restrict(
         self, monkeypatch: pytest.MonkeyPatch
@@ -774,88 +734,11 @@ class TestBuildStockQuery:
         assert "IN ('1', '2', '3', '4')" in query
         assert "completed_status = 'Success'" in query
 
-    def test_savings_shape_applied_in_adds_subquery_restrict(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        table_name = "small_run_baseline_20230810_100"
-
-        metadata = sa.MetaData()
-        baseline = sa.Table(
-            f"{table_name}_baseline",
-            metadata,
-            sa.Column("building_id", sa.Integer),
-            sa.Column("completed_status", sa.String),
-        )
-        timeseries = sa.Table(
-            f"{table_name}_timeseries",
-            metadata,
-            sa.Column("building_id", sa.Integer),
-            sa.Column("time", sa.DateTime),
-            sa.Column("upgrade", sa.String),
-            sa.Column("fuel_use__electricity__total__kwh", sa.Float),
-        )
-        upgrades = sa.Table(
-            f"{table_name}_upgrades",
-            metadata,
-            sa.Column("building_id", sa.Integer),
-            sa.Column("upgrade", sa.String),
-            sa.Column("completed_status", sa.String),
-        )
-
-        def _get_local_tables(self, requested_table_name):
-            assert requested_table_name == table_name
-            return baseline, timeseries, upgrades
-
-        monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
-        bsq = BuildStockQuery(
-            db_name="resstock_core",
-            table_name=table_name,
-            workgroup="rescore",
-            buildstock_type="resstock",
-            skip_reports=True,
-            sample_weight_override=1,
-        )
-        monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1", "2", "3", "4"])
-
-        query = bsq.savings.savings_shape(
-            annual_only=False,
-            upgrade_id="1",
-            enduses=["fuel_use__electricity__total__kwh"],
-            applied_only=True,
-            applied_in=["1", "2", "3", "4"],
-            get_query_only=True,
-        )
-
-        assert "IN (SELECT" in query
-        assert "HAVING count(distinct" in query
-        assert "IN ('1', '2', '3', '4')" in query
-        assert "completed_status = 'Success'" in query
-
-    def test_timeseries_matches_query(self, bsq: BuildStockQuery) -> None:
-        agg_df = bsq.agg.aggregate_timeseries(
-            enduses=["fuel_use__electricity__total__kwh"],
-            timestamp_grouping_func="month",
-            group_by=["geometry_building_type_recs", "build_existing_model.state"],
-            restrict=[("build_existing_model.state", ["TX"])],
-        )
-        query_df = bsq.query(
-            annual_only=False,
-            enduses=["fuel_use__electricity__total__kwh"],
-            timestamp_grouping_func="month",
-            group_by=["geometry_building_type_recs", "build_existing_model.state", "time"],
-            restrict=[("build_existing_model.state", ["TX"])],
-        )
-
-        sort_cols = ["geometry_building_type_recs", "state", "time"]
-        pd.testing.assert_frame_equal(
-            agg_df.sort_values(sort_cols).reset_index(drop=True),
-            query_df.sort_values(sort_cols).reset_index(drop=True),
-        )
-
     def test_timeseries_collapse(self, bsq: BuildStockQuery) -> None:
-        df = bsq.agg.aggregate_timeseries(
+        df = bsq.query(
+            annual_only=False,
             enduses=["fuel_use__electricity__total__kwh"],
-            collapse_ts=True,
+            timestamp_grouping_func="year",
         )
         assert "time" not in df.columns
         assert len(df) == 1

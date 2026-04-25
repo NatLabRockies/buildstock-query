@@ -6,7 +6,7 @@
     "data_file": "annual_totals_overall.parquet",
     "args": {
       "enduses": ["out.electricity.total.energy_consumption", "out.natural_gas.total.energy_consumption"],
-      "restrict": [["in.state", ["CO"]]]
+      "restrict": [["state", ["CO"]]]
     }
   },
   {
@@ -18,12 +18,12 @@
       {
         "enduses": ["out.electricity.total.energy_consumption", "out.natural_gas.total.energy_consumption"],
         "group_by": ["in.geometry_building_type_recs"],
-        "restrict": [["in.state", ["CO"]]]
+        "restrict": [["state", ["CO"]]]
       },
       {
         "enduses": ["out.electricity.total.energy_consumption", "out.natural_gas.total.energy_consumption"],
         "group_by": ["in.geometry_building_type_recs"],
-        "restrict": [["in.state", ["CO"]]],
+        "restrict": [["state", ["CO"]]],
         "annual_only": true
       }
     ]
@@ -36,7 +36,7 @@
     "args": {
       "enduses": ["out.electricity.total.energy_consumption"],
       "group_by": ["in.vintage"],
-      "restrict": [["in.state", ["CO"]]],
+      "restrict": [["state", ["CO"]]],
       "sort": true,
       "limit": 5
     }
@@ -49,7 +49,7 @@
     "args": {
       "enduses": ["out.natural_gas.total.energy_consumption"],
       "group_by": ["in.geometry_building_type_recs"],
-      "restrict": [["in.state", ["CO"]]],
+      "restrict": [["state", ["CO"]]],
       "get_nonzero_count": true
     }
   }

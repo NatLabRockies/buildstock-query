@@ -8,7 +8,7 @@
       "enduses": ["out.electricity.total.energy_consumption"],
       "upgrade_id": "1",
       "group_by": ["in.geometry_building_type_recs"],
-      "restrict": [["in.state", ["CO"]]],
+      "restrict": [["state", ["CO"]]],
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true
@@ -40,7 +40,7 @@
       "enduses": ["out.electricity.total.energy_consumption"],
       "upgrade_id": "1",
       "group_by": ["in.geometry_building_type_recs"],
-      "restrict": [["in.state", ["CO"]]],
+      "restrict": [["state", ["CO"]]],
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true,

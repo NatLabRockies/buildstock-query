@@ -16,7 +16,7 @@
     "data_file": "annual_totals_by_building_type_CO.parquet",
     "args": {
       "enduses": ["out.electricity.total.energy_consumption..kwh", "out.natural_gas.total.energy_consumption..kwh"],
-      "group_by": ["comstock_building_type"],
+      "group_by": ["in.comstock_building_type"],
       "restrict": [["state", ["CO"]]]
     }
   },

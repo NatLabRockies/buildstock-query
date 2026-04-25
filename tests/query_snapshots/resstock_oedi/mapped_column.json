@@ -16,7 +16,7 @@
         "Multi-Family with 5+ Units": "MF"
       },
       "enduses": ["out.electricity.total.energy_consumption"],
-      "restrict": [["in.state", ["CO"]]]
+      "restrict": [["state", ["CO"]]]
     }
   }
 ]

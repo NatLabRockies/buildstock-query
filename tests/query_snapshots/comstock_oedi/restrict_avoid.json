@@ -6,7 +6,7 @@
     "data_file": "restrict_single_state_CO.parquet",
     "args": {
       "enduses": ["out.electricity.total.energy_consumption..kwh"],
-      "group_by": ["comstock_building_type"],
+      "group_by": ["in.comstock_building_type"],
       "restrict": [["state", ["CO"]]]
     }
   },

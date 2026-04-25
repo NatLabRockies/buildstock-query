@@ -1,0 +1,5 @@
+SELECT baseline.state AS state, comstock_amy2018_r2_2025_ts_by_state.timestamp AS timestamp, sum(1) AS sample_count, sum(baseline.weight) AS units_count, sum(comstock_amy2018_r2_2025_ts_by_state."out.electricity.total.energy_consumption" * baseline.weight) AS "electricity.total.energy_consumption" 
+FROM comstock_amy2018_r2_2025_ts_by_state JOIN (SELECT * 
+FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet 
+WHERE comstock_amy2018_r2_2025_md_by_state_and_county_parquet.upgrade = 0) AS baseline ON baseline.bldg_id = comstock_amy2018_r2_2025_ts_by_state.bldg_id AND baseline.state = comstock_amy2018_r2_2025_ts_by_state.state AND comstock_amy2018_r2_2025_ts_by_state.upgrade = 0 AND comstock_amy2018_r2_2025_ts_by_state.state = 'CO' AND baseline.state = 'CO' 
+WHERE baseline.state = 'CO' GROUP BY 1, 2 ORDER BY 1, 2

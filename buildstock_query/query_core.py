@@ -35,7 +35,8 @@ from buildstock_query.schema.utilities import (
     MappedColumn,
     SALabel,
     DBTableType,
-    validate_arguments
+    typed_literal,
+    validate_arguments,
 )
 import hashlib
 import toml
@@ -414,9 +415,10 @@ class QueryCore:
         baseline_table = self._get_table(baseline_table_name)
         ts_table = self._get_table(ts_table_name, missing_ok=True) if ts_table_name else None
         if baseline_table_name == upgrade_table_name:
-            upgrade_col = sa.cast(baseline_table.c["upgrade"], sa.String)
-            upgrade_table = self._get_subquery_table(baseline_table, upgrade_col != "0", "upgrade")
-            baseline_table = self._get_subquery_table(baseline_table, upgrade_col == "0", "baseline")
+            upgrade_col = baseline_table.c["upgrade"]
+            zero = typed_literal(upgrade_col, "0")
+            upgrade_table = self._get_subquery_table(baseline_table, upgrade_col != zero, "upgrade")
+            baseline_table = self._get_subquery_table(baseline_table, upgrade_col == zero, "baseline")
         else:
             upgrade_table = self._get_table(upgrade_table_name, missing_ok=True) if upgrade_table_name else None
         return baseline_table, ts_table, upgrade_table
@@ -1311,14 +1313,15 @@ class QueryCore:
             if subquery is not None:
                 clauses.append(col.in_(subquery))
             elif isinstance(criteria, Sequence) and not isinstance(criteria, str):
-                if len(criteria) > 1:
-                    clauses.append(col.in_(criteria))
-                elif len(criteria) == 1:
-                    clauses.append(col == criteria[0])
+                typed = [typed_literal(col, v) for v in criteria]
+                if len(typed) > 1:
+                    clauses.append(col.in_(typed))
+                elif len(typed) == 1:
+                    clauses.append(col == typed[0])
                 else:
                     raise ValueError(f"Invalid criteria {criteria}")
             else:
-                clauses.append(col == criteria)
+                clauses.append(col == typed_literal(col, criteria))
         return clauses
 
     def _add_restrict(self, query, restrict, *, annual_only=False):

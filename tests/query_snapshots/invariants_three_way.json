@@ -1,0 +1,148 @@
+[
+  {
+    "name": "inv_baseline_ts_year_by_building_type",
+    "description": "Three-way invariant: ts-year-collapse leg, baseline. Two fuels.",
+    "sql_file": "inv_baseline_ts_year_by_building_type.sql",
+    "data_file": "inv_baseline_ts_year_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "upgrade_id": "0",
+      "annual_only": false,
+      "timestamp_grouping_func": "year",
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "inv_upgrade1_annual_by_building_type",
+    "description": "Three-way invariant: annual leg, upgrade 1 (no applied filter), CO. Two fuels.",
+    "sql_file": "inv_upgrade1_annual_by_building_type.sql",
+    "data_file": "inv_upgrade1_annual_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "upgrade_id": "1",
+      "applied_only": false,
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "inv_upgrade1_ts_year_by_building_type",
+    "description": "Three-way invariant: ts-year-collapse leg, upgrade 1 (no applied filter). Two fuels.",
+    "sql_file": "inv_upgrade1_ts_year_by_building_type.sql",
+    "data_file": "inv_upgrade1_ts_year_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "upgrade_id": "1",
+      "applied_only": false,
+      "annual_only": false,
+      "timestamp_grouping_func": "year",
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "inv_upgrade1_ts_monthly_by_building_type",
+    "description": "Three-way invariant: ts-monthly leg, upgrade 1 (no applied filter). Two fuels.",
+    "sql_file": "inv_upgrade1_ts_monthly_by_building_type.sql",
+    "data_file": "inv_upgrade1_ts_monthly_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "upgrade_id": "1",
+      "applied_only": false,
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": ["$BUILDING_TYPE_COL", "time"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "inv_upgrade1_applied_annual_by_building_type",
+    "description": "Three-way invariant: annual leg, upgrade 1, applied_only=True. Two fuels.",
+    "sql_file": "inv_upgrade1_applied_annual_by_building_type.sql",
+    "data_file": "inv_upgrade1_applied_annual_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "upgrade_id": "1",
+      "applied_only": true,
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "inv_upgrade1_applied_ts_year_by_building_type",
+    "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True. Two fuels.",
+    "sql_file": "inv_upgrade1_applied_ts_year_by_building_type.sql",
+    "data_file": "inv_upgrade1_applied_ts_year_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "upgrade_id": "1",
+      "applied_only": true,
+      "annual_only": false,
+      "timestamp_grouping_func": "year",
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "inv_upgrade1_applied_ts_monthly_by_building_type",
+    "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True. Two fuels.",
+    "sql_file": "inv_upgrade1_applied_ts_monthly_by_building_type.sql",
+    "data_file": "inv_upgrade1_applied_ts_monthly_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "upgrade_id": "1",
+      "applied_only": true,
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": ["$BUILDING_TYPE_COL", "time"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "inv_upgrade1_applied_in_1_2_annual_by_building_type",
+    "description": "Three-way invariant: annual leg, upgrade 1, applied_only=True, applied_in=[1,2]. Two fuels.",
+    "sql_file": "inv_upgrade1_applied_in_1_2_annual_by_building_type.sql",
+    "data_file": "inv_upgrade1_applied_in_1_2_annual_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "upgrade_id": "1",
+      "applied_only": true,
+      "applied_in": [1, 2],
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "inv_upgrade1_applied_in_1_2_ts_year_by_building_type",
+    "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True, applied_in=[1,2]. Two fuels.",
+    "sql_file": "inv_upgrade1_applied_in_1_2_ts_year_by_building_type.sql",
+    "data_file": "inv_upgrade1_applied_in_1_2_ts_year_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "upgrade_id": "1",
+      "applied_only": true,
+      "applied_in": [1, 2],
+      "annual_only": false,
+      "timestamp_grouping_func": "year",
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "inv_upgrade1_applied_in_1_2_ts_monthly_by_building_type",
+    "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True, applied_in=[1,2]. Two fuels.",
+    "sql_file": "inv_upgrade1_applied_in_1_2_ts_monthly_by_building_type.sql",
+    "data_file": "inv_upgrade1_applied_in_1_2_ts_monthly_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "upgrade_id": "1",
+      "applied_only": true,
+      "applied_in": [1, 2],
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": ["$BUILDING_TYPE_COL", "time"],
+      "restrict": [["state", ["CO"]]]
+    }
+  }
+]

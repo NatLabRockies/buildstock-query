@@ -1,0 +1,65 @@
+[
+  {
+    "name": "savings_annual_upgrade1_electricity",
+    "description": "Annual savings for upgrade 1, electricity, grouped by building type, CO only.",
+    "sql_file": "savings_annual_upgrade1_electricity.sql",
+    "data_file": "savings_annual_upgrade1_electricity.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "upgrade_id": "1",
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true
+    }
+  },
+  {
+    "name": "savings_ts_monthly_upgrade1_electricity",
+    "description": "Monthly timeseries savings for upgrade 1, electricity, CO only.",
+    "sql_file": "savings_ts_monthly_upgrade1_electricity.sql",
+    "data_file": "savings_ts_monthly_upgrade1_electricity.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "upgrade_id": "1",
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": ["time"],
+      "restrict": [["state", ["CO"]]],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true
+    }
+  },
+  {
+    "name": "savings_only_upgrade1_electricity",
+    "description": "Savings-only annual output (no baseline / no upgrade columns) for upgrade 1, CO. Catches column-suppression bugs in the include_baseline / include_upgrade flags.",
+    "sql_file": "savings_only_upgrade1_electricity.sql",
+    "data_file": "savings_only_upgrade1_electricity.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "upgrade_id": "1",
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]],
+      "include_baseline": false,
+      "include_upgrade": false,
+      "include_savings": true
+    }
+  },
+  {
+    "name": "savings_annual_upgrade1_quartiles",
+    "description": "Annual upgrade 1 savings with quartiles, CO only.",
+    "sql_file": "savings_annual_upgrade1_quartiles.sql",
+    "data_file": "savings_annual_upgrade1_quartiles.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "upgrade_id": "1",
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true,
+      "get_quartiles": true
+    }
+  }
+]

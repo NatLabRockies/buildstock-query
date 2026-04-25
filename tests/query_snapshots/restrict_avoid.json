@@ -1,0 +1,47 @@
+[
+  {
+    "name": "restrict_single_state",
+    "description": "Annual electricity restricted to CO with simple single-value restrict.",
+    "sql_file": "restrict_single_state.sql",
+    "data_file": "restrict_single_state.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "restrict_two_states",
+    "description": "Annual electricity restricted to CO + WY.",
+    "sql_file": "restrict_two_states.sql",
+    "data_file": "restrict_two_states.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "group_by": ["state"],
+      "restrict": [["state", ["CO", "WY"]]]
+    }
+  },
+  {
+    "name": "restrict_state_plus_vintage",
+    "description": "CO + specific vintage bucket, electricity.",
+    "sql_file": "restrict_state_plus_vintage.sql",
+    "data_file": "restrict_state_plus_vintage.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "group_by": ["vintage"],
+      "restrict": [["state", ["CO"]], ["vintage", ["$VINTAGE_BUCKET"]]]
+    }
+  },
+  {
+    "name": "avoid_building_type",
+    "description": "CO only, avoid one building type per schema.",
+    "sql_file": "avoid_building_type.sql",
+    "data_file": "avoid_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]],
+      "avoid": [["$BUILDING_TYPE_COL", ["$AVOID_BUILDING_TYPE"]]]
+    }
+  }
+]

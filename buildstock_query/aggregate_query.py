@@ -9,12 +9,19 @@ import pandas as pd
 from buildstock_query.schema.helpers import gather_params
 from typing import Union
 from collections.abc import Sequence
-from buildstock_query.schema.utilities import DBColType, RestrictTuple, validate_arguments
+from buildstock_query.schema.utilities import DBColType, RestrictTuple, typed_literal, validate_arguments
 from pydantic import Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 FUELS = ["electricity", "natural_gas", "propane", "fuel_oil", "coal", "wood_cord", "wood_pellets"]
+
+
+class UnsupportedQueryShape(NotImplementedError):
+    """Raised when the requested query shape is known to be unsupported on the
+    current schema. Caught by the snapshot harness and treated as a skip rather
+    than a failure.
+    """
 
 
 class BuildStockAggregate:
@@ -30,6 +37,7 @@ class BuildStockAggregate:
         upgrade_id: str,
         applied_only: bool | None,
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        bs_restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         group_by: Sequence[DBColType] = Field(default_factory=list),
         upgrade_only: bool = False,
     ):
@@ -39,6 +47,15 @@ class BuildStockAggregate:
         ts = self._bsq.ts_table
         base = self._bsq.bs_table
         ucol = self._bsq._ts_upgrade_col
+
+        # Push any user-supplied bs_restrict (e.g. comstock `state='CO'`) into the
+        # inner ts ⋈ bs join condition. Without this, Athena scans the full metadata
+        # table before applying user filters — for comstock's tract-denormalized
+        # metadata that's the difference between minutes and timeouts. Adding to
+        # the JOIN ON clause (rather than wrapping bs in another subquery) keeps
+        # the SELECT list clean and lets Athena push the predicate into the bs
+        # table scan without enumerating all columns.
+        bs_restrict_clauses = self._bsq._get_restrict_clauses(bs_restrict, annual_only=True)
 
         if upgrade_id == "0" or upgrade_only:
             # Single-upgrade path: aggregate only the requested upgrade's ts rows.
@@ -51,6 +68,7 @@ class BuildStockAggregate:
                     sa.and_(
                         self._bsq._baseline_timeseries_join_condition(base, ts),
                         *self._bsq._get_restrict_clauses(restrict, annual_only=True),
+                        *bs_restrict_clauses,
                     ),
                 )
             else:
@@ -58,11 +76,19 @@ class BuildStockAggregate:
                     base,
                     sa.and_(
                         self._bsq._baseline_timeseries_join_condition(base, ts),
-                        ucol == upgrade_id,
+                        ucol == typed_literal(ucol, upgrade_id),
                         *self._bsq._get_restrict_clauses(restrict, annual_only=True),
+                        *bs_restrict_clauses,
                     ),
                 )
             return ts, ts, tbljoin, list(group_by)
+
+        if self._bsq.buildstock_type == "comstock":
+            raise UnsupportedQueryShape(
+                "Timeseries upgrade-pair queries (annual_only=False, upgrade_id != '0', "
+                "with baseline/savings comparison) are not yet supported on comstock — the "
+                "ts-self-join shape times out on the current cluster."
+            )
 
         # For upgrades, create subqueries with proper joins
         # Split group_by into columns from timeseries vs baseline tables
@@ -86,9 +112,16 @@ class BuildStockAggregate:
         # Include all necessary columns in the subquery
         subquery_cols = self._bsq._unique_columns_by_name(must_have_cols + ts_group_cols + bs_group_by + enduse_cols)
 
-        # Create subquery with proper join to baseline table
+        # Create subquery with proper join to baseline table; bs_restrict clauses
+        # ride the JOIN ON so the metadata scan is pre-filtered.
         subquery_base = sa.select(*subquery_cols).select_from(
-            ts.join(base, self._bsq._baseline_timeseries_join_condition(base, ts))
+            ts.join(
+                base,
+                sa.and_(
+                    self._bsq._baseline_timeseries_join_condition(base, ts),
+                    *bs_restrict_clauses,
+                ),
+            )
         )
         ts_b = self._bsq._add_restrict(subquery_base, [[ucol, "0"], *restrict]).alias("ts_b")
         ts_u = self._bsq._add_restrict(subquery_base, [[ucol, upgrade_id], *restrict]).alias("ts_u")
@@ -101,12 +134,24 @@ class BuildStockAggregate:
             tbljoin = ts_b.join(
                 ts_u,
                 self._bsq._timeseries_pair_join_condition(ts_b, ts_u),
-            ).join(base, self._bsq._baseline_timeseries_join_condition(base, ts_b))
+            ).join(
+                base,
+                sa.and_(
+                    self._bsq._baseline_timeseries_join_condition(base, ts_b),
+                    *bs_restrict_clauses,
+                ),
+            )
         else:
             tbljoin = ts_b.outerjoin(
                 ts_u,
                 self._bsq._timeseries_pair_join_condition(ts_b, ts_u),
-            ).join(base, self._bsq._baseline_timeseries_join_condition(base, ts_b))
+            ).join(
+                base,
+                sa.and_(
+                    self._bsq._baseline_timeseries_join_condition(base, ts_b),
+                    *bs_restrict_clauses,
+                ),
+            )
 
         return ts_b, ts_u, tbljoin, remapped_group_by
 
@@ -117,12 +162,14 @@ class BuildStockAggregate:
 
         if self._bsq.up_table is None:
             raise ValueError("No upgrades table found in database.")
+        up_col = self._bsq._up_upgrade_col
+        up_id = typed_literal(up_col, upgrade_id)
         if applied_only:
             tbljoin = self._bsq.bs_table.join(
                 self._bsq.up_table,
                 sa.and_(
                     self._bsq._baseline_upgrade_join_condition(),
-                    self._bsq._up_upgrade_col == upgrade_id,
+                    up_col == up_id,
                     self._bsq._up_successful_condition,
                 ),
             )
@@ -131,7 +178,7 @@ class BuildStockAggregate:
                 self._bsq.up_table,
                 sa.and_(
                     self._bsq._baseline_upgrade_join_condition(),
-                    self._bsq._up_upgrade_col == upgrade_id,
+                    up_col == up_id,
                     self._bsq._up_successful_condition,
                 ),
             )
@@ -322,7 +369,8 @@ class BuildStockAggregate:
                 and not params.include_baseline
             )
             bs_tbl, up_tbl, tbljoin, group_by_selection = self.__get_timeseries_bs_up_table(
-                enduse_cols, upgrade_id, params.applied_only, ts_restrict, group_by_selection,
+                enduse_cols, upgrade_id, params.applied_only, ts_restrict,
+                bs_restrict=bs_restrict, group_by=group_by_selection,
                 upgrade_only=upgrade_only,
             )
 

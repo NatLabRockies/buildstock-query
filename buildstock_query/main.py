@@ -15,7 +15,7 @@ import typing
 from datetime import datetime
 from buildstock_query.schema.run_params import BSQParams
 from buildstock_query.schema.utilities import DBColType, SALabel, SACol, AnyColType, AnyTableType, RestrictTuple
-from buildstock_query.schema.utilities import validate_arguments
+from buildstock_query.schema.utilities import validate_arguments, typed_literal
 from buildstock_query.schema.utilities import MappedColumn
 from buildstock_query.schema.query_params import Query
 
@@ -548,7 +548,8 @@ class BuildStockQuery(QueryCore):
         if upgrade_id:
             if self.up_table is None:
                 raise ValueError("This run has no upgrades")
-            query = query.where(self.up_table.c["upgrade"] == str(upgrade_id))
+            up_col = self.up_table.c["upgrade"]
+            query = query.where(up_col == typed_literal(up_col, upgrade_id))
 
         query = self._add_restrict(query, restrict, annual_only=True)
         compiled_query = self._compile(query)
@@ -596,6 +597,7 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        applied_in: Optional[Sequence[Union[str, int]]] = None,
         get_query_only: Literal[False] = False,
     ) -> pd.DataFrame: ...
 
@@ -604,6 +606,7 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        applied_in: Optional[Sequence[Union[str, int]]] = None,
         get_query_only: Literal[True],
     ) -> str: ...
 
@@ -612,6 +615,7 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        applied_in: Optional[Sequence[Union[str, int]]] = None,
         get_query_only: bool,
     ) -> Union[pd.DataFrame, str]: ...
 
@@ -619,23 +623,33 @@ class BuildStockQuery(QueryCore):
     def get_building_ids(
         self,
         restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        applied_in: Optional[Sequence[Union[str, int]]] = None,
         get_query_only: bool = False,
     ) -> Union[str, pd.DataFrame]:
-        """
-        Returns the list of buildings based on the restrict list
+        """Return the list of building keys, optionally restricted to buildings to which
+        a specified set of upgrades all applied.
+
         Args:
-            restrict (list[Tuple[str, List]], optional): The list of where condition to restrict the results to. It
-                    should be specified as a list of tuple.
-                    Example: `[('state',['VA','AZ']), ("build_existing_model.lighting",['60% CFL']), ...]`
-            get_query_only (bool): If set to true, returns the query string instead of the result. Default is False.
+            restrict: Standard restrict list of (column, value(s)) tuples. Filters on the
+                baseline metadata table only.
+            applied_in: Optional list of upgrade ids. When provided, the result is further
+                restricted to buildings for which every listed upgrade satisfied the run's
+                success/applicability condition. With a single-element list (e.g. [1]), this
+                is equivalent to `applied_only=True` for that upgrade.
+            get_query_only: If True, return the SQL string instead of executing.
 
         Returns:
-            Pandas dataframe consisting of the building ids belonging to the provided list of locations.
-
+            DataFrame of building keys (`bs_key_cols`).
         """
         restrict = list(restrict) if restrict else []
         query = sa.select(*self.bs_key_cols)
         query = self._add_restrict(query, restrict, annual_only=True)
+        applied_subquery = self._get_applied_in_subquery(applied_in, key_kind="metadata")
+        if applied_subquery is not None:
+            if len(self.bs_key_cols) == 1:
+                query = query.where(self.bs_key_cols[0].in_(applied_subquery))
+            else:
+                query = query.where(sa.tuple_(*self.bs_key_cols).in_(applied_subquery))
         if get_query_only:
             return self._compile(query)
         return self.execute(query)
@@ -657,7 +671,8 @@ class BuildStockQuery(QueryCore):
             self.ts_bldgid_column == bldg_id
         )
         if self.up_table is not None:
-            query1 = query1.where(self._ts_upgrade_col == str(upgrade_id))
+            ucol = self._ts_upgrade_col
+            query1 = query1.where(ucol == typed_literal(ucol, upgrade_id))
         query1 = query1.order_by(self.timestamp_column).limit(2)
         if get_query_only:
             return self._compile(query1)
@@ -819,17 +834,22 @@ class BuildStockQuery(QueryCore):
         return str(upgrade_id)
 
     def _split_restrict(self, restrict):
-        # Some cols like "state" might be available in both ts and bs table
-        bs_restrict = []  # restrict to apply to baseline table
-        ts_restrict = []  # restrict to apply to timeseries table
+        # Some cols (e.g. comstock `state`, `upgrade`) live on both bs and ts tables.
+        # When that happens, restrict BOTH sides — Athena's planner often can't push
+        # a ts-side filter back through the bldg_id join to the bs scan, so a single-
+        # sided filter leaves the metadata subquery scanning the full table.
+        bs_restrict = []
+        ts_restrict = []
         for col, restrict_vals in restrict:
-            if self._restrict_targets_ts(col):  # prioritize ts table
+            targets_ts = self._restrict_targets_ts(col)
+            targets_bs = self._restrict_targets_bs(col)
+            if targets_ts:
                 if isinstance(col, tuple):
                     ts_restrict.append([col, restrict_vals])
                 else:
                     col_name = col if isinstance(col, str) else col.name
                     ts_restrict.append([self.ts_table.c[col_name], restrict_vals])
-            else:
+            if targets_bs or not targets_ts:
                 bs_restrict.append([self._get_gcol(col, annual_only=True), restrict_vals])
         return bs_restrict, ts_restrict
 
@@ -846,6 +866,20 @@ class BuildStockQuery(QueryCore):
         if isinstance(col, tuple) and col:
             return all(
                 isinstance(c, SACol) and getattr(c, "table", None) is self.ts_table for c in col
+            )
+        return False
+
+    def _restrict_targets_bs(self, col: AnyColType) -> bool:
+        if isinstance(col, str):
+            return col in self.bs_table.columns
+        if isinstance(col, SACol):
+            return getattr(col, "table", None) is self.bs_table
+        if isinstance(col, SALabel):
+            source_col = getattr(col, "element", None)
+            return isinstance(source_col, SACol) and getattr(source_col, "table", None) is self.bs_table
+        if isinstance(col, tuple) and col:
+            return all(
+                isinstance(c, SACol) and getattr(c, "table", None) is self.bs_table for c in col
             )
         return False
 
@@ -965,56 +999,40 @@ class BuildStockQuery(QueryCore):
 
     @property
     def _bs_completed_status_col(self):
-        if not isinstance(self.bs_table.c[self.db_schema.column_names.completed_status].type, sqltypes.String):
-            return sa.cast(self.bs_table.c[self.db_schema.column_names.completed_status], sa.String).label(
-                "completed_status"
-            )
-        else:
-            return self.bs_table.c[self.db_schema.column_names.completed_status]
+        return self.bs_table.c[self.db_schema.column_names.completed_status]
 
     @property
     def _up_completed_status_col(self):
         if self.up_table is None:
             raise ValueError("No upgrades table")
-        if not isinstance(self.up_table.c[self.db_schema.column_names.completed_status].type, sqltypes.String):
-            return sa.cast(self.up_table.c[self.db_schema.column_names.completed_status], sa.String).label(
-                "completed_status"
-            )
-        else:
-            return self.up_table.c[self.db_schema.column_names.completed_status]
+        return self.up_table.c[self.db_schema.column_names.completed_status]
 
     @property
     def _bs_successful_condition(self):
-        return self._bs_completed_status_col == self.db_schema.completion_values.success
+        col = self._bs_completed_status_col
+        return col == typed_literal(col, self.db_schema.completion_values.success)
 
     @property
     def _up_successful_condition(self):
-        return self._up_completed_status_col == self.db_schema.completion_values.success
+        col = self._up_completed_status_col
+        return col == typed_literal(col, self.db_schema.completion_values.success)
 
     @property
     def _ts_upgrade_col(self):
-        if not isinstance(self.ts_table.c["upgrade"].type, sqltypes.String):
-            return sa.cast(self.ts_table.c["upgrade"], sa.String).label("upgrade")
-        else:
-            return self.ts_table.c["upgrade"]
+        return self.ts_table.c["upgrade"]
 
     @property
     def _up_upgrade_col(self):
         if self.up_table is None:
             raise ValueError("No upgrades table")
-        if not isinstance(self.up_table.c["upgrade"].type, sqltypes.String):
-            return sa.cast(self.up_table.c["upgrade"], sa.String).label("upgrade")
-        else:
-            return self.up_table.c["upgrade"]
+        return self.up_table.c["upgrade"]
 
     def _get_completed_status_col(self, table: AnyTableType):
-        if not isinstance(table.c[self.db_schema.column_names.completed_status].type, sqltypes.String):
-            return sa.cast(table.c[self.db_schema.column_names.completed_status], sa.String).label("completed_status")
-        else:
-            return table.c[self.db_schema.column_names.completed_status]
+        return table.c[self.db_schema.column_names.completed_status]
 
     def _get_success_condition(self, table: AnyTableType):
-        return self._get_completed_status_col(table) == self.db_schema.completion_values.success
+        col = self._get_completed_status_col(table)
+        return col == typed_literal(col, self.db_schema.completion_values.success)
 
     def _get_applied_in_subquery(
         self,
@@ -1033,16 +1051,18 @@ class BuildStockQuery(QueryCore):
             raise ValueError("No upgrades table found.")
 
         upgrade_ids = list(dict.fromkeys(self._validate_upgrade(upgrade_id) for upgrade_id in applied_in))
+        up_col = self._up_upgrade_col
+        typed_ids = [typed_literal(up_col, uid) for uid in upgrade_ids]
         key_names = self._get_unique_keys(key_kind)
         up_key_cols = [self.up_table.c[name] for name in key_names]
         return (
             sa.select(*up_key_cols)
             .where(
-                self._up_upgrade_col.in_(upgrade_ids),
+                up_col.in_(typed_ids),
                 self._up_successful_condition,
             )
             .group_by(*up_key_cols)
-            .having(sa.func.count(sa.func.distinct(self._up_upgrade_col)) == len(upgrade_ids))
+            .having(sa.func.count(sa.func.distinct(up_col)) == len(upgrade_ids))
         )
 
     def _add_applied_in_restrict(

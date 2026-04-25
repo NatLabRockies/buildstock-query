@@ -11,7 +11,7 @@ from buildstock_query import main
 import typing
 from typing import Optional, Union, Literal
 from collections.abc import Hashable, Sequence
-from buildstock_query.schema.utilities import AnyColType, validate_arguments
+from buildstock_query.schema.utilities import AnyColType, typed_literal, validate_arguments
 from pydantic import Field
 from typing_extensions import assert_never
 pd.set_option('future.no_silent_downcasting', True)
@@ -145,16 +145,20 @@ class BuildStockReport:
         up_query = sa.select(*up_key_cols)
         if trim_missing_bs:
             up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
+            up_col = self._bsq.up_table.c["upgrade"]
+            up_id = typed_literal(up_col, upgrade_id)
             up_query = up_query.where(
                 sa.and_(
                     self._bsq._bs_successful_condition,
                     self._bsq._up_successful_condition,
-                    self._bsq.up_table.c["upgrade"] == str(upgrade_id),
+                    up_col == up_id,
                 )
             )
         else:
+            up_col = self._bsq.up_table.c["upgrade"]
+            up_id = typed_literal(up_col, upgrade_id)
             up_query = up_query.where(
-                sa.and_(self._bsq.up_table.c["upgrade"] == str(upgrade_id), self._bsq._up_successful_condition)
+                sa.and_(up_col == up_id, self._bsq._up_successful_condition)
             )
         if get_query_only:
             return self._bsq._compile(up_query)
@@ -279,11 +283,12 @@ class BuildStockReport:
         up_query = up_query.join(self._bsq.up_table, self._bsq._baseline_upgrade_join_condition())
 
         conditions = self._get_change_conditions(change_type)
+        up_col = self._bsq.up_table.c["upgrade"]
         up_query = up_query.where(
             sa.and_(
                 self._bsq._bs_successful_condition,
                 self._bsq._up_successful_condition,
-                self._bsq.up_table.c["upgrade"] == str(upgrade_id),
+                up_col == typed_literal(up_col, upgrade_id),
                 conditions,
             )
         )  # type: ignore
@@ -649,7 +654,7 @@ class BuildStockReport:
             dict.fromkeys(str(upg) for upg in self._bsq.get_available_upgrades() if upg is not None)
         )
         ts_queries: list[str] = []
-        ts_upgrade_col = sa.cast(self._bsq.ts_table.c["upgrade"], sa.String)
+        ts_upgrade_col = self._bsq.ts_table.c["upgrade"]
         distinct_ts_keys = self._bsq._count_distinct(self._bsq.ts_key_cols)
         for upgrade in available_upgrades:
             query = (
@@ -658,7 +663,7 @@ class BuildStockReport:
                     distinct_ts_keys.label("count"),
                 )
                 .select_from(self._bsq.ts_table)
-                .where(ts_upgrade_col == upgrade)
+                .where(ts_upgrade_col == typed_literal(ts_upgrade_col, upgrade))
             )
             ts_queries.append(self._bsq._compile(query))
 
@@ -692,10 +697,11 @@ class BuildStockReport:
 
         include_inapplicable = bsq.db_schema.structure.inapplicables_have_ts
         inapplicable_val = bsq.db_schema.completion_values.inapplicable
+        bs_status_col = bsq._bs_completed_status_col
         if include_inapplicable:
             bs_where = sa.or_(
                 bsq._bs_successful_condition,
-                bsq._bs_completed_status_col == inapplicable_val,
+                bs_status_col == typed_literal(bs_status_col, inapplicable_val),
             )
         else:
             bs_where = bsq._bs_successful_condition
@@ -707,10 +713,11 @@ class BuildStockReport:
 
         up_ts_key_cols = [bsq.up_table.c[c] for c in bsq.ts_key]
         up_distinct_expr = bsq._count_distinct(up_ts_key_cols)
+        up_status_col = bsq._up_completed_status_col
         if include_inapplicable:
             up_where = sa.or_(
                 bsq._up_successful_condition,
-                bsq._up_completed_status_col == inapplicable_val,
+                up_status_col == typed_literal(up_status_col, inapplicable_val),
             )
         else:
             up_where = bsq._up_successful_condition

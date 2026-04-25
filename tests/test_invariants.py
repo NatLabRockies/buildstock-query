@@ -5,7 +5,7 @@ looks up the matching snapshot entry by SQL, loads its stored parquet, and asser
 a mathematical relation between the DataFrames.
 
 No Athena data queries are issued — only SQL generation (fast) and local parquet
-reads. The cost is paid once during `--update-sql-and-data`; these invariants just
+reads. The cost is paid once during `--update-snapshot`; these invariants just
 verify the reference data is internally consistent.
 
 If a leg's snapshot entry doesn't exist or its parquet is missing, the invariant
@@ -30,10 +30,15 @@ Invariants covered in this module
    monthly frame requires mean-across-time, not sum; catches bugs where the monthly
    query accidentally double-counts rows.
 
+   On the monthly leg, also asserts `rows_per_sample == 4 * 24 * days_in_month` for
+   each row — pins the timeseries cadence at 15 minutes and catches missing or
+   duplicate timestamps in the source data.
+
    Catches bugs in timeseries aggregation, baseline/timeseries join logic, and unit
    conversion between the annual and timeseries tables. Comstock uses different
-   enduse column names for each (`..kwh` suffix on annual, no suffix on TS), so the
-   parametrized case table carries both names.
+   enduse column names per leg (`..kwh` suffix on annual, no suffix on TS); the
+   `SCHEMA_PLACEHOLDER_BUILDERS` map in test_utility.py resolves the right name
+   for each leg, so the test body doesn't need to special-case it.
 
 2. **savings decomposition: baseline - upgrade ≈ savings** — shared across both
    schemas. For a `query(..., include_baseline=True, include_upgrade=True,
@@ -49,11 +54,13 @@ does not guarantee sum order.
 """
 from __future__ import annotations
 
+import calendar
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from tests.test_utility import SNAPSHOTS_ROOT, find_data_for_sql
+from tests.test_utility import SCHEMA_PLACEHOLDER_BUILDERS, find_data_for_sql
 
 
 pd.set_option("display.width", 1000)
@@ -138,115 +145,121 @@ def _find_first_col(df: pd.DataFrame, *, suffix: str, contains: str) -> str:
 
 # --- parametrization ---------------------------------------------------------
 #
-# Each case declares the fixture name (resolved at test time via
-# `request.getfixturevalue`), the snapshot subdirectory, and the per-schema
-# specifics (enduse names differ on comstock because baseline uses `..kwh`
-# suffix while TS does not). Column names like `state`, `vintage`,
-# `geometry_building_type_recs`, and `comstock_building_type` are bare — the
-# library's _get_column fallback auto-prepends the `in.` prefix.
+# All per-schema column-name differences live in `SCHEMA_PLACEHOLDER_BUILDERS`
+# in test_utility.py. Tests pull resolved column names from there at runtime,
+# matching what the snapshot loader feeds into the stored SQL. `bsq.query()`
+# expects literal column names, so the resolution happens in the test body.
 
-# Each case pins the electricity enduse name for the annual leg and the TS leg
-# (they differ on comstock: baseline has the `..kwh` suffix, TS does not).
-# `annual_enduses` and `ts_monthly_enduses` are the full lists used for the
-# stored snapshots of those legs (resstock stores a two-fuel monthly; comstock
-# stores a single-fuel monthly).
-
-THREE_WAY_CASES = [
-    pytest.param(
-        "bsq_resstock_oedi",
-        "resstock_oedi",
-        [
-            "out.electricity.total.energy_consumption",
-            "out.natural_gas.total.energy_consumption",
-        ],
-        "out.electricity.total.energy_consumption",
-        [
-            "out.electricity.total.energy_consumption",
-            "out.natural_gas.total.energy_consumption",
-        ],
-        "geometry_building_type_recs",
-        id="resstock_electricity_by_building_type",
-    ),
-    pytest.param(
-        "bsq_comstock_oedi",
-        "comstock_oedi",
-        [
-            "out.electricity.total.energy_consumption..kwh",
-            "out.natural_gas.total.energy_consumption..kwh",
-        ],
-        "out.electricity.total.energy_consumption",
-        ["out.electricity.total.energy_consumption"],
-        "comstock_building_type",
-        id="comstock_electricity_by_building_type",
-    ),
+SCHEMA_CASES = [
+    pytest.param("bsq_resstock_oedi", "resstock_oedi", id="resstock"),
+    pytest.param("bsq_comstock_oedi", "comstock_oedi", id="comstock"),
 ]
 
 
-SAVINGS_CASES = [
-    pytest.param(
-        "bsq_resstock_oedi",
-        "resstock_oedi",
-        "out.electricity.total.energy_consumption",
-        "geometry_building_type_recs",
-        id="resstock_electricity_by_building_type",
-    ),
-    pytest.param(
-        "bsq_comstock_oedi",
-        "comstock_oedi",
-        "out.electricity.total.energy_consumption..kwh",
-        "comstock_building_type",
-        id="comstock_electricity_by_building_type",
-    ),
-]
+def _placeholders(schema: str, *, annual_only: bool) -> dict:
+    return SCHEMA_PLACEHOLDER_BUILDERS[schema](annual_only)
 
 
 # --- three-way invariant: annual == ts_year_collapse == sum(ts_monthly) -------
-
-@pytest.mark.parametrize(
-    "bsq_fixture, schema, annual_enduses, ts_enduse, ts_monthly_enduses, group_col",
-    THREE_WAY_CASES,
+#
+# Scenario axis (cross-producted with schema axis): each scenario contributes the
+# extra `query()` kwargs that select baseline / upgrade-with-or-without-applied
+# filters. `scenario_extra` is merged into every leg's `query()` call below.
+#
+# - baseline: upgrade_id="0" (omit applied_only — invalid for baseline).
+# - upgrade1: upgrade 1, with applied_only=False (count both applied and unapplied
+#   rows; without this explicit False, the schema validator would silently flip to
+#   True and collapse this scenario onto the next one).
+# - upgrade1_applied: upgrade 1, applied_only=True.
+# - upgrade1_applied_in_1_2: upgrade 1, applied_only=True, restricted further to
+#   buildings to which both upgrades 1 and 2 applied.
+# `upgrade1_applied` is xfail because the timeseries upgrade-pair flow doesn't apply
+# the same `up.applicability='true'` filter that the annual flow does — the TS table
+# includes inapplicable buildings when `inapplicables_have_ts=true`. Annual reports
+# fewer building types / lower totals than TS for any `applied_only=True` query.
+# Fix would touch user-facing "applied" semantics; deferred until that decision lands.
+APPLICABILITY_DIVERGENCE = pytest.mark.xfail(
+    reason="Known: TS upgrade-pair flow doesn't filter inapplicable buildings the way annual does.",
+    strict=True,
 )
+
+SCENARIOS = [
+    pytest.param({"upgrade_id": "0"}, id="baseline"),
+    pytest.param({"upgrade_id": "1", "applied_only": False}, id="upgrade1"),
+    pytest.param(
+        {"upgrade_id": "1", "applied_only": True},
+        id="upgrade1_applied",
+        marks=APPLICABILITY_DIVERGENCE,
+    ),
+    pytest.param(
+        {"upgrade_id": "1", "applied_only": True, "applied_in": [1, 2]},
+        id="upgrade1_applied_in_1_2",
+    ),
+]
+
+
+@pytest.mark.parametrize("scenario_extra", SCENARIOS)
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
 def test_annual_equals_ts_year_equals_ts_monthly_sum(
-    request, bsq_fixture, schema, annual_enduses, ts_enduse, ts_monthly_enduses, group_col
+    request,
+    bsq_fixture,
+    schema,
+    scenario_extra,
 ):
-    """For each schema: annual total, year-collapsed timeseries, and sum of monthly
-    timeseries should all report the same per-group total energy. Counts must agree
-    too."""
+    """For each schema and scenario: annual total, year-collapsed timeseries, and
+    sum of monthly timeseries should all report the same per-group total energy.
+    Counts must agree too. Also pins monthly `rows_per_sample` to 4*24*days_in_month.
+
+    Both fuels (electricity + gas) are queried on every leg for both schemas —
+    the comstock `..kwh` suffix on annual columns is handled by the placeholder
+    map (annual columns get the suffix, ts columns don't).
+    """
+    from buildstock_query.aggregate_query import UnsupportedQueryShape
+
     bsq = request.getfixturevalue(bsq_fixture)
-    schema_dir = SNAPSHOTS_ROOT / schema
+    annual_map = _placeholders(schema, annual_only=True)
+    ts_map = _placeholders(schema, annual_only=False)
+    group_col = annual_map["$BUILDING_TYPE_COL"]
+    annual_enduses = [annual_map["$ELECTRICITY_TOTAL"], annual_map["$NATURAL_GAS_TOTAL"]]
+    ts_enduses = [ts_map["$ELECTRICITY_TOTAL"], ts_map["$NATURAL_GAS_TOTAL"]]
     restrict = [("state", ["CO"])]
 
-    annual_sql = bsq.query(
-        enduses=annual_enduses,
-        group_by=[group_col],
-        restrict=restrict,
-        get_query_only=True,
-    )
-    annual_df = find_data_for_sql(schema_dir, annual_sql)
+    try:
+        annual_sql = bsq.query(
+            enduses=annual_enduses,
+            group_by=[group_col],
+            restrict=restrict,
+            get_query_only=True,
+            **scenario_extra,
+        )
+        ts_year_sql = bsq.query(
+            enduses=ts_enduses,
+            annual_only=False,
+            timestamp_grouping_func="year",
+            group_by=[group_col],
+            restrict=restrict,
+            get_query_only=True,
+            **scenario_extra,
+        )
+        ts_monthly_sql = bsq.query(
+            enduses=ts_enduses,
+            annual_only=False,
+            timestamp_grouping_func="month",
+            group_by=[group_col, "time"],
+            restrict=restrict,
+            get_query_only=True,
+            **scenario_extra,
+        )
+    except UnsupportedQueryShape as exc:
+        pytest.skip(f"query shape unsupported on {schema}: {exc}")
 
-    ts_year_sql = bsq.query(
-        enduses=[ts_enduse],
-        annual_only=False,
-        timestamp_grouping_func="year",
-        group_by=[group_col],
-        restrict=restrict,
-        get_query_only=True,
-    )
-    ts_year_df = find_data_for_sql(schema_dir, ts_year_sql)
-
-    ts_monthly_sql = bsq.query(
-        enduses=ts_monthly_enduses,
-        annual_only=False,
-        timestamp_grouping_func="month",
-        group_by=[group_col, "time"],
-        restrict=restrict,
-        get_query_only=True,
-    )
-    ts_monthly_df = find_data_for_sql(schema_dir, ts_monthly_sql)
+    annual_df = find_data_for_sql(schema, annual_sql)
+    ts_year_df = find_data_for_sql(schema, ts_year_sql)
+    ts_monthly_df = find_data_for_sql(schema, ts_monthly_sql)
 
     # Pick the electricity enduse from each leg (always element 0) for the totals check.
     annual_col = _strip_out_prefix(annual_enduses[0])
-    ts_col = _strip_out_prefix(ts_enduse)
+    ts_col = _strip_out_prefix(ts_enduses[0])
 
     annual_totals = _scalar_total_by_group(annual_df, annual_col, [group_col])
     ts_year_totals = _scalar_total_by_group(ts_year_df, ts_col, [group_col])
@@ -273,18 +286,34 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
             ts_year_counts,
         )
 
+    # rows_per_sample on the monthly leg must equal 15-min intervals * hours * days
+    # in that month: 4 * 24 * days_in_month. Catches drift in the timeseries cadence
+    # or missing/duplicate timestamps in the underlying source data.
+    bad = []
+    for _, row in ts_monthly_df.iterrows():
+        month = pd.Timestamp(row["timestamp"]).month
+        year = pd.Timestamp(row["timestamp"]).year
+        expected = 4 * 24 * calendar.monthrange(year, month)[1]
+        actual = int(row["rows_per_sample"])
+        if actual != expected:
+            bad.append(
+                f"  {row[group_col]} {row['timestamp'].date()}: "
+                f"rows_per_sample={actual}, expected={expected}"
+            )
+    if bad:
+        pytest.fail("monthly rows_per_sample mismatch (expected 4*24*days_in_month):\n" + "\n".join(bad))
+
 
 # --- savings decomposition: baseline - upgrade ≈ savings ---------------------
 
-@pytest.mark.parametrize(
-    "bsq_fixture, schema, enduse, group_col",
-    SAVINGS_CASES,
-)
-def test_savings_decomposition(request, bsq_fixture, schema, enduse, group_col):
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_savings_decomposition(request, bsq_fixture, schema):
     """For a savings query with include_baseline + include_upgrade + include_savings,
     the stored DataFrame should satisfy baseline - upgrade ≈ savings per group."""
     bsq = request.getfixturevalue(bsq_fixture)
-    schema_dir = SNAPSHOTS_ROOT / schema
+    annual_map = _placeholders(schema, annual_only=True)
+    enduse = annual_map["$ELECTRICITY_TOTAL"]
+    group_col = annual_map["$BUILDING_TYPE_COL"]
 
     sql = bsq.query(
         enduses=[enduse],
@@ -296,7 +325,7 @@ def test_savings_decomposition(request, bsq_fixture, schema, enduse, group_col):
         include_savings=True,
         get_query_only=True,
     )
-    df = find_data_for_sql(schema_dir, sql)
+    df = find_data_for_sql(schema, sql)
 
     baseline_col = _find_first_col(df, suffix="__baseline", contains="electricity.total")
     upgrade_col = _find_first_col(df, suffix="__upgrade", contains="electricity.total")
@@ -312,3 +341,419 @@ def test_savings_decomposition(request, bsq_fixture, schema, enduse, group_col):
             )
     if diffs:
         pytest.fail("savings decomposition failed:\n" + "\n".join(diffs))
+
+
+# --- group_by sum equals overall total ---------------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_group_by_sum_equals_overall(request, bsq_fixture, schema):
+    """Sum across building-type groups must equal the no-group-by total. Same
+    underlying query (annual electricity + gas, CO), different aggregation level."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    annual_map = _placeholders(schema, annual_only=True)
+    enduses = [annual_map["$ELECTRICITY_TOTAL"], annual_map["$NATURAL_GAS_TOTAL"]]
+    group_col = annual_map["$BUILDING_TYPE_COL"]
+    restrict = [("state", ["CO"])]
+
+    overall_sql = bsq.query(enduses=enduses, restrict=restrict, get_query_only=True)
+    grouped_sql = bsq.query(
+        enduses=enduses, group_by=[group_col], restrict=restrict, get_query_only=True
+    )
+    overall_df = find_data_for_sql(schema, overall_sql)
+    grouped_df = find_data_for_sql(schema, grouped_sql)
+
+    for col in (_strip_out_prefix(e) for e in enduses):
+        overall_total = float(overall_df[col].iloc[0])
+        grouped_total = float(grouped_df[col].sum())
+        if not np.isclose(
+            overall_total, grouped_total,
+            rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+        ):
+            pytest.fail(
+                f"{col}: overall ({overall_total:.4f}) != sum of grouped "
+                f"({grouped_total:.4f}); diff={overall_total - grouped_total:.4f}"
+            )
+    # sample_count and units_count too (sum across groups, since these are per-row totals).
+    for count_col in ("sample_count", "units_count"):
+        overall_total = float(overall_df[count_col].iloc[0])
+        grouped_total = float(grouped_df[count_col].sum())
+        if not np.isclose(
+            overall_total, grouped_total,
+            rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+        ):
+            pytest.fail(
+                f"{count_col}: overall ({overall_total}) != sum of grouped ({grouped_total})"
+            )
+
+
+# --- restrict subset: CO rows of CO+WY equal single-state CO -----------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_co_subset_of_co_plus_wy(request, bsq_fixture, schema):
+    """The CO row of `restrict_two_states` (state IN ('CO', 'WY')) must equal
+    `restrict_single_state` (state IN ('CO',)) row-for-row. Catches restrict-list
+    scoping bugs where the IN clause inadvertently affects the filter beyond what's
+    declared."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    annual_map = _placeholders(schema, annual_only=True)
+    enduse = annual_map["$ELECTRICITY_TOTAL"]
+    group_col = annual_map["$BUILDING_TYPE_COL"]
+
+    co_only_sql = bsq.query(
+        enduses=[enduse], group_by=[group_col],
+        restrict=[("state", ["CO"])], get_query_only=True,
+    )
+    co_wy_sql = bsq.query(
+        enduses=[enduse], group_by=["state"],
+        restrict=[("state", ["CO", "WY"])], get_query_only=True,
+    )
+    co_only_df = find_data_for_sql(schema, co_only_sql)
+    co_wy_df = find_data_for_sql(schema, co_wy_sql)
+
+    co_row = co_wy_df[co_wy_df["state"] == "CO"]
+    if co_row.empty:
+        pytest.fail("no CO row in restrict_two_states result")
+    enduse_col = _strip_out_prefix(enduse)
+
+    co_total_from_two_states = float(co_row[enduse_col].iloc[0])
+    co_total_from_single_state = float(co_only_df[enduse_col].sum())
+    if not np.isclose(
+        co_total_from_two_states, co_total_from_single_state,
+        rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+    ):
+        pytest.fail(
+            f"CO total from CO+WY query ({co_total_from_two_states:.4f}) != "
+            f"CO total from CO-only query summed across building types "
+            f"({co_total_from_single_state:.4f})"
+        )
+    # sample_count too — should be exactly equal (no float drift on integer counts).
+    co_count_two = int(co_row["sample_count"].iloc[0])
+    co_count_single = int(co_only_df["sample_count"].sum())
+    if co_count_two != co_count_single:
+        pytest.fail(
+            f"CO sample_count mismatch: from CO+WY={co_count_two}, "
+            f"from CO-only={co_count_single}"
+        )
+
+
+# --- avoid + avoided = full --------------------------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_avoid_plus_avoided_equals_full(request, bsq_fixture, schema):
+    """`avoid_building_type` (CO without target) + the avoided building type's row from
+    `restrict_single_state` should equal the full `restrict_single_state` totals."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    annual_map = _placeholders(schema, annual_only=True)
+    enduse = annual_map["$ELECTRICITY_TOTAL"]
+    group_col = annual_map["$BUILDING_TYPE_COL"]
+    avoided_value = annual_map["$AVOID_BUILDING_TYPE"]
+    restrict = [("state", ["CO"])]
+
+    full_sql = bsq.query(
+        enduses=[enduse], group_by=[group_col], restrict=restrict, get_query_only=True,
+    )
+    avoid_sql = bsq.query(
+        enduses=[enduse], group_by=[group_col], restrict=restrict,
+        avoid=[(group_col, [avoided_value])], get_query_only=True,
+    )
+    full_df = find_data_for_sql(schema, full_sql)
+    avoid_df = find_data_for_sql(schema, avoid_sql)
+
+    avoided_row = full_df[full_df[group_col] == avoided_value]
+    if avoided_row.empty:
+        pytest.fail(f"avoided building type {avoided_value!r} not found in full result")
+    enduse_col = _strip_out_prefix(enduse)
+
+    full_total = float(full_df[enduse_col].sum())
+    avoid_total = float(avoid_df[enduse_col].sum())
+    avoided_total = float(avoided_row[enduse_col].iloc[0])
+    if not np.isclose(
+        full_total, avoid_total + avoided_total,
+        rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+    ):
+        pytest.fail(
+            f"full ({full_total:.4f}) != avoid ({avoid_total:.4f}) + avoided "
+            f"({avoided_total:.4f}); diff={full_total - avoid_total - avoided_total:.4f}"
+        )
+    # Sample counts are integer-exact.
+    full_n = int(full_df["sample_count"].sum())
+    avoid_n = int(avoid_df["sample_count"].sum())
+    avoided_n = int(avoided_row["sample_count"].iloc[0])
+    if full_n != avoid_n + avoided_n:
+        pytest.fail(
+            f"sample_count: full={full_n}, avoid={avoid_n}, avoided={avoided_n}; "
+            f"avoid + avoided = {avoid_n + avoided_n}"
+        )
+
+
+# --- MappedColumn aggregates correctly ---------------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_mapped_column_aggregates_underlying_types(request, bsq_fixture, schema):
+    """For each mapped category, the value from the MappedColumn-grouped query should
+    equal the sum of the constituent building types from the regular grouped query.
+    The mapping_dict tells us which underlying types belong to each category."""
+    from buildstock_query.schema.utilities import MappedColumn
+    bsq = request.getfixturevalue(bsq_fixture)
+    annual_map = _placeholders(schema, annual_only=True)
+    enduse = annual_map["$ELECTRICITY_TOTAL"]
+    group_col = annual_map["$BUILDING_TYPE_COL"]
+    mapping_dict = annual_map["$BUILDING_TYPE_MAPPING"]
+    restrict = [("state", ["CO"])]
+
+    # Direct group_by — one row per underlying building type.
+    direct_sql = bsq.query(
+        enduses=[enduse], group_by=[group_col], restrict=restrict, get_query_only=True,
+    )
+    # MappedColumn group_by — one row per mapped category (MH/SF/MF, etc.).
+    key_col = bsq._get_column(group_col)
+    mapped = MappedColumn(
+        bsq=bsq, name="simple_bldg_type", mapping_dict=mapping_dict, key=key_col,
+    )
+    mapped_sql = bsq.query(
+        enduses=[enduse], group_by=[mapped], restrict=restrict, get_query_only=True,
+    )
+    direct_df = find_data_for_sql(schema, direct_sql)
+    mapped_df = find_data_for_sql(schema, mapped_sql)
+
+    enduse_col = _strip_out_prefix(enduse)
+    # For each mapped category in the result, sum the underlying values from the direct
+    # query and compare. Build the inverse mapping: category → list of underlying types.
+    inverse: dict[str, list[str]] = {}
+    for underlying, category in mapping_dict.items():
+        inverse.setdefault(category, []).append(underlying)
+
+    diffs = []
+    for _, mapped_row in mapped_df.iterrows():
+        category = mapped_row["simple_bldg_type"]
+        underlying_types = inverse.get(category, [])
+        if not underlying_types:
+            diffs.append(f"  category {category!r} not in mapping_dict reverse map")
+            continue
+        underlying_total = float(
+            direct_df[direct_df[group_col].isin(underlying_types)][enduse_col].sum()
+        )
+        mapped_total = float(mapped_row[enduse_col])
+        if not np.isclose(
+            mapped_total, underlying_total,
+            rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+        ):
+            diffs.append(
+                f"  {category}: mapped={mapped_total:.4f}, sum of "
+                f"{underlying_types}={underlying_total:.4f}"
+            )
+    if diffs:
+        pytest.fail("MappedColumn aggregation mismatch:\n" + "\n".join(diffs))
+
+
+# --- 15-min raw timeseries sums to monthly -----------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_15min_raw_sums_to_monthly(request, bsq_fixture, schema):
+    """Per-state, the 15-min raw timeseries summed within each calendar month must
+    equal the monthly aggregate. Strong cadence invariant — catches `timestamp_grouping_func='month'`
+    boundary bugs (timezone offsets, month boundaries, accumulation drift)."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    ts_map = _placeholders(schema, annual_only=False)
+    enduse = ts_map["$ELECTRICITY_TOTAL"]
+
+    raw_sql = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        group_by=["state", "time"],
+        restrict=[("state", ["CO"])],
+        get_query_only=True,
+    )
+    monthly_sql = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        timestamp_grouping_func="month",
+        group_by=["state", "time"],
+        restrict=[("state", ["CO"])],
+        get_query_only=True,
+    )
+    raw_df = find_data_for_sql(schema, raw_sql)
+    monthly_df = find_data_for_sql(schema, monthly_sql)
+
+    enduse_col = _strip_out_prefix(enduse)
+    # Bucket raw rows into months (using the same `date_trunc('month', ts - 900s)` shift
+    # the library applies internally — 15 minutes back so :15 belongs to the prior period).
+    raw_df = raw_df.copy()
+    raw_df["timestamp"] = pd.to_datetime(raw_df["timestamp"])
+    raw_df["month"] = (raw_df["timestamp"] - pd.Timedelta(seconds=900)).dt.to_period("M").dt.to_timestamp()
+    raw_monthly = raw_df.groupby(["state", "month"], as_index=False)[enduse_col].sum()
+
+    monthly_df = monthly_df.copy()
+    monthly_df["timestamp"] = pd.to_datetime(monthly_df["timestamp"])
+    merged = raw_monthly.merge(
+        monthly_df, left_on=["state", "month"], right_on=["state", "timestamp"],
+        suffixes=("_raw_sum", "_monthly"),
+    )
+    if len(merged) != len(monthly_df):
+        pytest.fail(
+            f"month bucket mismatch: raw produces {len(raw_monthly)} buckets, "
+            f"monthly query produces {len(monthly_df)} rows, merged has {len(merged)}"
+        )
+
+    diffs = []
+    for _, row in merged.iterrows():
+        raw_total = float(row[f"{enduse_col}_raw_sum"])
+        monthly_total = float(row[f"{enduse_col}_monthly"])
+        if not np.isclose(
+            raw_total, monthly_total,
+            rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+        ):
+            diffs.append(
+                f"  {row['state']} {row['month'].date()}: raw_sum={raw_total:.4f}, "
+                f"monthly={monthly_total:.4f}"
+            )
+    if diffs:
+        pytest.fail("15-min sum vs monthly aggregate mismatch:\n" + "\n".join(diffs))
+
+
+# --- savings_only column matches savings column from full savings query -------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_savings_only_matches_full_savings_query(request, bsq_fixture, schema):
+    """`include_savings=True, include_baseline=False, include_upgrade=False` produces
+    a result with just the savings column. That column must equal the savings column
+    from the full `include_baseline + include_upgrade + include_savings` query —
+    same SQL aggregations, just different output projection."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    annual_map = _placeholders(schema, annual_only=True)
+    enduse = annual_map["$ELECTRICITY_TOTAL"]
+    group_col = annual_map["$BUILDING_TYPE_COL"]
+    restrict = [("state", ["CO"])]
+
+    full_sql = bsq.query(
+        enduses=[enduse], upgrade_id="1", group_by=[group_col], restrict=restrict,
+        include_baseline=True, include_upgrade=True, include_savings=True,
+        get_query_only=True,
+    )
+    only_sql = bsq.query(
+        enduses=[enduse], upgrade_id="1", group_by=[group_col], restrict=restrict,
+        include_baseline=False, include_upgrade=False, include_savings=True,
+        get_query_only=True,
+    )
+    full_df = find_data_for_sql(schema, full_sql)
+    only_df = find_data_for_sql(schema, only_sql)
+
+    full_savings_col = _find_first_col(full_df, suffix="__savings", contains="electricity.total")
+    only_savings_col = _find_first_col(only_df, suffix="__savings", contains="electricity.total")
+    if len(full_df) != len(only_df):
+        pytest.fail(
+            f"row count mismatch: full={len(full_df)}, only={len(only_df)}"
+        )
+
+    full_indexed = full_df.set_index(group_col)[full_savings_col].sort_index()
+    only_indexed = only_df.set_index(group_col)[only_savings_col].sort_index()
+    diffs = []
+    for key in full_indexed.index:
+        full_val = float(full_indexed[key])
+        only_val = float(only_indexed[key])
+        if not np.isclose(full_val, only_val, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+            diffs.append(
+                f"  {key}: full_savings={full_val:.4f}, only_savings={only_val:.4f}"
+            )
+    if diffs:
+        pytest.fail(
+            "savings column differs between full savings query and savings-only query:\n"
+            + "\n".join(diffs)
+        )
+
+
+# --- two-fuel electricity column equals single-fuel electricity --------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_two_fuel_electricity_equals_single_fuel(request, bsq_fixture, schema):
+    """Querying [electricity, natural_gas] vs querying [electricity] alone must give
+    the same electricity values per group. Same restrict, same group_by — adding a
+    second enduse to the SELECT list shouldn't perturb the per-row aggregations."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    annual_map = _placeholders(schema, annual_only=True)
+    elec = annual_map["$ELECTRICITY_TOTAL"]
+    gas = annual_map["$NATURAL_GAS_TOTAL"]
+    group_col = annual_map["$BUILDING_TYPE_COL"]
+    restrict = [("state", ["CO"])]
+
+    two_fuel_sql = bsq.query(
+        enduses=[elec, gas], group_by=[group_col], restrict=restrict, get_query_only=True,
+    )
+    single_fuel_sql = bsq.query(
+        enduses=[elec], group_by=[group_col], restrict=restrict, get_query_only=True,
+    )
+    two_fuel_df = find_data_for_sql(schema, two_fuel_sql)
+    single_fuel_df = find_data_for_sql(schema, single_fuel_sql)
+
+    elec_col = _strip_out_prefix(elec)
+    two = two_fuel_df.set_index(group_col)[elec_col].sort_index()
+    single = single_fuel_df.set_index(group_col)[elec_col].sort_index()
+    if set(two.index) != set(single.index):
+        pytest.fail(f"group-key mismatch: two={set(two.index)}, single={set(single.index)}")
+    diffs = []
+    for key in two.index:
+        if not np.isclose(float(two[key]), float(single[key]), rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+            diffs.append(f"  {key}: two_fuel={float(two[key]):.4f}, single_fuel={float(single[key]):.4f}")
+    if diffs:
+        pytest.fail("electricity column differs between two-fuel and single-fuel query:\n" + "\n".join(diffs))
+
+
+# --- applied_in intersection: applied_in=[1,2] equals (applied_in=[1] ∩ applied_in=[2]) --
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_in_intersection(request, bsq_fixture, schema):
+    """The set of buildings returned by `applied_in=[1, 2]` must equal the intersection
+    of `applied_in=[1]` (buildings that applied to upgrade 1) and `applied_in=[2]`
+    (buildings that applied to upgrade 2). Asserts the `_get_applied_in_subquery`
+    HAVING-count machinery actually computes a set intersection rather than something
+    weaker (e.g. union, or a wrong join semantic)."""
+    bsq = request.getfixturevalue(bsq_fixture)
+
+    sql_1 = bsq.get_building_ids(applied_in=[1], restrict=[("state", ["CO"])], get_query_only=True)
+    sql_2 = bsq.get_building_ids(applied_in=[2], restrict=[("state", ["CO"])], get_query_only=True)
+    sql_12 = bsq.get_building_ids(applied_in=[1, 2], restrict=[("state", ["CO"])], get_query_only=True)
+    df_1 = find_data_for_sql(schema, sql_1)
+    df_2 = find_data_for_sql(schema, sql_2)
+    df_12 = find_data_for_sql(schema, sql_12)
+
+    # Each row of get_building_ids is a unique-key tuple. For resstock that's
+    # (bldg_id,); for comstock it's (bldg_id, in.nhgis_tract_gisjoin, state) because
+    # a single physical building can appear in multiple tracts. Itertuples gives us
+    # exactly the right shape to use as a set element.
+    keys_1 = set(map(tuple, df_1.itertuples(index=False, name=None)))
+    keys_2 = set(map(tuple, df_2.itertuples(index=False, name=None)))
+    keys_12 = set(map(tuple, df_12.itertuples(index=False, name=None)))
+    expected = keys_1 & keys_2
+
+    if keys_12 != expected:
+        only_in_actual = keys_12 - expected
+        only_in_expected = expected - keys_12
+        msg = [
+            f"applied_in=[1,2] returned {len(keys_12)} keys, "
+            f"intersection of applied_in=[1] ({len(keys_1)}) and applied_in=[2] "
+            f"({len(keys_2)}) has {len(expected)} keys.",
+        ]
+        if only_in_actual:
+            sample = list(sorted(only_in_actual))[:5]
+            msg.append(f"  in [1,2] but not in intersection ({len(only_in_actual)} total): {sample}")
+        if only_in_expected:
+            sample = list(sorted(only_in_expected))[:5]
+            msg.append(f"  in intersection but not in [1,2] ({len(only_in_expected)} total): {sample}")
+        pytest.fail("\n".join(msg))
+
+    # Cross-check against the aggregated `applied_in_1_2` sample_count from the
+    # invariant snapshot. The number of unique-key tuples here should equal the
+    # `sample_count` reported there (which is COUNT(DISTINCT bs_key) at the SQL level).
+    annual_map = _placeholders(schema, annual_only=True)
+    enduses = [annual_map["$ELECTRICITY_TOTAL"], annual_map["$NATURAL_GAS_TOTAL"]]
+    group_col = annual_map["$BUILDING_TYPE_COL"]
+    inv_sql = bsq.query(
+        enduses=enduses, upgrade_id="1", applied_only=True, applied_in=[1, 2],
+        group_by=[group_col], restrict=[("state", ["CO"])], get_query_only=True,
+    )
+    inv_df = find_data_for_sql(schema, inv_sql)
+    aggregated_sample_count = int(inv_df["sample_count"].sum())
+    if aggregated_sample_count != len(keys_12):
+        pytest.fail(
+            f"sample_count mismatch: get_building_ids returned {len(keys_12)} unique "
+            f"keys, but the aggregated applied_in=[1,2] query reports total "
+            f"sample_count={aggregated_sample_count} (sum across building types)."
+        )

@@ -1,0 +1,56 @@
+[
+  {
+    "name": "annual_totals_overall",
+    "description": "Annual electricity + natural gas totals restricted to CO.",
+    "sql_file": "annual_totals_overall.sql",
+    "data_file": "annual_totals_overall.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "annual_totals_by_building_type",
+    "description": "Annual totals grouped by building type, CO only. Two variants confirm that omitting annual_only (default True) matches passing annual_only=True explicitly.",
+    "sql_file": "annual_totals_by_building_type.sql",
+    "data_file": "annual_totals_by_building_type.parquet",
+    "args": [
+      {
+        "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+        "group_by": ["$BUILDING_TYPE_COL"],
+        "restrict": [["state", ["CO"]]]
+      },
+      {
+        "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+        "group_by": ["$BUILDING_TYPE_COL"],
+        "restrict": [["state", ["CO"]]],
+        "annual_only": true
+      }
+    ]
+  },
+  {
+    "name": "annual_electricity_by_vintage_sort",
+    "description": "Annual electricity grouped by vintage with sort, limit 5, CO only.",
+    "sql_file": "annual_electricity_by_vintage_sort.sql",
+    "data_file": "annual_electricity_by_vintage_sort.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "group_by": ["vintage"],
+      "restrict": [["state", ["CO"]]],
+      "sort": true,
+      "limit": 5
+    }
+  },
+  {
+    "name": "annual_nonzero_count_natural_gas",
+    "description": "Annual natural gas with nonzero_units_count requested, CO only.",
+    "sql_file": "annual_nonzero_count_natural_gas.sql",
+    "data_file": "annual_nonzero_count_natural_gas.parquet",
+    "args": {
+      "enduses": ["$NATURAL_GAS_TOTAL"],
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]],
+      "get_nonzero_count": true
+    }
+  }
+]

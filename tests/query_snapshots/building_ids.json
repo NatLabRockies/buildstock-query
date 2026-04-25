@@ -1,0 +1,35 @@
+[
+  {
+    "name": "bldg_ids_applied_in_1",
+    "description": "Building keys that applied to upgrade 1, CO. Used for the applied_in intersection invariant.",
+    "sql_file": "bldg_ids_applied_in_1.sql",
+    "data_file": "bldg_ids_applied_in_1.parquet",
+    "args": {
+      "_method": "get_building_ids",
+      "applied_in": [1],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "bldg_ids_applied_in_2",
+    "description": "Building keys that applied to upgrade 2, CO. Used for the applied_in intersection invariant.",
+    "sql_file": "bldg_ids_applied_in_2.sql",
+    "data_file": "bldg_ids_applied_in_2.parquet",
+    "args": {
+      "_method": "get_building_ids",
+      "applied_in": [2],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "bldg_ids_applied_in_1_and_2",
+    "description": "Building keys that applied to BOTH upgrade 1 and upgrade 2, CO. Equals the intersection of applied_in_1 and applied_in_2.",
+    "sql_file": "bldg_ids_applied_in_1_and_2.sql",
+    "data_file": "bldg_ids_applied_in_1_and_2.parquet",
+    "args": {
+      "_method": "get_building_ids",
+      "applied_in": [1, 2],
+      "restrict": [["state", ["CO"]]]
+    }
+  }
+]

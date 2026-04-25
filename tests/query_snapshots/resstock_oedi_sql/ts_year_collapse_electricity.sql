@@ -1,0 +1,4 @@
+SELECT baseline."in.geometry_building_type_recs" AS geometry_building_type_recs, sum(1) / CAST(35040 AS DECIMAL) AS sample_count, sum(baseline.weight / CAST(35040 AS REAL)) AS units_count, sum(resstock_2024_amy2018_release_2_by_state_vu."out.electricity.total.energy_consumption" * baseline.weight) AS "electricity.total.energy_consumption" 
+FROM resstock_2024_amy2018_release_2_by_state_vu JOIN (SELECT * 
+FROM resstock_2024_amy2018_release_2_metadata 
+WHERE resstock_2024_amy2018_release_2_metadata.upgrade = 0) AS baseline ON baseline.bldg_id = resstock_2024_amy2018_release_2_by_state_vu.bldg_id AND resstock_2024_amy2018_release_2_by_state_vu.upgrade = 0 AND resstock_2024_amy2018_release_2_by_state_vu.state = 'CO' GROUP BY 1 ORDER BY 1

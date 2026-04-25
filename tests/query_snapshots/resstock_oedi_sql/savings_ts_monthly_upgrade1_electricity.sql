@@ -1,0 +1,12 @@
+SELECT date_trunc('month', date_add('second', -900, ts_b.timestamp)) AS timestamp, count(distinct(baseline.bldg_id)) AS sample_count, (count(distinct(baseline.bldg_id)) * sum(baseline.weight)) / CAST(sum(1) AS DECIMAL) AS units_count, sum(1) / CAST(count(distinct(baseline.bldg_id)) AS DECIMAL) AS rows_per_sample, sum(ts_b."out.electricity.total.energy_consumption" * baseline.weight) AS "electricity.total.energy_consumption__baseline", sum(ts_u."out.electricity.total.energy_consumption" * baseline.weight) AS "electricity.total.energy_consumption__upgrade", sum((coalesce(ts_b."out.electricity.total.energy_consumption", 0) - coalesce(ts_u."out.electricity.total.energy_consumption", 0)) * baseline.weight) AS "electricity.total.energy_consumption__savings" 
+FROM (SELECT resstock_2024_amy2018_release_2_by_state_vu.bldg_id AS bldg_id, resstock_2024_amy2018_release_2_by_state_vu.timestamp AS timestamp, resstock_2024_amy2018_release_2_by_state_vu."out.electricity.total.energy_consumption" AS "out.electricity.total.energy_consumption" 
+FROM resstock_2024_amy2018_release_2_by_state_vu JOIN (SELECT * 
+FROM resstock_2024_amy2018_release_2_metadata 
+WHERE resstock_2024_amy2018_release_2_metadata.upgrade = 0) AS baseline ON baseline.bldg_id = resstock_2024_amy2018_release_2_by_state_vu.bldg_id 
+WHERE resstock_2024_amy2018_release_2_by_state_vu.upgrade = 0 AND resstock_2024_amy2018_release_2_by_state_vu.state = 'CO') AS ts_b JOIN (SELECT resstock_2024_amy2018_release_2_by_state_vu.bldg_id AS bldg_id, resstock_2024_amy2018_release_2_by_state_vu.timestamp AS timestamp, resstock_2024_amy2018_release_2_by_state_vu."out.electricity.total.energy_consumption" AS "out.electricity.total.energy_consumption" 
+FROM resstock_2024_amy2018_release_2_by_state_vu JOIN (SELECT * 
+FROM resstock_2024_amy2018_release_2_metadata 
+WHERE resstock_2024_amy2018_release_2_metadata.upgrade = 0) AS baseline ON baseline.bldg_id = resstock_2024_amy2018_release_2_by_state_vu.bldg_id 
+WHERE resstock_2024_amy2018_release_2_by_state_vu.upgrade = 1 AND resstock_2024_amy2018_release_2_by_state_vu.state = 'CO') AS ts_u ON ts_b.bldg_id = ts_u.bldg_id AND ts_b.timestamp = ts_u.timestamp JOIN (SELECT * 
+FROM resstock_2024_amy2018_release_2_metadata 
+WHERE resstock_2024_amy2018_release_2_metadata.upgrade = 0) AS baseline ON baseline.bldg_id = ts_b.bldg_id GROUP BY 1 ORDER BY 1

@@ -17,18 +17,28 @@ def pytest_addoption(parser):
         help="Run data comparison against parquet for entries whose SQL check failed.",
     )
     parser.addoption(
-        "--update-sql",
-        action="store_true",
-        default=False,
-        help="Rewrite .sql files on mismatch (includes whitespace-only and sqlglot-only diffs).",
-    )
-    parser.addoption(
-        "--update-sql-and-data",
+        "--update-snapshot",
         action="store_true",
         default=False,
         help=(
-            "Rewrite .sql AND .parquet for entries where both SQL and data check failed. "
-            "Implies --check-data and --update-sql."
+            "Auto-refresh .sql and .parquet files for changes the test framework can prove "
+            "are safe. Cosmetic SQL drift (whitespace_only, sqlglot_only) writes SQL with no "
+            "data check. Real SQL drift auto-runs the query: if data matches → write SQL only; "
+            "if data is missing or 'equivalent but different' (extra/missing columns with shared "
+            "values agreeing) → write SQL + parquet. Real data divergence is left alone — that "
+            "needs --overwrite-snapshot. This is the routine refresh flag and should be used for "
+            "almost all snapshot maintenance."
+        ),
+    )
+    parser.addoption(
+        "--overwrite-snapshot",
+        action="store_true",
+        default=False,
+        help=(
+            "Force-overwrite .sql and .parquet even when data genuinely diverged from the stored "
+            "value. Use only when you've deliberately changed query semantics (bug fix, "
+            "intentional output change) and the new value is correct. Includes everything "
+            "--update-snapshot does."
         ),
     )
 

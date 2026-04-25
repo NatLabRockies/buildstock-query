@@ -14,7 +14,7 @@ poetry.lock
 build/
 *.egg-info
 *.parquet
-!tests/query_snapshots/**/data/*.parquet
+!tests/query_snapshots/*_data/*.parquet
 *.txt
 *.csv
 *.yml

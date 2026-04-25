@@ -14,7 +14,7 @@ test fails with a clear message directing you to add the entry and re-bootstrap.
 Invariants covered in this module
 ---------------------------------
 
-1. **annual == ts-year-collapse == sum(ts-monthly)** — per schema
+1. **annual == ts-year-collapse == sum(ts-monthly)** — shared across both schemas
 
    For a given enduse, grouping, and restrict, the per-group total must agree across
    three query flavors:
@@ -26,30 +26,19 @@ Invariants covered in this module
        summed over the `time` axis.
 
    Also verifies that `sample_count` and `units_count` agree across all three legs.
-   These are per-group metadata (same value on every monthly row), so collapsing the
+   These are per-group metadata (constant on every monthly row), so collapsing the
    monthly frame requires mean-across-time, not sum; catches bugs where the monthly
    query accidentally double-counts rows.
 
    Catches bugs in timeseries aggregation, baseline/timeseries join logic, and unit
-   conversion between the annual and timeseries tables (comstock uses different
-   enduse column names for each — `..kwh` suffix on annual, no suffix on TS).
+   conversion between the annual and timeseries tables. Comstock uses different
+   enduse column names for each (`..kwh` suffix on annual, no suffix on TS), so the
+   parametrized case table carries both names.
 
-   Tests:
-     - `test_resstock_annual_equals_ts_year_equals_ts_monthly_sum`
-     - `test_comstock_annual_equals_ts_year_equals_ts_monthly_sum`
-
-2. **savings decomposition: baseline - upgrade ≈ savings** — per schema
-
-   For a single `query(..., include_baseline=True, include_upgrade=True,
+2. **savings decomposition: baseline - upgrade ≈ savings** — shared across both
+   schemas. For a `query(..., include_baseline=True, include_upgrade=True,
    include_savings=True)` call, the returned DataFrame must satisfy
-   `baseline_col - upgrade_col ≈ savings_col` for every row (per group).
-
-   Catches bugs in the savings-shape calculation, weight application, and
-   column aliasing across the three output variants.
-
-   Tests:
-     - `test_resstock_savings_decomposition`
-     - `test_comstock_savings_decomposition`
+   `baseline_col - upgrade_col ≈ savings_col` for every row.
 
 Tolerance
 ---------
@@ -63,10 +52,13 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-pd.set_option('display.width', 1000)
-pd.set_option('display.max_columns', 10)
-pd.set_option('display.max_rows', 100)
+
 from tests.test_utility import SNAPSHOTS_ROOT, find_data_for_sql
+
+
+pd.set_option("display.width", 1000)
+pd.set_option("display.max_columns", 10)
+pd.set_option("display.max_rows", 100)
 
 
 INVARIANT_RTOL = 1e-3
@@ -118,131 +110,121 @@ def _assert_series_close(label: str, a: pd.Series, b: pd.Series) -> None:
     np.isclose can't cross the Decimal boundary directly.
     """
     assert set(a.index) == set(b.index), (
-        f"{label}: group-key mismatch\n  only_in_a={set(a.index) - set(b.index)}\n  only_in_b={set(b.index) - set(a.index)}"
+        f"{label}: group-key mismatch\n"
+        f"  only_in_a={set(a.index) - set(b.index)}\n"
+        f"  only_in_b={set(b.index) - set(a.index)}"
     )
     a_aligned = a.sort_index().astype(float)
     b_aligned = b.reindex(a_aligned.index).astype(float)
     diffs = []
     for key, av, bv in zip(a_aligned.index, a_aligned.values, b_aligned.values):
         if not np.isclose(av, bv, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL, equal_nan=True):
-            diffs.append(f"    {key}: {av:.4f} vs {bv:.4f} (diff={av - bv:.4f}, rel={((av - bv) / bv if bv else float('nan')):.4e})")
+            diffs.append(
+                f"    {key}: {av:.4f} vs {bv:.4f} (diff={av - bv:.4f}, "
+                f"rel={((av - bv) / bv if bv else float('nan')):.4e})"
+            )
     if diffs:
         pytest.fail(f"{label}: per-group totals diverge beyond tolerance\n" + "\n".join(diffs))
 
 
-# --- three-way invariant: annual_only == ts year-collapse == sum of ts monthly --
+def _find_first_col(df: pd.DataFrame, *, suffix: str, contains: str) -> str:
+    for c in df.columns:
+        if c.endswith(suffix) and contains in c:
+            return c
+    raise AssertionError(
+        f"no column with suffix '{suffix}' containing '{contains}' in columns: {list(df.columns)}"
+    )
 
-THREE_WAY_CASES_RESSTOCK = [
+
+# --- parametrization ---------------------------------------------------------
+#
+# Each case declares the fixture name (resolved at test time via
+# `request.getfixturevalue`), the snapshot subdirectory, and the per-schema
+# specifics (enduse names differ on comstock because baseline uses `..kwh`
+# suffix while TS does not). Column names like `state`, `vintage`,
+# `geometry_building_type_recs`, and `comstock_building_type` are bare — the
+# library's _get_column fallback auto-prepends the `in.` prefix.
+
+# Each case pins the electricity enduse name for the annual leg and the TS leg
+# (they differ on comstock: baseline has the `..kwh` suffix, TS does not).
+# `annual_enduses` and `ts_monthly_enduses` are the full lists used for the
+# stored snapshots of those legs (resstock stores a two-fuel monthly; comstock
+# stores a single-fuel monthly).
+
+THREE_WAY_CASES = [
     pytest.param(
+        "bsq_resstock_oedi",
+        "resstock_oedi",
+        [
+            "out.electricity.total.energy_consumption",
+            "out.natural_gas.total.energy_consumption",
+        ],
         "out.electricity.total.energy_consumption",
+        [
+            "out.electricity.total.energy_consumption",
+            "out.natural_gas.total.energy_consumption",
+        ],
         "geometry_building_type_recs",
         id="resstock_electricity_by_building_type",
     ),
-]
-
-THREE_WAY_CASES_COMSTOCK = [
     pytest.param(
-        "out.electricity.total.energy_consumption",  # TS table
-        "out.electricity.total.energy_consumption..kwh",  # baseline table (annual)
+        "bsq_comstock_oedi",
+        "comstock_oedi",
+        [
+            "out.electricity.total.energy_consumption..kwh",
+            "out.natural_gas.total.energy_consumption..kwh",
+        ],
+        "out.electricity.total.energy_consumption",
+        ["out.electricity.total.energy_consumption"],
         "comstock_building_type",
         id="comstock_electricity_by_building_type",
     ),
 ]
 
 
-@pytest.mark.parametrize("enduse, group_col", THREE_WAY_CASES_RESSTOCK)
-def test_resstock_annual_equals_ts_year_equals_ts_monthly_sum(
-    bsq_resstock_oedi, enduse, group_col
+SAVINGS_CASES = [
+    pytest.param(
+        "bsq_resstock_oedi",
+        "resstock_oedi",
+        "out.electricity.total.energy_consumption",
+        "geometry_building_type_recs",
+        id="resstock_electricity_by_building_type",
+    ),
+    pytest.param(
+        "bsq_comstock_oedi",
+        "comstock_oedi",
+        "out.electricity.total.energy_consumption..kwh",
+        "comstock_building_type",
+        id="comstock_electricity_by_building_type",
+    ),
+]
+
+
+# --- three-way invariant: annual == ts_year_collapse == sum(ts_monthly) -------
+
+@pytest.mark.parametrize(
+    "bsq_fixture, schema, annual_enduses, ts_enduse, ts_monthly_enduses, group_col",
+    THREE_WAY_CASES,
+)
+def test_annual_equals_ts_year_equals_ts_monthly_sum(
+    request, bsq_fixture, schema, annual_enduses, ts_enduse, ts_monthly_enduses, group_col
 ):
-    """For resstock: annual total, year-collapsed timeseries, and sum of monthly
-    timeseries should all report the same per-group total energy."""
-    schema_dir = SNAPSHOTS_ROOT / "resstock_oedi"
-    # Baseline-only queries (annual) must use in.state; timeseries uses bare 'state'
-    # (which routes to the TS partition column).
-    annual_restrict = [("in.state", ["CO"])]
-    ts_restrict = [("state", ["CO"])]
-    # Output DataFrame strips the leading 'out.' prefix from enduse column names.
-    enduse_col = _strip_out_prefix(enduse)
-
-    # Annual — two-fuel snapshot has this enduse as a column.
-    annual_sql = bsq_resstock_oedi.query(
-        enduses=[
-            "out.electricity.total.energy_consumption",
-            "out.natural_gas.total.energy_consumption",
-        ],
-        group_by=["in." + group_col],
-        restrict=annual_restrict,
-        get_query_only=True,
-    )
-    annual_df = find_data_for_sql(schema_dir, annual_sql)
-
-    # Timeseries year-collapse — single-enduse snapshot.
-    ts_year_sql = bsq_resstock_oedi.query(
-        enduses=[enduse],
-        annual_only=False,
-        timestamp_grouping_func="year",
-        group_by=["in." + group_col],
-        restrict=ts_restrict,
-        get_query_only=True,
-    )
-    ts_year_df = find_data_for_sql(schema_dir, ts_year_sql)
-
-    # Timeseries monthly — two-fuel snapshot (grouping by time → column is 'timestamp').
-    ts_monthly_sql = bsq_resstock_oedi.query(
-        enduses=[
-            "out.electricity.total.energy_consumption",
-            "out.natural_gas.total.energy_consumption",
-        ],
-        annual_only=False,
-        timestamp_grouping_func="month",
-        group_by=["in." + group_col, "time"],
-        restrict=ts_restrict,
-        get_query_only=True,
-    )
-    ts_monthly_df = find_data_for_sql(schema_dir, ts_monthly_sql)
-
-    annual_totals = _scalar_total_by_group(annual_df, enduse_col, [group_col])
-    ts_year_totals = _scalar_total_by_group(ts_year_df, enduse_col, [group_col])
-    ts_monthly_totals = _scalar_total_by_group(ts_monthly_df, enduse_col, [group_col])
-
-    _assert_series_close("annual vs ts_year_collapse", annual_totals, ts_year_totals)
-    _assert_series_close("annual vs sum(ts_monthly)", annual_totals, ts_monthly_totals)
-
-    # sample_count / units_count are per-group metadata — constant on every monthly
-    # row — so collapsing the monthly frame requires mean, not sum. We compare ts_year
-    # against mean(ts_monthly) since both come from the same TS table; we also verify
-    # against the annual leg where the baseline and TS tables share a per-building
-    # keying (resstock). For comstock the annual leg can have a different row
-    # multiplicity from the TS leg, so that check is schema-specific.
-    for count_col in ("sample_count", "units_count"):
-        annual_counts = _scalar_first_by_group(annual_df, count_col, [group_col])
-        ts_year_counts = _scalar_first_by_group(ts_year_df, count_col, [group_col])
-        ts_monthly_counts = _scalar_mean_by_group(ts_monthly_df, count_col, [group_col])
-        _assert_series_close(f"{count_col}: ts_year_collapse vs mean(ts_monthly)", ts_year_counts, ts_monthly_counts)
-        _assert_series_close(f"{count_col}: annual vs ts_year_collapse", annual_counts, ts_year_counts)
-
-
-@pytest.mark.parametrize("ts_enduse, annual_enduse, group_col", THREE_WAY_CASES_COMSTOCK)
-def test_comstock_annual_equals_ts_year_equals_ts_monthly_sum(
-    bsq_comstock_oedi, ts_enduse, annual_enduse, group_col
-):
-    """Same invariant for comstock. The baseline and TS tables use different enduse
-    column naming conventions, so we pass the right name for each leg."""
-    schema_dir = SNAPSHOTS_ROOT / "comstock_oedi"
+    """For each schema: annual total, year-collapsed timeseries, and sum of monthly
+    timeseries should all report the same per-group total energy. Counts must agree
+    too."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    schema_dir = SNAPSHOTS_ROOT / schema
     restrict = [("state", ["CO"])]
 
-    annual_sql = bsq_comstock_oedi.query(
-        enduses=[
-            "out.electricity.total.energy_consumption..kwh",
-            "out.natural_gas.total.energy_consumption..kwh",
-        ],
+    annual_sql = bsq.query(
+        enduses=annual_enduses,
         group_by=[group_col],
         restrict=restrict,
         get_query_only=True,
     )
     annual_df = find_data_for_sql(schema_dir, annual_sql)
 
-    ts_year_sql = bsq_comstock_oedi.query(
+    ts_year_sql = bsq.query(
         enduses=[ts_enduse],
         annual_only=False,
         timestamp_grouping_func="year",
@@ -252,8 +234,8 @@ def test_comstock_annual_equals_ts_year_equals_ts_monthly_sum(
     )
     ts_year_df = find_data_for_sql(schema_dir, ts_year_sql)
 
-    ts_monthly_sql = bsq_comstock_oedi.query(
-        enduses=[ts_enduse],
+    ts_monthly_sql = bsq.query(
+        enduses=ts_monthly_enduses,
         annual_only=False,
         timestamp_grouping_func="month",
         group_by=[group_col, "time"],
@@ -262,17 +244,20 @@ def test_comstock_annual_equals_ts_year_equals_ts_monthly_sum(
     )
     ts_monthly_df = find_data_for_sql(schema_dir, ts_monthly_sql)
 
-    annual_totals = _scalar_total_by_group(annual_df, _strip_out_prefix(annual_enduse), [group_col])
-    ts_year_totals = _scalar_total_by_group(ts_year_df, _strip_out_prefix(ts_enduse), [group_col])
-    ts_monthly_totals = _scalar_total_by_group(ts_monthly_df, _strip_out_prefix(ts_enduse), [group_col])
+    # Pick the electricity enduse from each leg (always element 0) for the totals check.
+    annual_col = _strip_out_prefix(annual_enduses[0])
+    ts_col = _strip_out_prefix(ts_enduse)
+
+    annual_totals = _scalar_total_by_group(annual_df, annual_col, [group_col])
+    ts_year_totals = _scalar_total_by_group(ts_year_df, ts_col, [group_col])
+    ts_monthly_totals = _scalar_total_by_group(ts_monthly_df, ts_col, [group_col])
 
     _assert_series_close("annual vs ts_year_collapse", annual_totals, ts_year_totals)
     _assert_series_close("annual vs sum(ts_monthly)", annual_totals, ts_monthly_totals)
 
-    # sample_count / units_count are per-group metadata — constant on every monthly
-    # row — so collapsing the monthly frame requires mean, not sum. Counting over
-    # the full metadata key (bs_key) in the TS-grouping path was fixed in 25fa3fa
-    # so these now agree across all three legs on comstock.
+    # Counts are per-group metadata (constant across monthly rows), so collapsing
+    # the monthly frame uses mean, not sum. This check caught the comstock
+    # sample_count undercount before it was fixed (see 25fa3fa).
     for count_col in ("sample_count", "units_count"):
         annual_counts = _scalar_first_by_group(annual_df, count_col, [group_col])
         ts_year_counts = _scalar_first_by_group(ts_year_df, count_col, [group_col])
@@ -291,44 +276,20 @@ def test_comstock_annual_equals_ts_year_equals_ts_monthly_sum(
 
 # --- savings decomposition: baseline - upgrade ≈ savings ---------------------
 
-def test_resstock_savings_decomposition(bsq_resstock_oedi):
+@pytest.mark.parametrize(
+    "bsq_fixture, schema, enduse, group_col",
+    SAVINGS_CASES,
+)
+def test_savings_decomposition(request, bsq_fixture, schema, enduse, group_col):
     """For a savings query with include_baseline + include_upgrade + include_savings,
     the stored DataFrame should satisfy baseline - upgrade ≈ savings per group."""
-    schema_dir = SNAPSHOTS_ROOT / "resstock_oedi"
-    sql = bsq_resstock_oedi.query(
-        enduses=["out.electricity.total.energy_consumption"],
+    bsq = request.getfixturevalue(bsq_fixture)
+    schema_dir = SNAPSHOTS_ROOT / schema
+
+    sql = bsq.query(
+        enduses=[enduse],
         upgrade_id="1",
-        group_by=["in.geometry_building_type_recs"],
-        restrict=[("in.state", ["CO"])],
-        include_baseline=True,
-        include_upgrade=True,
-        include_savings=True,
-        get_query_only=True,
-    )
-    df = find_data_for_sql(schema_dir, sql)
-
-    baseline_col = _find_first_col(df, suffix="__baseline", contains="electricity.total")
-    upgrade_col = _find_first_col(df, suffix="__upgrade", contains="electricity.total")
-    savings_col = _find_first_col(df, suffix="__savings", contains="electricity.total")
-
-    diffs = []
-    for _, row in df.iterrows():
-        expected = row[baseline_col] - row[upgrade_col]
-        actual = row[savings_col]
-        if not np.isclose(expected, actual, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL, equal_nan=True):
-            diffs.append(
-                f"  {row.get('geometry_building_type_recs', '?')}: baseline-upgrade={expected:.4f}, savings={actual:.4f}"
-            )
-    if diffs:
-        pytest.fail("savings decomposition failed:\n" + "\n".join(diffs))
-
-
-def test_comstock_savings_decomposition(bsq_comstock_oedi):
-    schema_dir = SNAPSHOTS_ROOT / "comstock_oedi"
-    sql = bsq_comstock_oedi.query(
-        enduses=["out.electricity.total.energy_consumption..kwh"],
-        upgrade_id="1",
-        group_by=["comstock_building_type"],
+        group_by=[group_col],
         restrict=[("state", ["CO"])],
         include_baseline=True,
         include_upgrade=True,
@@ -347,16 +308,7 @@ def test_comstock_savings_decomposition(bsq_comstock_oedi):
         actual = row[savings_col]
         if not np.isclose(expected, actual, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL, equal_nan=True):
             diffs.append(
-                f"  {row.get('comstock_building_type', '?')}: baseline-upgrade={expected:.4f}, savings={actual:.4f}"
+                f"  {row.get(group_col, '?')}: baseline-upgrade={expected:.4f}, savings={actual:.4f}"
             )
     if diffs:
         pytest.fail("savings decomposition failed:\n" + "\n".join(diffs))
-
-
-def _find_first_col(df: pd.DataFrame, *, suffix: str, contains: str) -> str:
-    for c in df.columns:
-        if c.endswith(suffix) and contains in c:
-            return c
-    raise AssertionError(
-        f"no column with suffix '{suffix}' containing '{contains}' in columns: {list(df.columns)}"
-    )

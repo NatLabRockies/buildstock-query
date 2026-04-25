@@ -42,6 +42,19 @@
     }
   },
   {
+    "name": "annual_electricity_by_vintage_nosort",
+    "description": "Annual electricity by vintage with sort=false + limit. Hits the no-ORDER-BY branch which existing entries never exercise.",
+    "sql_file": "annual_electricity_by_vintage_nosort.sql",
+    "data_file": "annual_electricity_by_vintage_nosort.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "group_by": ["vintage"],
+      "restrict": [["state", ["CO"]]],
+      "sort": false,
+      "limit": 5
+    }
+  },
+  {
     "name": "annual_nonzero_count_natural_gas",
     "description": "Annual natural gas with nonzero_units_count requested, CO only.",
     "sql_file": "annual_nonzero_count_natural_gas.sql",
@@ -51,6 +64,18 @@
       "group_by": ["$BUILDING_TYPE_COL"],
       "restrict": [["state", ["CO"]]],
       "get_nonzero_count": true
+    }
+  },
+  {
+    "name": "annual_baseline_quartiles",
+    "description": "Annual baseline (upgrade=0) electricity with get_quartiles=true. Hits the quartile branch on the upgrade-0 path where there is no upgrade-table join — the existing quartile coverage is upgrade=1 only.",
+    "sql_file": "annual_baseline_quartiles.sql",
+    "data_file": "annual_baseline_quartiles.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]],
+      "get_quartiles": true
     }
   }
 ]

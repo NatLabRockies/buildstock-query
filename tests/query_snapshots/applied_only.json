@@ -14,15 +14,56 @@
   },
   {
     "name": "all_buildings_upgrade1_annual",
-    "description": "Annual upgrade 1 including unapplied buildings, CO.",
+    "description": "Annual upgrade 1 including unapplied buildings, CO. Two variants — upgrade_id as string '1' vs int 1 — must compile to the same SQL since _validate_upgrade normalizes both to str.",
     "sql_file": "all_buildings_upgrade1_annual.sql",
     "data_file": "all_buildings_upgrade1_annual.parquet",
+    "args": [
+      {
+        "enduses": ["$ELECTRICITY_TOTAL"],
+        "upgrade_id": "1",
+        "group_by": ["$BUILDING_TYPE_COL"],
+        "restrict": [["state", ["CO"]]],
+        "applied_only": false
+      },
+      {
+        "enduses": ["$ELECTRICITY_TOTAL"],
+        "upgrade_id": 1,
+        "group_by": ["$BUILDING_TYPE_COL"],
+        "restrict": [["state", ["CO"]]],
+        "applied_only": false
+      }
+    ]
+  },
+  {
+    "name": "include_baseline_upgrade1_annual",
+    "description": "Annual upgrade 1 with include_baseline=true and include_savings=false. Mirrors the comstock notebook pattern that exposes baseline + upgrade columns side-by-side without the savings subtraction.",
+    "sql_file": "include_baseline_upgrade1_annual.sql",
+    "data_file": "include_baseline_upgrade1_annual.parquet",
     "args": {
       "enduses": ["$ELECTRICITY_TOTAL"],
       "upgrade_id": "1",
       "group_by": ["$BUILDING_TYPE_COL"],
       "restrict": [["state", ["CO"]]],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": false,
       "applied_only": false
+    }
+  },
+  {
+    "name": "include_baseline_upgrade1_applied_only_annual",
+    "description": "Same as include_baseline_upgrade1_annual but with applied_only=true. Hits the upgrade_only=False branch (because include_baseline forces the baseline join).",
+    "sql_file": "include_baseline_upgrade1_applied_only_annual.sql",
+    "data_file": "include_baseline_upgrade1_applied_only_annual.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "upgrade_id": "1",
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": false,
+      "applied_only": true
     }
   }
 ]

@@ -1,14 +1,21 @@
 [
   {
     "name": "restrict_single_state",
-    "description": "Annual electricity restricted to CO with simple single-value restrict.",
+    "description": "Annual electricity restricted to CO. Three equivalent restrict shapes (single-element list, scalar string, scalar wrapped in tuple) must all compile to the same SQL — covers the arg-normalization code path in _get_restrict_clauses.",
     "sql_file": "restrict_single_state.sql",
     "data_file": "restrict_single_state.parquet",
-    "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]]
-    }
+    "args": [
+      {
+        "enduses": ["$ELECTRICITY_TOTAL"],
+        "group_by": ["$BUILDING_TYPE_COL"],
+        "restrict": [["state", ["CO"]]]
+      },
+      {
+        "enduses": ["$ELECTRICITY_TOTAL"],
+        "group_by": ["$BUILDING_TYPE_COL"],
+        "restrict": [["state", "CO"]]
+      }
+    ]
   },
   {
     "name": "restrict_two_states",
@@ -42,6 +49,18 @@
       "group_by": ["$BUILDING_TYPE_COL"],
       "restrict": [["state", ["CO"]]],
       "avoid": [["$BUILDING_TYPE_COL", ["$AVOID_BUILDING_TYPE"]]]
+    }
+  },
+  {
+    "name": "avoid_building_type_multi",
+    "description": "CO only, avoid multiple building types via multi-element avoid list — exercises the NOT IN code path in _add_avoid (single-value avoid emits != instead).",
+    "sql_file": "avoid_building_type_multi.sql",
+    "data_file": "avoid_building_type_multi.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]],
+      "avoid": [["$BUILDING_TYPE_COL", "$AVOID_BUILDING_TYPES_MULTI"]]
     }
   }
 ]

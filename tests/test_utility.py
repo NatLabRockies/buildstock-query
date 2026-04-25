@@ -56,6 +56,7 @@ def _resolve_resstock_placeholder(name: str, *, annual: bool) -> Any:
         "NATURAL_GAS_TOTAL": "out.natural_gas.total.energy_consumption",
         "BUILDING_TYPE_COL": "geometry_building_type_recs",
         "AVOID_BUILDING_TYPE": "Mobile Home",
+        "AVOID_BUILDING_TYPES_MULTI": ["Mobile Home", "Multi-Family with 5+ Units"],
         "VINTAGE_BUCKET": "1980s",
         "BUILDING_TYPE_MAPPING": {
             "Mobile Home": "MH",
@@ -63,6 +64,13 @@ def _resolve_resstock_placeholder(name: str, *, annual: bool) -> Any:
             "Single-Family Attached": "SF",
             "Multi-Family with 2 - 4 Units": "MF",
             "Multi-Family with 5+ Units": "MF",
+        },
+        "BUILDING_TYPE_LOAD_FACTOR": {
+            "Mobile Home": 0.5,
+            "Single-Family Detached": 1.0,
+            "Single-Family Attached": 0.8,
+            "Multi-Family with 2 - 4 Units": 0.6,
+            "Multi-Family with 5+ Units": 0.4,
         },
     }
     return table[name]
@@ -75,6 +83,7 @@ def _resolve_comstock_placeholder(name: str, *, annual: bool) -> Any:
         "NATURAL_GAS_TOTAL": f"out.natural_gas.total.energy_consumption{suffix}",
         "BUILDING_TYPE_COL": "comstock_building_type",
         "AVOID_BUILDING_TYPE": "Warehouse",
+        "AVOID_BUILDING_TYPES_MULTI": ["Warehouse", "SmallOffice"],
         "VINTAGE_BUCKET": "1980 to 1989",
         "BUILDING_TYPE_MAPPING": {
             "FullServiceRestaurant": "Food",
@@ -91,6 +100,22 @@ def _resolve_comstock_placeholder(name: str, *, annual: bool) -> Any:
             "Hospital": "Health",
             "Outpatient": "Health",
             "Warehouse": "Warehouse",
+        },
+        "BUILDING_TYPE_LOAD_FACTOR": {
+            "FullServiceRestaurant": 1.0,
+            "QuickServiceRestaurant": 0.8,
+            "RetailStandalone": 0.6,
+            "RetailStripmall": 0.5,
+            "PrimarySchool": 0.7,
+            "SecondarySchool": 0.7,
+            "SmallOffice": 0.4,
+            "MediumOffice": 0.6,
+            "LargeOffice": 0.9,
+            "SmallHotel": 0.5,
+            "LargeHotel": 0.8,
+            "Hospital": 1.0,
+            "Outpatient": 0.7,
+            "Warehouse": 0.3,
         },
     }
     return table[name]
@@ -425,6 +450,7 @@ def evaluate_entries(
 
         variants: list[VariantResult] = []
         skip_reason: str | None = None
+        sql_error: str | None = None
         for v_idx, variant_args in enumerate(entry.args):
             _log(
                 f"[{idx}/{total}] {entry.name} :: variant {v_idx + 1}/{n_variants} :: "
@@ -441,11 +467,12 @@ def evaluate_entries(
                 )
                 break
             except Exception as exc:
+                sql_error = f"{type(exc).__name__}: {exc}"
                 _log(
                     f"[{idx}/{total}] {entry.name} :: variant {v_idx + 1}/{n_variants} :: "
-                    f"SQL generation FAILED: {exc}"
+                    f"SQL generation FAILED: {sql_error}"
                 )
-                raise
+                break
             _log(
                 f"[{idx}/{total}] {entry.name} :: variant {v_idx + 1}/{n_variants} :: "
                 f"SQL generated in {time.time()-t0:.2f}s"
@@ -476,6 +503,18 @@ def evaluate_entries(
                 expected_sql=stored_sql,
                 data_status="skipped",
                 data_error=skip_reason,
+            )
+            outcomes.append(outcome)
+            continue
+
+        if sql_error is not None:
+            outcome = EntryOutcome(
+                entry=entry,
+                status="error",
+                variants=variants,
+                expected_sql=stored_sql,
+                data_status="skipped",
+                data_error=sql_error,
             )
             outcomes.append(outcome)
             continue

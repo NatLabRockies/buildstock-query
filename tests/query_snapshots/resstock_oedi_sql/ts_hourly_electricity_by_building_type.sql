@@ -1,0 +1,5 @@
+SELECT baseline."in.geometry_building_type_recs" AS geometry_building_type_recs, date_trunc('hour', date_add('second', -900, resstock_2024_amy2018_release_2_by_state_vu.timestamp)) AS timestamp, count(distinct(baseline.bldg_id)) AS sample_count, (count(distinct(baseline.bldg_id)) * sum(baseline.weight)) / CAST(sum(1) AS DECIMAL) AS units_count, sum(1) / CAST(count(distinct(baseline.bldg_id)) AS DECIMAL) AS rows_per_sample, sum(resstock_2024_amy2018_release_2_by_state_vu."out.electricity.total.energy_consumption" * baseline.weight) AS "electricity.total.energy_consumption" 
+FROM resstock_2024_amy2018_release_2_by_state_vu JOIN (SELECT * 
+FROM resstock_2024_amy2018_release_2_metadata 
+WHERE resstock_2024_amy2018_release_2_metadata.upgrade = 0) AS baseline ON baseline.bldg_id = resstock_2024_amy2018_release_2_by_state_vu.bldg_id AND resstock_2024_amy2018_release_2_by_state_vu.upgrade = 0 AND resstock_2024_amy2018_release_2_by_state_vu.state = 'CO' AND baseline."in.geometry_building_type_recs" = 'Mobile Home' 
+WHERE baseline."in.geometry_building_type_recs" = 'Mobile Home' GROUP BY 1, 2 ORDER BY 1, 2

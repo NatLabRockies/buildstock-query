@@ -51,5 +51,33 @@
       "group_by": ["state", "time"],
       "restrict": [["state", ["CO"]]]
     }
+  },
+  {
+    "name": "ts_daily_electricity_by_state",
+    "description": "Daily-grouped timeseries electricity, CO only. Exercises date_trunc('day', ...) plus the rows_per_sample / distinct-bs-keys grouping_metrics branch.",
+    "sql_file": "ts_daily_electricity_by_state.sql",
+    "data_file": "ts_daily_electricity_by_state.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "day",
+      "group_by": ["state", "time"],
+      "restrict": [["state", ["CO"]]]
+    }
+  },
+  {
+    "name": "ts_hourly_electricity_by_building_type",
+    "description": "Hourly-grouped timeseries electricity, CO + single building type. Exercises date_trunc('hour', ...) — the smallest grouping_func granularity.",
+    "sql_file": "ts_hourly_electricity_by_building_type.sql",
+    "data_file": "ts_hourly_electricity_by_building_type.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "hour",
+      "group_by": ["$BUILDING_TYPE_COL", "time"],
+      "restrict": [["state", ["CO"]], ["$BUILDING_TYPE_COL", ["$AVOID_BUILDING_TYPE"]]]
+    }
   }
 ]

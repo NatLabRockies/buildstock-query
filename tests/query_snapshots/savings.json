@@ -61,5 +61,23 @@
       "include_savings": true,
       "get_quartiles": true
     }
+  },
+  {
+    "name": "savings_ts_monthly_upgrade1_quartiles",
+    "description": "Monthly TS savings with quartiles, upgrade 1, CO only. Exercises the quartile branch in the TS upgrade-pair path; the existing TS savings entry has no quartiles.",
+    "sql_file": "savings_ts_monthly_upgrade1_quartiles.sql",
+    "data_file": "savings_ts_monthly_upgrade1_quartiles.parquet",
+    "args": {
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "upgrade_id": "1",
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": ["time"],
+      "restrict": [["state", ["CO"]]],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true,
+      "get_quartiles": true
+    }
   }
 ]

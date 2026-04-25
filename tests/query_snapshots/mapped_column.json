@@ -12,5 +12,20 @@
       "enduses": ["$ELECTRICITY_TOTAL"],
       "restrict": [["state", ["CO"]]]
     }
+  },
+  {
+    "name": "mapped_column_load_factor_enduse",
+    "description": "MappedColumn used as an enduse rather than a group_by column, CO only. Mirrors the advanced_usage notebook pattern where a numeric mapping (per-building-type load factor) is summed across the population. Exercises the enduse path through MappedColumn.",
+    "sql_file": "mapped_column_load_factor_enduse.sql",
+    "data_file": "mapped_column_load_factor_enduse.parquet",
+    "args": {
+      "target": "enduses",
+      "mapped_name": "bldg_load_factor",
+      "key_column": "$BUILDING_TYPE_COL",
+      "mapping_dict": "$BUILDING_TYPE_LOAD_FACTOR",
+      "enduses": [],
+      "group_by": ["$BUILDING_TYPE_COL"],
+      "restrict": [["state", ["CO"]]]
+    }
   }
 ]

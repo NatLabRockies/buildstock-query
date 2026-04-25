@@ -1,66 +1,159 @@
 [
   {
     "name": "restrict_single_state",
-    "description": "Annual electricity restricted to CO. Three equivalent restrict shapes (single-element list, scalar string, scalar wrapped in tuple) must all compile to the same SQL — covers the arg-normalization code path in _get_restrict_clauses.",
-    "sql_file": "restrict_single_state.sql",
-    "data_file": "restrict_single_state.parquet",
+    "sql_hash": {
+      "resstock_oedi": "c4c779ca5c4d253d631fd3ad94e8606a6dafc54c050a4f1d7559176d6518e46a",
+      "comstock_oedi": "14b22b3d30fd55e49c4f826eae22a990eafcce1a80901c0baac8aa2b927f3a10"
+    },
+    "description": "Annual electricity restricted to CO. Three equivalent restrict shapes (single-element list, scalar string, scalar wrapped in tuple) must all compile to the same SQL \u2014 covers the arg-normalization code path in _get_restrict_clauses.",
     "args": [
       {
-        "enduses": ["$ELECTRICITY_TOTAL"],
-        "group_by": ["$BUILDING_TYPE_COL"],
-        "restrict": [["state", ["CO"]]]
+        "enduses": [
+          "$ELECTRICITY_TOTAL"
+        ],
+        "group_by": [
+          "$BUILDING_TYPE_COL"
+        ],
+        "restrict": [
+          [
+            "state",
+            [
+              "CO"
+            ]
+          ]
+        ]
       },
       {
-        "enduses": ["$ELECTRICITY_TOTAL"],
-        "group_by": ["$BUILDING_TYPE_COL"],
-        "restrict": [["state", "CO"]]
+        "enduses": [
+          "$ELECTRICITY_TOTAL"
+        ],
+        "group_by": [
+          "$BUILDING_TYPE_COL"
+        ],
+        "restrict": [
+          [
+            "state",
+            "CO"
+          ]
+        ]
       }
     ]
   },
   {
     "name": "restrict_two_states",
+    "sql_hash": {
+      "resstock_oedi": "a2937c70410428d8fa77f6ac1a7568da11e1fc0a183a8fbf52695012f1fecb6c",
+      "comstock_oedi": "3dad1021118715e9f07f626f35277958818c7109ec65c2f829ca51bf455f618d"
+    },
     "description": "Annual electricity restricted to CO + WY.",
-    "sql_file": "restrict_two_states.sql",
-    "data_file": "restrict_two_states.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
-      "group_by": ["state"],
-      "restrict": [["state", ["CO", "WY"]]]
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "state"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "restrict_state_plus_vintage",
+    "sql_hash": {
+      "resstock_oedi": "8855494f0dacdc976ab25ee3644126a3f31a57890fe37f9fd58e6c2c2f327398",
+      "comstock_oedi": "ee7fcaa3873c7a983c5d028a1821028db2ef5b9ac3bf35b8b1704630976d4466"
+    },
     "description": "CO + specific vintage bucket, electricity.",
-    "sql_file": "restrict_state_plus_vintage.sql",
-    "data_file": "restrict_state_plus_vintage.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
-      "group_by": ["vintage"],
-      "restrict": [["state", ["CO"]], ["vintage", ["$VINTAGE_BUCKET"]]]
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "vintage"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ],
+        [
+          "vintage",
+          [
+            "$VINTAGE_BUCKET"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "avoid_building_type",
+    "sql_hash": {
+      "resstock_oedi": "65c27bc4e5763f64143fb58665ad2ea97ca8b2cb247bff469fe1b2b36970e543",
+      "comstock_oedi": "6d4f87db3f6483ee9e446ad684eba89cda917cc33c960812f3990af738b4e6c1"
+    },
     "description": "CO only, avoid one building type per schema.",
-    "sql_file": "avoid_building_type.sql",
-    "data_file": "avoid_building_type.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]],
-      "avoid": [["$BUILDING_TYPE_COL", ["$AVOID_BUILDING_TYPE"]]]
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "avoid": [
+        [
+          "$BUILDING_TYPE_COL",
+          [
+            "$AVOID_BUILDING_TYPE"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "avoid_building_type_multi",
-    "description": "CO only, avoid multiple building types via multi-element avoid list — exercises the NOT IN code path in _add_avoid (single-value avoid emits != instead).",
-    "sql_file": "avoid_building_type_multi.sql",
-    "data_file": "avoid_building_type_multi.parquet",
+    "sql_hash": {
+      "resstock_oedi": "f4c8f26afdc4035a3fe0234f47a12f71377c2a03ddd25968c3ca0686bbc6258e",
+      "comstock_oedi": "28f0dabdd4bd398664e7fb8ce1a42e83d409b222da8984998c9260b6874ae114"
+    },
+    "description": "CO only, avoid multiple building types via multi-element avoid list \u2014 exercises the NOT IN code path in _add_avoid (single-value avoid emits != instead).",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]],
-      "avoid": [["$BUILDING_TYPE_COL", "$AVOID_BUILDING_TYPES_MULTI"]]
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "avoid": [
+        [
+          "$BUILDING_TYPE_COL",
+          "$AVOID_BUILDING_TYPES_MULTI"
+        ]
+      ]
     }
   }
 ]

@@ -118,7 +118,6 @@ class BuildStockQuery(QueryCore):
             print(self.report.get_success_report())
             if self.ts_table is not None:
                 self.report.check_ts_bs_integrity()
-            self.save_cache()
 
     def get_buildstock_df(self) -> pd.DataFrame:
         """Returns the building characteristics data by querying Athena tables using the same format as that produced
@@ -315,9 +314,6 @@ class BuildStockQuery(QueryCore):
         compiled_query = self._compile(query)
         if get_query_only:
             return compiled_query
-        self._session_queries.add(compiled_query)
-        if compiled_query in self._query_cache:
-            return self._query_cache[compiled_query].copy().set_index(list(self.bs_key))
         logger.info("Making results_csv query ...")
         return self.execute(query).set_index(list(self.bs_key))
 
@@ -555,9 +551,6 @@ class BuildStockQuery(QueryCore):
         compiled_query = self._compile(query)
         if get_query_only:
             return compiled_query
-        self._session_queries.add(compiled_query)
-        if compiled_query in self._query_cache:
-            return self._query_cache[compiled_query].copy().set_index(list(self.up_key))
         logger.info("Making results_csv query for upgrade ...")
         return self.execute(query).set_index(list(self.up_key))
 

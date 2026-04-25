@@ -1,0 +1,1 @@
+SELECT resstock_2024_amy2018_release_2_by_state_vu.bldg_id, resstock_2024_amy2018_release_2_by_state_vu.upgrade FROM resstock_2024_amy2018_release_2_by_state_vu LIMIT 1

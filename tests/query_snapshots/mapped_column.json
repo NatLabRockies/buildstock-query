@@ -1,31 +1,53 @@
 [
   {
     "name": "mapped_column_simple_bldg_type_group_by",
+    "sql_hash": {
+      "resstock_oedi": "a830dce04199ef826870bcaa5762d567e25ca101c501311bc4f7c06accc1b727",
+      "comstock_oedi": "505e4151be7b7b3837d3fd9c732dd761e80722ddc830e29c022c7ead11b111f5"
+    },
     "description": "Annual electricity grouped by a MappedColumn that collapses building types into broader categories, CO only.",
-    "sql_file": "mapped_column_simple_bldg_type_group_by.sql",
-    "data_file": "mapped_column_simple_bldg_type_group_by.parquet",
     "args": {
       "target": "group_by",
       "mapped_name": "simple_bldg_type",
       "key_column": "$BUILDING_TYPE_COL",
       "mapping_dict": "$BUILDING_TYPE_MAPPING",
-      "enduses": ["$ELECTRICITY_TOTAL"],
-      "restrict": [["state", ["CO"]]]
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "mapped_column_load_factor_enduse",
+    "sql_hash": {
+      "resstock_oedi": "7ea056298df6c572aef634fe745af13ba5dbfccc0f8e96f9f262d371e9ec2726",
+      "comstock_oedi": "7cf7616bb4c1122e0b82e7426c633e7db40604b95f594ff64062f0fed50d06b8"
+    },
     "description": "MappedColumn used as an enduse rather than a group_by column, CO only. Mirrors the advanced_usage notebook pattern where a numeric mapping (per-building-type load factor) is summed across the population. Exercises the enduse path through MappedColumn.",
-    "sql_file": "mapped_column_load_factor_enduse.sql",
-    "data_file": "mapped_column_load_factor_enduse.parquet",
     "args": {
       "target": "enduses",
       "mapped_name": "bldg_load_factor",
       "key_column": "$BUILDING_TYPE_COL",
       "mapping_dict": "$BUILDING_TYPE_LOAD_FACTOR",
       "enduses": [],
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]]
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
     }
   }
 ]

@@ -1,0 +1,1 @@
+SELECT comstock_amy2018_r2_2025_ts_by_state.upgrade, comstock_amy2018_r2_2025_ts_by_state.bldg_id, comstock_amy2018_r2_2025_ts_by_state.state, count(*) AS row_count FROM comstock_amy2018_r2_2025_ts_by_state GROUP BY 1, 2, 3

@@ -1,5 +1,0 @@
-SELECT baseline."in.comstock_building_type" AS comstock_building_type, sum(1) AS sample_count, sum(baseline.weight) AS units_count, sum(MAP(ARRAY['FullServiceRestaurant', 'QuickServiceRestaurant', 'RetailStandalone', 'RetailStripmall', 'PrimarySchool', 'SecondarySchool', 'SmallOffice', 'MediumOffice', 'LargeOffice', 'SmallHotel', 'LargeHotel', 'Hospital', 'Outpatient', 'Warehouse'], ARRAY[1.0, 0.8, 0.6, 0.5, 0.7, 0.7, 0.4, 0.6, 0.9, 0.5, 0.8, 1.0, 0.7, 0.3])[baseline."in.comstock_building_type"] * baseline.weight) AS bldg_load_factor 
-FROM (SELECT * 
-FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet 
-WHERE comstock_amy2018_r2_2025_md_by_state_and_county_parquet.upgrade = 0) AS baseline 
-WHERE baseline.applicability = true AND baseline.state = 'CO' GROUP BY 1 ORDER BY 1

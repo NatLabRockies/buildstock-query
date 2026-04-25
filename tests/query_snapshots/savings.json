@@ -1,14 +1,27 @@
 [
   {
     "name": "savings_annual_upgrade1_electricity",
+    "sql_hash": {
+      "resstock_oedi": "c67e850aa2d4eebfdcfa453e1aded228b49e956c7270440c55df495d2011d24d",
+      "comstock_oedi": "998fff49ecd1d336ef5a86fcf906b3108d216ebe28b6763d292cf76d639570b1"
+    },
     "description": "Annual savings for upgrade 1, electricity, grouped by building type, CO only.",
-    "sql_file": "savings_annual_upgrade1_electricity.sql",
-    "data_file": "savings_annual_upgrade1_electricity.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "upgrade_id": "1",
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true
@@ -16,16 +29,29 @@
   },
   {
     "name": "savings_ts_monthly_upgrade1_electricity",
+    "sql_hash": {
+      "resstock_oedi": "fbcab30f91cd381d091f3d7a3e318879e36fadd290eadef390b92b68572a18c0",
+      "comstock_oedi": ""
+    },
     "description": "Monthly timeseries savings for upgrade 1, electricity, CO only.",
-    "sql_file": "savings_ts_monthly_upgrade1_electricity.sql",
-    "data_file": "savings_ts_monthly_upgrade1_electricity.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "upgrade_id": "1",
       "annual_only": false,
       "timestamp_grouping_func": "month",
-      "group_by": ["time"],
-      "restrict": [["state", ["CO"]]],
+      "group_by": [
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true
@@ -33,14 +59,27 @@
   },
   {
     "name": "savings_only_upgrade1_electricity",
+    "sql_hash": {
+      "resstock_oedi": "1a3c2978f505daa2bbec441589ba74c1f4d2fde099e076a7ea0df035edbcf54e",
+      "comstock_oedi": "572bfb242f19e19e9db5b1a0468a84e324fac5b6cb454f985958c69349e08d11"
+    },
     "description": "Savings-only annual output (no baseline / no upgrade columns) for upgrade 1, CO. Catches column-suppression bugs in the include_baseline / include_upgrade flags.",
-    "sql_file": "savings_only_upgrade1_electricity.sql",
-    "data_file": "savings_only_upgrade1_electricity.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "upgrade_id": "1",
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
       "include_baseline": false,
       "include_upgrade": false,
       "include_savings": true
@@ -48,14 +87,27 @@
   },
   {
     "name": "savings_annual_upgrade1_quartiles",
+    "sql_hash": {
+      "resstock_oedi": "505930cd8529cc5246c88e294b3419feb000ecfd9253a02bbacc8bf1d5914ee7",
+      "comstock_oedi": "994b17636d36a4f40bc524267516b8d0e133479a244e31102713fce7d9d8daba"
+    },
     "description": "Annual upgrade 1 savings with quartiles, CO only.",
-    "sql_file": "savings_annual_upgrade1_quartiles.sql",
-    "data_file": "savings_annual_upgrade1_quartiles.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "upgrade_id": "1",
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true,
@@ -64,16 +116,29 @@
   },
   {
     "name": "savings_ts_monthly_upgrade1_quartiles",
+    "sql_hash": {
+      "resstock_oedi": "6f5e253fe516247746bf0edde5048fbd012bf9dd77f595a391f9c8b7656a6c59",
+      "comstock_oedi": ""
+    },
     "description": "Monthly TS savings with quartiles, upgrade 1, CO only. Exercises the quartile branch in the TS upgrade-pair path; the existing TS savings entry has no quartiles.",
-    "sql_file": "savings_ts_monthly_upgrade1_quartiles.sql",
-    "data_file": "savings_ts_monthly_upgrade1_quartiles.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "upgrade_id": "1",
       "annual_only": false,
       "timestamp_grouping_func": "month",
-      "group_by": ["time"],
-      "restrict": [["state", ["CO"]]],
+      "group_by": [
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true,

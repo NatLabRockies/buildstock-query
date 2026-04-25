@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Iterator
 
 import pytest
@@ -7,6 +8,26 @@ import pytest
 from buildstock_query import BuildStockQuery
 
 collect_ignore_glob = ["legacy/*"]
+
+SNAPSHOTS_ROOT = Path(__file__).parent / "query_snapshots"
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print real entry/variant totals — each pytest node processes a JSON file
+    of N entries, so the test-function count understates actual coverage."""
+    from tests.test_utility import SESSION_TOTALS
+
+    if SESSION_TOTALS["entries"] == 0:
+        return
+    terminalreporter.write_sep("=", "snapshot entry totals")
+    terminalreporter.write_line(
+        f"  {SESSION_TOTALS['entries']} entries / {SESSION_TOTALS['variants']} variants"
+    )
+    terminalreporter.write_line(
+        f"  passed={SESSION_TOTALS['passed']} updated={SESSION_TOTALS['updated']} "
+        f"skipped={SESSION_TOTALS['skipped']} errored={SESSION_TOTALS['errored']} "
+        f"failed={SESSION_TOTALS['failed']}"
+    )
 
 
 def pytest_addoption(parser):
@@ -21,13 +42,12 @@ def pytest_addoption(parser):
         action="store_true",
         default=False,
         help=(
-            "Auto-refresh .sql and .parquet files for changes the test framework can prove "
-            "are safe. Cosmetic SQL drift (whitespace_only, sqlglot_only) writes SQL with no "
-            "data check. Real SQL drift auto-runs the query: if data matches → write SQL only; "
-            "if data is missing or 'equivalent but different' (extra/missing columns with shared "
-            "values agreeing) → write SQL + parquet. Real data divergence is left alone — that "
-            "needs --overwrite-snapshot. This is the routine refresh flag and should be used for "
-            "almost all snapshot maintenance."
+            "Auto-refresh the snapshot cache for changes the framework can prove are safe. "
+            "Cosmetic SQL drift (sqlglot-equivalent) renames the parquet to the new hash with "
+            "no data check. Real SQL drift auto-runs the query: if data matches → write the "
+            "new pair and delete the old; if data is 'equivalent but different' (extra/missing "
+            "columns with shared values agreeing) → write the new pair and delete the old; if "
+            "data genuinely diverged → leave both alone (use --overwrite-snapshot to force)."
         ),
     )
     parser.addoption(
@@ -35,10 +55,9 @@ def pytest_addoption(parser):
         action="store_true",
         default=False,
         help=(
-            "Force-overwrite .sql and .parquet even when data genuinely diverged from the stored "
-            "value. Use only when you've deliberately changed query semantics (bug fix, "
-            "intentional output change) and the new value is correct. Includes everything "
-            "--update-snapshot does."
+            "Force-overwrite cache entries even when data genuinely diverged. Use only when "
+            "you've deliberately changed query semantics. Includes everything --update-snapshot "
+            "does."
         ),
     )
 
@@ -53,15 +72,10 @@ def bsq_comstock_oedi() -> Iterator[BuildStockQuery]:
         buildstock_type="comstock",
         db_schema="comstock_oedi_state_and_county",
         skip_reports=True,
+        cache_folder=str(SNAPSHOTS_ROOT / "comstock_oedi_cache"),
     )
     print("[fixture] comstock_oedi ready.", flush=True)
     yield bsq
-    try:
-        print("\n[fixture] saving comstock_oedi query cache...", flush=True)
-        bsq.save_cache()
-        print("[fixture] comstock_oedi cache saved.", flush=True)
-    except Exception as exc:
-        print(f"[fixture] comstock_oedi save_cache failed (non-fatal): {exc}", flush=True)
 
 
 @pytest.fixture(scope="session")
@@ -74,12 +88,7 @@ def bsq_resstock_oedi() -> Iterator[BuildStockQuery]:
         buildstock_type="resstock",
         db_schema="resstock_oedi_vu",
         skip_reports=True,
+        cache_folder=str(SNAPSHOTS_ROOT / "resstock_oedi_cache"),
     )
     print("[fixture] resstock_oedi ready.", flush=True)
     yield bsq
-    try:
-        print("\n[fixture] saving resstock_oedi query cache...", flush=True)
-        bsq.save_cache()
-        print("[fixture] resstock_oedi cache saved.", flush=True)
-    except Exception as exc:
-        print(f"[fixture] resstock_oedi save_cache failed (non-fatal): {exc}", flush=True)

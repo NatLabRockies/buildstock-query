@@ -1,35 +1,69 @@
 [
   {
     "name": "bldg_ids_applied_in_1",
+    "sql_hash": {
+      "resstock_oedi": "77cea10582493ec20ab5c3a5b46638baf21fe207fba7b1ced98a6c288165377d",
+      "comstock_oedi": "870da18ca8d54cbd0bbbc7cf5dfa857b8b8c8b9e06ddca4cb4b5ef33622a2570"
+    },
     "description": "Building keys that applied to upgrade 1, CO. Used for the applied_in intersection invariant.",
-    "sql_file": "bldg_ids_applied_in_1.sql",
-    "data_file": "bldg_ids_applied_in_1.parquet",
     "args": {
       "_method": "get_building_ids",
-      "applied_in": [1],
-      "restrict": [["state", ["CO"]]]
+      "applied_in": [
+        1
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "bldg_ids_applied_in_2",
+    "sql_hash": {
+      "resstock_oedi": "7a9317081c95f7d1eab06393290bd054f3de4e55a7488eb696b88733edf975ea",
+      "comstock_oedi": "5e3d164dd010f3efe46021d0598c1aa13b5949c44c1a5ef1ee968bf5255cf271"
+    },
     "description": "Building keys that applied to upgrade 2, CO. Used for the applied_in intersection invariant.",
-    "sql_file": "bldg_ids_applied_in_2.sql",
-    "data_file": "bldg_ids_applied_in_2.parquet",
     "args": {
       "_method": "get_building_ids",
-      "applied_in": [2],
-      "restrict": [["state", ["CO"]]]
+      "applied_in": [
+        2
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "bldg_ids_applied_in_1_and_2",
+    "sql_hash": {
+      "resstock_oedi": "d4994696d91496273f7e3c89cddbbe0d551a2c06f995e334f354f287d66fa14c",
+      "comstock_oedi": "3d6ff3f7db6fd932739d7e2eb0749f429224552a375939d485f06df5fadea714"
+    },
     "description": "Building keys that applied to BOTH upgrade 1 and upgrade 2, CO. Equals the intersection of applied_in_1 and applied_in_2.",
-    "sql_file": "bldg_ids_applied_in_1_and_2.sql",
-    "data_file": "bldg_ids_applied_in_1_and_2.parquet",
     "args": {
       "_method": "get_building_ids",
-      "applied_in": [1, 2],
-      "restrict": [["state", ["CO"]]]
+      "applied_in": [
+        1,
+        2
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
     }
   }
 ]

@@ -60,7 +60,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.test_utility import find_data_for_sql, resolve_placeholder
+from tests.test_utility import resolve_placeholder
 
 
 pd.set_option("display.width", 1000)
@@ -226,37 +226,30 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
     restrict = [("state", ["CO"])]
 
     try:
-        annual_sql = bsq.query(
+        annual_df = bsq.query(
             enduses=annual_enduses,
             group_by=[group_col],
             restrict=restrict,
-            get_query_only=True,
             **scenario_extra,
         )
-        ts_year_sql = bsq.query(
+        ts_year_df = bsq.query(
             enduses=ts_enduses,
             annual_only=False,
             timestamp_grouping_func="year",
             group_by=[group_col],
             restrict=restrict,
-            get_query_only=True,
             **scenario_extra,
         )
-        ts_monthly_sql = bsq.query(
+        ts_monthly_df = bsq.query(
             enduses=ts_enduses,
             annual_only=False,
             timestamp_grouping_func="month",
             group_by=[group_col, "time"],
             restrict=restrict,
-            get_query_only=True,
             **scenario_extra,
         )
     except UnsupportedQueryShape as exc:
         pytest.skip(f"query shape unsupported on {schema}: {exc}")
-
-    annual_df = find_data_for_sql(schema, annual_sql)
-    ts_year_df = find_data_for_sql(schema, ts_year_sql)
-    ts_monthly_df = find_data_for_sql(schema, ts_monthly_sql)
 
     # Pick the electricity enduse from each leg (always element 0) for the totals check.
     annual_col = _strip_out_prefix(annual_enduses[0])
@@ -315,7 +308,7 @@ def test_savings_decomposition(request, bsq_fixture, schema):
     enduse = resolve_placeholder(schema, "electricity_total")
     group_col = resolve_placeholder(schema, "building_type_col")
 
-    sql = bsq.query(
+    df = bsq.query(
         enduses=[enduse],
         upgrade_id="1",
         group_by=[group_col],
@@ -323,9 +316,7 @@ def test_savings_decomposition(request, bsq_fixture, schema):
         include_baseline=True,
         include_upgrade=True,
         include_savings=True,
-        get_query_only=True,
     )
-    df = find_data_for_sql(schema, sql)
 
     baseline_col = _find_first_col(df, suffix="__baseline", contains="electricity.total")
     upgrade_col = _find_first_col(df, suffix="__upgrade", contains="electricity.total")
@@ -357,12 +348,8 @@ def test_group_by_sum_equals_overall(request, bsq_fixture, schema):
     group_col = resolve_placeholder(schema, "building_type_col")
     restrict = [("state", ["CO"])]
 
-    overall_sql = bsq.query(enduses=enduses, restrict=restrict, get_query_only=True)
-    grouped_sql = bsq.query(
-        enduses=enduses, group_by=[group_col], restrict=restrict, get_query_only=True
-    )
-    overall_df = find_data_for_sql(schema, overall_sql)
-    grouped_df = find_data_for_sql(schema, grouped_sql)
+    overall_df = bsq.query(enduses=enduses, restrict=restrict)
+    grouped_df = bsq.query(enduses=enduses, group_by=[group_col], restrict=restrict)
 
     for col in (_strip_out_prefix(e) for e in enduses):
         overall_total = float(overall_df[col].iloc[0])
@@ -400,16 +387,12 @@ def test_co_subset_of_co_plus_wy(request, bsq_fixture, schema):
     enduse = resolve_placeholder(schema, "electricity_total")
     group_col = resolve_placeholder(schema, "building_type_col")
 
-    co_only_sql = bsq.query(
-        enduses=[enduse], group_by=[group_col],
-        restrict=[("state", ["CO"])], get_query_only=True,
+    co_only_df = bsq.query(
+        enduses=[enduse], group_by=[group_col], restrict=[("state", ["CO"])],
     )
-    co_wy_sql = bsq.query(
-        enduses=[enduse], group_by=["state"],
-        restrict=[("state", ["CO", "WY"])], get_query_only=True,
+    co_wy_df = bsq.query(
+        enduses=[enduse], group_by=["state"], restrict=[("state", ["CO", "WY"])],
     )
-    co_only_df = find_data_for_sql(schema, co_only_sql)
-    co_wy_df = find_data_for_sql(schema, co_wy_sql)
 
     co_row = co_wy_df[co_wy_df["state"] == "CO"]
     if co_row.empty:
@@ -449,15 +432,13 @@ def test_avoid_plus_avoided_equals_full(request, bsq_fixture, schema):
     avoided_value = resolve_placeholder(schema, "avoid_building_type")
     restrict = [("state", ["CO"])]
 
-    full_sql = bsq.query(
-        enduses=[enduse], group_by=[group_col], restrict=restrict, get_query_only=True,
-    )
-    avoid_sql = bsq.query(
+    full_df = bsq.query(
         enduses=[enduse], group_by=[group_col], restrict=restrict,
-        avoid=[(group_col, [avoided_value])], get_query_only=True,
     )
-    full_df = find_data_for_sql(schema, full_sql)
-    avoid_df = find_data_for_sql(schema, avoid_sql)
+    avoid_df = bsq.query(
+        enduses=[enduse], group_by=[group_col], restrict=restrict,
+        avoid=[(group_col, [avoided_value])],
+    )
 
     avoided_row = full_df[full_df[group_col] == avoided_value]
     if avoided_row.empty:
@@ -501,19 +482,17 @@ def test_mapped_column_aggregates_underlying_types(request, bsq_fixture, schema)
     restrict = [("state", ["CO"])]
 
     # Direct group_by — one row per underlying building type.
-    direct_sql = bsq.query(
-        enduses=[enduse], group_by=[group_col], restrict=restrict, get_query_only=True,
+    direct_df = bsq.query(
+        enduses=[enduse], group_by=[group_col], restrict=restrict,
     )
     # MappedColumn group_by — one row per mapped category (MH/SF/MF, etc.).
     key_col = bsq._get_column(group_col)
     mapped = MappedColumn(
         bsq=bsq, name="simple_bldg_type", mapping_dict=mapping_dict, key=key_col,
     )
-    mapped_sql = bsq.query(
-        enduses=[enduse], group_by=[mapped], restrict=restrict, get_query_only=True,
+    mapped_df = bsq.query(
+        enduses=[enduse], group_by=[mapped], restrict=restrict,
     )
-    direct_df = find_data_for_sql(schema, direct_sql)
-    mapped_df = find_data_for_sql(schema, mapped_sql)
 
     enduse_col = _strip_out_prefix(enduse)
     # For each mapped category in the result, sum the underlying values from the direct
@@ -555,21 +534,17 @@ def test_15min_raw_sums_to_monthly(request, bsq_fixture, schema):
     bsq = request.getfixturevalue(bsq_fixture)
     enduse = resolve_placeholder(schema, "electricity_total", annual=False)
 
-    raw_sql = bsq.query(
+    raw_df = bsq.query(
         enduses=[enduse], annual_only=False, upgrade_id=0,
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
-        get_query_only=True,
     )
-    monthly_sql = bsq.query(
+    monthly_df = bsq.query(
         enduses=[enduse], annual_only=False, upgrade_id=0,
         timestamp_grouping_func="month",
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
-        get_query_only=True,
     )
-    raw_df = find_data_for_sql(schema, raw_sql)
-    monthly_df = find_data_for_sql(schema, monthly_sql)
 
     enduse_col = _strip_out_prefix(enduse)
     # Bucket raw rows into months (using the same `date_trunc('month', ts - 900s)` shift
@@ -620,18 +595,14 @@ def test_savings_only_matches_full_savings_query(request, bsq_fixture, schema):
     group_col = resolve_placeholder(schema, "building_type_col")
     restrict = [("state", ["CO"])]
 
-    full_sql = bsq.query(
+    full_df = bsq.query(
         enduses=[enduse], upgrade_id="1", group_by=[group_col], restrict=restrict,
         include_baseline=True, include_upgrade=True, include_savings=True,
-        get_query_only=True,
     )
-    only_sql = bsq.query(
+    only_df = bsq.query(
         enduses=[enduse], upgrade_id="1", group_by=[group_col], restrict=restrict,
         include_baseline=False, include_upgrade=False, include_savings=True,
-        get_query_only=True,
     )
-    full_df = find_data_for_sql(schema, full_sql)
-    only_df = find_data_for_sql(schema, only_sql)
 
     full_savings_col = _find_first_col(full_df, suffix="__savings", contains="electricity.total")
     only_savings_col = _find_first_col(only_df, suffix="__savings", contains="electricity.total")
@@ -670,14 +641,12 @@ def test_two_fuel_electricity_equals_single_fuel(request, bsq_fixture, schema):
     group_col = resolve_placeholder(schema, "building_type_col")
     restrict = [("state", ["CO"])]
 
-    two_fuel_sql = bsq.query(
-        enduses=[elec, gas], group_by=[group_col], restrict=restrict, get_query_only=True,
+    two_fuel_df = bsq.query(
+        enduses=[elec, gas], group_by=[group_col], restrict=restrict,
     )
-    single_fuel_sql = bsq.query(
-        enduses=[elec], group_by=[group_col], restrict=restrict, get_query_only=True,
+    single_fuel_df = bsq.query(
+        enduses=[elec], group_by=[group_col], restrict=restrict,
     )
-    two_fuel_df = find_data_for_sql(schema, two_fuel_sql)
-    single_fuel_df = find_data_for_sql(schema, single_fuel_sql)
 
     elec_col = _strip_out_prefix(elec)
     two = two_fuel_df.set_index(group_col)[elec_col].sort_index()
@@ -703,12 +672,9 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
     weaker (e.g. union, or a wrong join semantic)."""
     bsq = request.getfixturevalue(bsq_fixture)
 
-    sql_1 = bsq.get_building_ids(applied_in=[1], restrict=[("state", ["CO"])], get_query_only=True)
-    sql_2 = bsq.get_building_ids(applied_in=[2], restrict=[("state", ["CO"])], get_query_only=True)
-    sql_12 = bsq.get_building_ids(applied_in=[1, 2], restrict=[("state", ["CO"])], get_query_only=True)
-    df_1 = find_data_for_sql(schema, sql_1)
-    df_2 = find_data_for_sql(schema, sql_2)
-    df_12 = find_data_for_sql(schema, sql_12)
+    df_1 = bsq.get_building_ids(applied_in=[1], restrict=[("state", ["CO"])])
+    df_2 = bsq.get_building_ids(applied_in=[2], restrict=[("state", ["CO"])])
+    df_12 = bsq.get_building_ids(applied_in=[1, 2], restrict=[("state", ["CO"])])
 
     # Each row of get_building_ids is a unique-key tuple. For resstock that's
     # (bldg_id,); for comstock it's (bldg_id, in.nhgis_tract_gisjoin, state) because
@@ -743,11 +709,10 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
         resolve_placeholder(schema, "natural_gas_total"),
     ]
     group_col = resolve_placeholder(schema, "building_type_col")
-    inv_sql = bsq.query(
+    inv_df = bsq.query(
         enduses=enduses, upgrade_id="1", applied_only=True, applied_in=[1, 2],
-        group_by=[group_col], restrict=[("state", ["CO"])], get_query_only=True,
+        group_by=[group_col], restrict=[("state", ["CO"])],
     )
-    inv_df = find_data_for_sql(schema, inv_sql)
     aggregated_sample_count = int(inv_df["sample_count"].sum())
     if aggregated_sample_count != len(keys_12):
         pytest.fail(

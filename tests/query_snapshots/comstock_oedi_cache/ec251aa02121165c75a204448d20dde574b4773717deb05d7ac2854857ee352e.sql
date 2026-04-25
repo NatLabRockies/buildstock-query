@@ -1,0 +1,1 @@
+SELECT DISTINCT upgrade.upgrade FROM (SELECT * FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet WHERE comstock_amy2018_r2_2025_md_by_state_and_county_parquet.upgrade != 0) AS upgrade ORDER BY 1

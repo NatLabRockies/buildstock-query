@@ -1,83 +1,173 @@
 [
   {
     "name": "ts_monthly_electricity_by_state",
+    "sql_hash": {
+      "resstock_oedi": "05d2e8d705321cc752161fd2f0d1d51911b390447647912214ec8e2669591ca6",
+      "comstock_oedi": "851fa2efaab5d830fabf47249b5af590d7aa1e6cae77e5d429bee595a9d0ab1b"
+    },
     "description": "Monthly electricity grouped by state (CO only), upgrade 0 baseline.",
-    "sql_file": "ts_monthly_electricity_by_state.sql",
-    "data_file": "ts_monthly_electricity_by_state.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "annual_only": false,
       "upgrade_id": 0,
       "timestamp_grouping_func": "month",
-      "group_by": ["state", "time"],
-      "restrict": [["state", ["CO"]]]
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "ts_monthly_two_fuels_by_building_type",
+    "sql_hash": {
+      "resstock_oedi": "85ab7df5423d8ac4b086769ad5843b489ec07deb3d9d4484d66420f7c64880d9",
+      "comstock_oedi": "5fc5f007151662d6a2c21ed9eeb940f8cef67950f0c5b7b77901795caf5520f5"
+    },
     "description": "Monthly electricity + natural gas grouped by building type and time, CO only.",
-    "sql_file": "ts_monthly_two_fuels_by_building_type.sql",
-    "data_file": "ts_monthly_two_fuels_by_building_type.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL", "$NATURAL_GAS_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL",
+        "$NATURAL_GAS_TOTAL"
+      ],
       "annual_only": false,
       "timestamp_grouping_func": "month",
-      "group_by": ["$BUILDING_TYPE_COL", "time"],
-      "restrict": [["state", ["CO"]]]
+      "group_by": [
+        "$BUILDING_TYPE_COL",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "ts_year_collapse_electricity",
+    "sql_hash": {
+      "resstock_oedi": "91360e5bb734179867a916bc2b72cbdf87e0b71474f6c6fe778a44f9c21a3814",
+      "comstock_oedi": "64d3d1eeef1a61e1059326246c2267e41ee0e806e508f985cead89ed2f6aec83"
+    },
     "description": "Year-collapsed timeseries electricity, grouped by building type, CO only.",
-    "sql_file": "ts_year_collapse_electricity.sql",
-    "data_file": "ts_year_collapse_electricity.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "annual_only": false,
       "timestamp_grouping_func": "year",
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]]
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "ts_15min_raw_electricity_by_state",
+    "sql_hash": {
+      "resstock_oedi": "88bb0e593f8880c33d0bf6e94b4b4960a1f47a437f44592dd7b2d98f3a51c529",
+      "comstock_oedi": "28a53610f075660722ff0699289d066b285e708c166c87fd235308e40eb71f91"
+    },
     "description": "Raw 15-min cadence timeseries (no timestamp_grouping_func), CO only. Exercises the un-aggregated time-axis code path that example notebooks rely on.",
-    "sql_file": "ts_15min_raw_electricity_by_state.sql",
-    "data_file": "ts_15min_raw_electricity_by_state.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "annual_only": false,
       "upgrade_id": 0,
-      "group_by": ["state", "time"],
-      "restrict": [["state", ["CO"]]]
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "ts_daily_electricity_by_state",
+    "sql_hash": {
+      "resstock_oedi": "6c87cc4ec10b9043e03be6c4d22ea68588a19a0a1b5c403792d94bdec36d4951",
+      "comstock_oedi": "b142d1739a0c41b696c697ca40a7d6d649197b3e24371e764a1d194261c2b6b3"
+    },
     "description": "Daily-grouped timeseries electricity, CO only. Exercises date_trunc('day', ...) plus the rows_per_sample / distinct-bs-keys grouping_metrics branch.",
-    "sql_file": "ts_daily_electricity_by_state.sql",
-    "data_file": "ts_daily_electricity_by_state.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "annual_only": false,
       "upgrade_id": 0,
       "timestamp_grouping_func": "day",
-      "group_by": ["state", "time"],
-      "restrict": [["state", ["CO"]]]
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
     }
   },
   {
     "name": "ts_hourly_electricity_by_building_type",
-    "description": "Hourly-grouped timeseries electricity, CO + single building type. Exercises date_trunc('hour', ...) — the smallest grouping_func granularity.",
-    "sql_file": "ts_hourly_electricity_by_building_type.sql",
-    "data_file": "ts_hourly_electricity_by_building_type.parquet",
+    "sql_hash": {
+      "resstock_oedi": "e080e02b70014ec4d2ef29ce32b45b19894a430fef0a1379aabb11537d58b2b6",
+      "comstock_oedi": "94419dad26ecb6d7ff391e09ab675638355b07be80cdab3bb6aa3b2572802d58"
+    },
+    "description": "Hourly-grouped timeseries electricity, CO + single building type. Exercises date_trunc('hour', ...) \u2014 the smallest grouping_func granularity.",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "annual_only": false,
       "upgrade_id": 0,
       "timestamp_grouping_func": "hour",
-      "group_by": ["$BUILDING_TYPE_COL", "time"],
-      "restrict": [["state", ["CO"]], ["$BUILDING_TYPE_COL", ["$AVOID_BUILDING_TYPE"]]]
+      "group_by": [
+        "$BUILDING_TYPE_COL",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ],
+        [
+          "$BUILDING_TYPE_COL",
+          [
+            "$AVOID_BUILDING_TYPE"
+          ]
+        ]
+      ]
     }
   }
 ]

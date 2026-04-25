@@ -21,7 +21,8 @@ import numpy as np
 from collections import OrderedDict
 import types
 from buildstock_query.helpers import CachedFutureDf, AthenaFutureDf, DataExistsException, CustomCompiler
-from buildstock_query.helpers import save_pickle, load_pickle, read_csv
+from buildstock_query.helpers import read_csv
+from buildstock_query.sql_cache import SqlCache
 from typing import TypedDict, NewType
 from botocore.config import Config
 import urllib3
@@ -107,8 +108,6 @@ class QueryCore:
         self.run_params = params
         self.workgroup = params.workgroup
         self.buildstock_type = params.buildstock_type
-        self._query_cache: dict[str, pd.DataFrame] = {}  # {"query": query_result_df} to cache queries
-        self._session_queries: set[str] = set()  # Set of all queries that is run in current session.
 
         # pool matches the download_metadata_and_annual_results thread pool (10 workers) with
         # headroom for incidental per-request metadata calls, so parallel downloads don't
@@ -149,69 +148,9 @@ class QueryCore:
         self.table_name = params.table_name
         self.cache_folder = pathlib.Path(params.cache_folder)
         self.athena_query_reuse = params.athena_query_reuse
-        os.makedirs(self.cache_folder, exist_ok=True)
+        self._cache = SqlCache(self.cache_folder)
         self._initialize_tables()
         self._initialize_book_keeping(params.execution_history)
-
-        with contextlib.suppress(FileNotFoundError):
-            self.load_cache()
-
-    @staticmethod
-    def _get_compact_cache_name(table_name: str) -> str:
-        table_name = str(table_name)
-        if len(table_name) > 64:
-            return hashlib.sha256(table_name.encode()).hexdigest()
-        else:
-            return table_name
-
-    def _get_cache_file_path(self) -> pathlib.Path:
-        return self.cache_folder / f"{self._get_compact_cache_name(self.table_name)}_query_cache.pkl"
-
-    @validate_arguments
-    def load_cache(self, path: Optional[str] = None):
-        """Read and update query cache from pickle file.
-
-        Args:
-            path (str, optional): The path to the pickle file. If not provided, reads from current directory.
-        """
-        pickle_path = pathlib.Path(path) if path else self._get_cache_file_path()
-        before_count = len(self._query_cache)
-        saved_cache = load_pickle(pickle_path)
-        logger.info(f"{len(saved_cache)} queries cache read from {pickle_path}.")
-        self._query_cache.update(saved_cache)
-        self.last_saved_queries = set(saved_cache)
-        after_count = len(self._query_cache)
-        if diff := after_count - before_count:
-            logger.info(f"{diff} queries cache is updated.")
-        else:
-            logger.info("Cache already upto date.")
-
-    @validate_arguments
-    def save_cache(self, path: Optional[str] = None, trim_excess: bool = False):
-        """Saves queries cache to a pickle file. It is good idea to run this after making queries so that on the next
-        session these queries won't have to be run on Athena and can be directly loaded from the file.
-
-        Args:
-            path (str, optional): The path to the pickle file. If not provided, the file will be saved on the current
-            directory.
-            trim_excess (bool, optional): If true, any queries in the cache that is not run in current session will be
-            removed before saving it to file. This is useful if the cache has accumulated a bunch of stray queries over
-            several sessions that are no longer used. Defaults to False.
-        """
-        cached_queries = set(self._query_cache)
-        if self.last_saved_queries == cached_queries:
-            logger.info("No new queries to save.")
-            return
-
-        pickle_path = pathlib.Path(path) if path else self._get_cache_file_path()
-        if trim_excess:
-            if excess_queries := [key for key in self._query_cache if key not in self._session_queries]:
-                for query in excess_queries:
-                    del self._query_cache[query]
-                logger.info(f"{len(excess_queries)} excess queries removed from cache.")
-        self.last_saved_queries = cached_queries
-        save_pickle(pickle_path, self._query_cache)
-        logger.info(f"{len(self._query_cache)} queries cache saved to {pickle_path}")
 
     def _initialize_tables(self):
         self.bs_table, self.ts_table, self.up_table = self._get_tables(self.table_name)
@@ -427,7 +366,6 @@ class QueryCore:
         self._execution_history_file = execution_history or self.cache_folder / ".execution_history"
         self.execution_cost = {"GB": 0, "Dollars": 0}  # Tracks the cost of current session. Only used for Athena query
         self.seen_execution_ids = set()  # set to prevent double counting same execution id
-        self.last_saved_queries = set()
         if os.path.exists(self._execution_history_file):
             with open(self._execution_history_file) as f:
                 existing_entries = f.readlines()
@@ -734,23 +672,24 @@ class QueryCore:
         if not isinstance(query, str):
             query = self._compile(query)
 
-        self._session_queries.add(query)
-        if query in self._query_cache:
+        cached = self._cache.get(query)
+        if cached is not None:
             if run_async:
-                return "CACHED", CachedFutureDf(self._query_cache[query].copy())
-            return self._query_cache[query].copy()
+                return "CACHED", CachedFutureDf(cached)
+            return cached
 
         query_hash = hashlib.sha256(query.encode()).hexdigest()
         result_path = f"s3://{self.run_params.query_unload_s3_bucket}/bsq_athena_unload_results/{query_hash}"
         # check if result already exists in s3
         if (result_location := self._get_query_result_location(result_path)):
             if result_location.endswith("/" + self._EMPTY_MARKER_KEY):
-                self._query_cache[query] = pd.DataFrame()
+                df = pd.DataFrame()
             else:
-                self._query_cache[query] = pd.read_parquet(result_location)
+                df = pd.read_parquet(result_location)
+            self._cache.put(query, df)
             if run_async:
-                return "CACHED", CachedFutureDf(self._query_cache[query].copy())
-            return self._query_cache[query].copy()
+                return "CACHED", CachedFutureDf(df.copy())
+            return df.copy()
         else:
             result_location = f"{result_path}/{uuid.uuid4()}/"  # unique path to avoid collision
 
@@ -767,18 +706,21 @@ class QueryCore:
         exe_id = ExeId(exe_id)
 
         def get_df(future):
-            if query in self._query_cache:
-                return self._query_cache[query].copy()
-            self._query_cache[query] = self._get_unload_result(exe_id, result_location)
-            return self._query_cache[query].copy()
+            cached_inner = self._cache.get(query)
+            if cached_inner is not None:
+                return cached_inner
+            df_inner = self._get_unload_result(exe_id, result_location)
+            self._cache.put(query, df_inner)
+            return df_inner.copy()
 
         if run_async:
             result_future.as_df = types.MethodType(get_df, result_future)
             self._save_execution_id(exe_id)
             return exe_id, AthenaFutureDf(result_future)
 
-        self._query_cache[query] = self._get_unload_result(exe_id, result_location)
-        return self._query_cache[query].copy()
+        df = self._get_unload_result(exe_id, result_location)
+        self._cache.put(query, df)
+        return df.copy()
 
     def print_all_batch_query_status(self) -> None:
         """Prints the status of all batch queries."""

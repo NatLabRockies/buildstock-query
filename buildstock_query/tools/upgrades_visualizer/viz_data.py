@@ -100,7 +100,6 @@ class VizData:
         res_df = res_df.with_columns(upgrade=pl.lit(upgrade))
         res_df = res_df.with_columns(count=pl.lit(1))
         res_df = res_df.with_columns(month=pl.lit('All'))
-        self.run_obj(upgrade).save_cache()
         return res_df
 
     def _get_metadata_df(self):
@@ -141,7 +140,6 @@ class VizData:
                 annual_only=False,
                 timestamp_grouping_func='month',
             )
-            run_obj.save_cache()
             monthly_df = pl.from_pandas(monthly_vals, include_index=True)
             monthly_df = monthly_df.with_columns(pl.col('time').dt.month().alias("month"))
             monthly_df = monthly_df.with_columns(pl.col('month').replace_strict(num2month).alias("month"))

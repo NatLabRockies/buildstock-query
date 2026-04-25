@@ -1,16 +1,28 @@
 # Query snapshot tests
 
-Snapshot-driven tests for `BuildStockQuery.query()`. Each shared JSON file at this
-directory's top level stores a list of curated query-argument sets. For every entry,
-the test harness:
+Snapshot-driven tests for `BuildStockQuery.query()` (and a few other entry
+points). Each shared JSON file at this directory's top level stores a list of
+curated query-argument sets. Each entry carries an `sql_hash` field that
+addresses the cached `<sql_hash>.sql` + `<sql_hash>.parquet` pair under
+`<schema>_cache/`.
 
-1. Calls `query(**args, get_query_only=True)` against a session-scoped
-   `BuildStockQuery` fixture connected to real Athena (`rescore.buildstock_sdr`).
-2. Compares the generated SQL to the stored `.sql` file under `<schema>_sql/`.
-3. Optionally (`--check-data`) executes the query and compares the resulting DataFrame
-   to the stored `.parquet` under `<schema>_data/`.
+## How it works
 
-Failures from all entries in one file are collected and reported together.
+The snapshot store IS the production cache, just frozen: each test fixture
+constructs its `BuildStockQuery` with `cache_folder` pointing at
+`<schema>_cache/`. Lookups happen automatically through the SqlCache layer in
+`buildstock_query/sql_cache.py` — `bsq.query(...)` reads the parquet from
+disk if it's there, falls through to Athena otherwise.
+
+For each entry the harness:
+
+1. Calls `query(**args, get_query_only=True)` to generate SQL.
+2. Computes `hash_sql(actual_sql)`.
+3. Compares the new hash to `entry.sql_hash`. Three outcomes: `match`,
+   `sqlglot_only` (different hash, semantically equivalent), `mismatch`.
+4. With `--check-data` or `--update-snapshot`, runs the query against Athena
+   (or reads the cache if already present) and compares the DataFrame to the
+   stored parquet.
 
 ## Layout
 
@@ -18,42 +30,42 @@ Failures from all entries in one file are collected and reported together.
 query_snapshots/
   annual.json
   applied_only.json
+  building_ids.json
   invariants_three_way.json
   mapped_column.json          # specialized — see below
   restrict_avoid.json
   savings.json
   timeseries.json
-  resstock_oedi_sql/<basename>.sql
-  resstock_oedi_data/<basename>.parquet
-  comstock_oedi_sql/<basename>.sql
-  comstock_oedi_data/<basename>.parquet
+  resstock_oedi_cache/<sha256>.sql
+  resstock_oedi_cache/<sha256>.parquet
+  comstock_oedi_cache/<sha256>.sql
+  comstock_oedi_cache/<sha256>.parquet
 ```
 
-Each JSON entry runs once per schema. Per-schema column-name differences are written
-as `$ELECTRICITY_TOTAL` / `$NATURAL_GAS_TOTAL` / `$BUILDING_TYPE_COL` / etc.
-placeholders in the JSON args, resolved at load time by `tests/test_utility.py`'s
-`resolve_placeholder()` dispatcher. Comstock annual columns get the `..kwh` suffix
-that comstock's metadata table requires; comstock TS columns don't (the leg-aware
+Each JSON entry runs once per schema. Per-schema column-name differences are
+written as `$ELECTRICITY_TOTAL` / `$NATURAL_GAS_TOTAL` / `$BUILDING_TYPE_COL`
+/ etc. placeholders in the JSON args, resolved at load time by
+`tests/test_utility.py`'s `resolve_placeholder()` dispatcher. Comstock annual
+columns get the `..kwh` suffix; comstock TS columns don't (the leg-aware
 resolution keys off `annual_only`).
 
 ### Generic vs specialized
 
-Generic JSON files (`annual.json`, etc.) store a full set of keyword args that are
-passed straight through to `query()`. The test function just loops and compares.
+Generic JSON files store full keyword args passed straight through to
+`query()`. The test function loops and compares.
 
 Specialized JSON files (`mapped_column.json` today) store partial args; the
-corresponding test function in `tests/test_query_snapshots.py` knows how to construct
-the non-JSON-serializable pieces (e.g. a `MappedColumn` instance) from the stored
-`mapping_dict` + `key_column`, then builds the final call.
+corresponding test function in `tests/test_query_snapshots.py` knows how to
+construct the non-JSON-serializable pieces (e.g. a `MappedColumn` instance)
+from the stored `mapping_dict` + `key_column` fields.
 
 ### Entry shape
 
 ```json
 {
   "name": "unique_entry_name",
+  "sql_hash": "a3f2c1...",
   "description": "Human-readable purpose.",
-  "sql_file": "unique_entry_name.sql",
-  "data_file": "unique_entry_name.parquet",
   "args": {
     "enduses": ["$ELECTRICITY_TOTAL"],
     "group_by": ["$BUILDING_TYPE_COL"],
@@ -62,165 +74,87 @@ the non-JSON-serializable pieces (e.g. a `MappedColumn` instance) from the store
 }
 ```
 
-Tuples in `restrict`/`avoid` are stored as 2-element lists and re-hydrated to tuples
-by the harness.
+`sql_hash` is left as `""` for new entries — `--update-snapshot` fills it on
+the next run. Tuples in `restrict`/`avoid` are stored as 2-element lists and
+re-hydrated by the harness.
 
 ## Running
 
-**Always pass `-s -v` when you want to see progress.** Without them pytest buffers
-all output until the test finishes, which for long Athena queries looks like a frozen
-run. `-s` disables stdout capture so the harness's per-entry `print()` lines show up
-live; `-v` prints each test node name.
+**Always pass `-s -v` when you want to see progress.** Without them pytest
+buffers all output until the test finishes, which for long Athena queries
+looks like a frozen run.
 
 ```bash
-# Default: SQL-only comparison, fails on any mismatch.
+# Default: SQL-hash comparison only.
 pytest -s -v tests/test_query_snapshots.py
 
-# Also run data check for entries whose SQL check failed; report only, no writes.
+# Also compare DataFrames against stored parquets.
 pytest -s -v tests/test_query_snapshots.py --check-data
 
-# Routine refresh: write any change the framework can prove is safe — cosmetic SQL
-# drift (whitespace_only, sqlglot_only) writes SQL with no Athena query; real SQL
-# drift triggers a data check, then writes only if the new query produces matching,
-# equivalent-shape, or missing-from-disk data. Real data divergence is left alone.
+# Routine refresh: write any change the framework can prove is safe.
+# Cosmetic SQL drift (sqlglot-equivalent) renames the parquet to the new hash
+# without re-running the query. Real SQL drift triggers an Athena call;
+# matching/equivalent/missing data → write new pair, delete old, patch JSON.
+# Real data divergence is left alone.
 pytest -s -v tests/test_query_snapshots.py --update-snapshot
 
 # Destructive: same as --update-snapshot plus also writes through real data
-# mismatches. Use only when you've deliberately changed query semantics (bug fix,
-# intentional output change) and the new value is the right value.
+# mismatches. Use only when query semantics changed deliberately.
 pytest -s -v tests/test_query_snapshots.py --overwrite-snapshot
-
-# Run a single test function (fastest iteration):
-pytest -s -v tests/test_query_snapshots.py::test_snapshot_flavor[annual-resstock_oedi] --update-snapshot
-```
-
-### Live progress
-
-With `-s`, you'll see lines like:
-
-```
-[fixture] constructing BuildStockQuery(resstock_oedi)...
-[fixture] resstock_oedi ready.
-
-=== tests/query_snapshots/annual.json: 4 entries (5 variants, check_data=True, update_snapshot=True, overwrite_snapshot=False) ===
-[1/4] annual_totals_overall :: 1 variant(s)
-[1/4] annual_totals_overall :: variant 1/1 :: calling bsq.query(enduses=[...], get_query_only=True)
-[1/4] annual_totals_overall :: variant 1/1 :: SQL generated in 0.12s
-[1/4] annual_totals_overall :: variant 1/1 :: status=missing_sql
-[1/4] annual_totals_overall :: about to submit query (variant 1) for data check
-  call: bsq.query(enduses=[...], get_query_only=False)
-  SQL:
-    SELECT ...
-[1/4] annual_totals_overall :: data check finished in 14.33s (data_status=missing)
-[1/4] annual_totals_overall :: wrote ['annual_totals_overall.sql', 'annual_totals_overall.parquet']
-[2/4] annual_totals_by_building_type :: 1 variant(s)
-...
 ```
 
 ### Decision matrix
 
-| SQL status | Data status | `--update-snapshot` | `--overwrite-snapshot` |
-| ---------- | ----------- | ------------------- | ---------------------- |
-| match | (any) | nothing | nothing |
-| whitespace_only | (skipped) | write SQL | write SQL |
-| sqlglot_only | (skipped) | write SQL | write SQL |
-| mismatch / missing_sql | match | write SQL | write SQL |
-| mismatch / missing_sql | equivalent | write SQL + parquet | write SQL + parquet |
-| mismatch / missing_sql | missing | write SQL + parquet | write SQL + parquet |
-| mismatch / missing_sql | mismatch | leave both (failure) | write SQL + parquet |
-| mismatch / missing_sql | error | leave both (failure) | leave both (failure) |
-
-`equivalent` data status: column sets differ but every shared column matches within
-tolerance — typically a refactor that adds or drops a metadata column without changing
-the underlying query semantics.
+| SQL status   | Data status | `--update-snapshot`         | `--overwrite-snapshot`      |
+|--------------|-------------|-----------------------------|-----------------------------|
+| match        | (any)       | nothing                     | nothing                     |
+| sqlglot_only | (skipped)   | rename parquet, patch JSON  | rename parquet, patch JSON  |
+| mismatch     | match       | rename parquet, patch JSON  | rename parquet, patch JSON  |
+| mismatch     | equivalent  | write new, delete old, patch| write new, delete old, patch|
+| mismatch     | missing     | write new, delete old, patch| write new, delete old, patch|
+| mismatch     | mismatch    | leave alone (failure)       | write new, delete old, patch|
+| mismatch     | error       | leave alone (failure)       | leave alone (failure)       |
 
 ## Typical workflows
 
 ### Bootstrapping a new entry
 
-1. Add the entry to the appropriate JSON file (no `.sql` / `.parquet` yet).
+1. Add the entry to the appropriate JSON file with `"sql_hash": ""`.
 2. Run `pytest tests/test_query_snapshots.py --update-snapshot`.
-3. Commit the generated `.sql` and `.parquet`.
+3. Commit the generated `<hash>.sql` + `<hash>.parquet` and the patched JSON.
 
 ### After a SQL-generation refactor
 
-1. Run `pytest tests/test_query_snapshots.py --update-snapshot`. The framework runs
-   the data check internally and accepts the new SQL only if data still matches.
-2. Review the resulting `.sql` diffs and commit. Any entry that didn't get written
-   indicates a real data divergence — investigate before considering `--overwrite-snapshot`.
+1. Run `pytest tests/test_query_snapshots.py --update-snapshot`. Cosmetic
+   drift gets a free rename; real drift triggers data verification.
+2. Review `.sql` content diffs (the renames will appear as add+delete in git;
+   `git diff --find-renames` or comparing the .sql file content tells you what
+   really changed).
 
 ### After a deliberate behavioral fix
 
-1. Run `pytest tests/test_query_snapshots.py --check-data`. Failures with `data_status`
-   of `mismatch` indicate the fix changed results.
-2. Confirm the new results are the correct ones (manually inspect the diff).
+1. Run `pytest tests/test_query_snapshots.py --check-data`. `data_status` of
+   `mismatch` indicates the fix changed results.
+2. Confirm the new results are correct.
 3. Run `pytest tests/test_query_snapshots.py --overwrite-snapshot`.
-4. Review both the `.sql` and `.parquet` diffs carefully and commit.
-
-## SQL comparison
-
-1. **Exact match** — accept immediately.
-2. **Whitespace-normalized match** — accept, treated as pass.
-3. **sqlglot structural equivalence** — accept with `warnings.warn`.
-4. **Otherwise** — report as a mismatch.
-
-## Data comparison
-
-Both expected and actual DataFrames are sorted by all columns (lexicographically)
-before `pd.testing.assert_frame_equal` with global tolerances `rtol=1e-4`, `atol=1e-6`.
-
-`is_data_equivalent_but_different` provides a looser secondary check: when the column
-sets differ, the shared columns are compared on their own. If those agree, the entry
-gets `data_status=equivalent` instead of `mismatch`, allowing `--update-snapshot` to
-refresh both files.
+4. Review the parquet content carefully and commit.
 
 ## Invariant tests
 
-`tests/test_invariants.py` asserts cross-query mathematical relations that must hold
-regardless of implementation (e.g. annual total == sum of monthly timeseries totals).
+`tests/test_invariants.py` asserts cross-query mathematical relations that
+must hold regardless of implementation. Because the test fixtures point each
+`BuildStockQuery` at the snapshot cache, invariants just call
+`bsq.query(...)` directly — the cache returns the snapshot DataFrame.
 
-Instead of issuing new Athena queries, invariants:
-
-1. Construct `query()` arg sets for each leg.
-2. Generate SQL via `get_query_only=True`.
-3. Look up the snapshot entry whose stored `.sql` matches (normalized whitespace).
-4. Load that entry's parquet and do the comparison locally.
-
-If a required entry is missing from the JSON files or its parquet is absent, the
-invariant fails with a message telling you to add the entry and re-run
-`--update-snapshot`. This enforces that every leg of every invariant is already
-part of the snapshot suite.
-
-Run with:
+If a required entry isn't in the cache (cold cache, or its hash doesn't match
+the SQL the invariant generates), the invariant call falls through to Athena
+— which works if you have credentials, fails otherwise. To avoid the network
+round-trip, make sure the invariant's queries are present in one of the JSON
+files and have populated hashes.
 
 ```bash
 pytest -s -v tests/test_invariants.py
 ```
-
-Included invariants:
-
-- `test_annual_equals_ts_year_equals_ts_monthly_sum` — per-group annual totals
-  agree across annual-only, year-collapsed timeseries, and summed monthly timeseries.
-  Also pins monthly `rows_per_sample` to `4 * 24 * days_in_month`.
-- `test_savings_decomposition` — `baseline - upgrade ≈ savings` per group.
-- `test_savings_only_matches_full_savings_query` — the savings column from a
-  savings-only query matches the savings column from a full
-  `include_baseline + include_upgrade + include_savings` query.
-- `test_group_by_sum_equals_overall` — sum across `group_by` groups equals the
-  no-group-by total.
-- `test_co_subset_of_co_plus_wy` — the CO row of `state IN ('CO', 'WY')` equals
-  the single-state CO totals.
-- `test_avoid_plus_avoided_equals_full` — `avoid=[(group, [X])]` plus the X row
-  from the unfiltered query equals the unfiltered totals.
-- `test_two_fuel_electricity_equals_single_fuel` — querying
-  `[electricity, natural_gas]` produces the same per-group electricity values
-  as querying `[electricity]` alone.
-- `test_mapped_column_aggregates_underlying_types` — a `MappedColumn` group_by
-  aggregates the underlying types in line with the supplied `mapping_dict`.
-- `test_15min_raw_sums_to_monthly` — per-state 15-min raw timeseries summed
-  within each calendar month equals the `timestamp_grouping_func='month'` aggregate.
-- `test_applied_in_intersection` — `applied_in=[1, 2]` returns the set
-  intersection of `applied_in=[1]` and `applied_in=[2]`.
 
 Tolerance: `rtol=1e-3, atol=1.0` (looser than the snapshot data check because
 aggregate sums accumulate float error).

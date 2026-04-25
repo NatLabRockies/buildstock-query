@@ -1,49 +1,99 @@
 [
   {
     "name": "applied_only_upgrade1_annual",
+    "sql_hash": {
+      "resstock_oedi": "b3f8c1fe49fa28163cee2ae22fe40b628803f0f77611153ac31a05b1d91802d7",
+      "comstock_oedi": "07300b51eedc7dd85680e21a7bc08f2587eda9865c5d909caefb86ec6b707a91"
+    },
     "description": "Annual upgrade 1 electricity restricted to applied buildings only, CO.",
-    "sql_file": "applied_only_upgrade1_annual.sql",
-    "data_file": "applied_only_upgrade1_annual.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "upgrade_id": "1",
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
       "applied_only": true
     }
   },
   {
     "name": "all_buildings_upgrade1_annual",
-    "description": "Annual upgrade 1 including unapplied buildings, CO. Two variants — upgrade_id as string '1' vs int 1 — must compile to the same SQL since _validate_upgrade normalizes both to str.",
-    "sql_file": "all_buildings_upgrade1_annual.sql",
-    "data_file": "all_buildings_upgrade1_annual.parquet",
+    "sql_hash": {
+      "resstock_oedi": "aa72a47d1fcb182c6d18571d5d3d007568254d933743a03cc496acecf2104576",
+      "comstock_oedi": "3e41afae159931ce5e550cb2f4c8a91424bb8e56eb7d0568bfafd6d17b55e8a9"
+    },
+    "description": "Annual upgrade 1 including unapplied buildings, CO. Two variants \u2014 upgrade_id as string '1' vs int 1 \u2014 must compile to the same SQL since _validate_upgrade normalizes both to str.",
     "args": [
       {
-        "enduses": ["$ELECTRICITY_TOTAL"],
+        "enduses": [
+          "$ELECTRICITY_TOTAL"
+        ],
         "upgrade_id": "1",
-        "group_by": ["$BUILDING_TYPE_COL"],
-        "restrict": [["state", ["CO"]]],
+        "group_by": [
+          "$BUILDING_TYPE_COL"
+        ],
+        "restrict": [
+          [
+            "state",
+            [
+              "CO"
+            ]
+          ]
+        ],
         "applied_only": false
       },
       {
-        "enduses": ["$ELECTRICITY_TOTAL"],
+        "enduses": [
+          "$ELECTRICITY_TOTAL"
+        ],
         "upgrade_id": 1,
-        "group_by": ["$BUILDING_TYPE_COL"],
-        "restrict": [["state", ["CO"]]],
+        "group_by": [
+          "$BUILDING_TYPE_COL"
+        ],
+        "restrict": [
+          [
+            "state",
+            [
+              "CO"
+            ]
+          ]
+        ],
         "applied_only": false
       }
     ]
   },
   {
     "name": "include_baseline_upgrade1_annual",
+    "sql_hash": {
+      "resstock_oedi": "ad0e17ae00fb750cddae4d5ee1a516878c40a53b701856b0d61eb394e530d088",
+      "comstock_oedi": "c8dfae5ae6f16d6c09aa469776db4578a111f6300b2d848c4310433ecdab013b"
+    },
     "description": "Annual upgrade 1 with include_baseline=true and include_savings=false. Mirrors the comstock notebook pattern that exposes baseline + upgrade columns side-by-side without the savings subtraction.",
-    "sql_file": "include_baseline_upgrade1_annual.sql",
-    "data_file": "include_baseline_upgrade1_annual.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "upgrade_id": "1",
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": false,
@@ -52,14 +102,27 @@
   },
   {
     "name": "include_baseline_upgrade1_applied_only_annual",
+    "sql_hash": {
+      "resstock_oedi": "cbf9daf253b6b3bbdc6f2bb2a7543679230cfefcfc78ca7002fc3b062297d96b",
+      "comstock_oedi": "c57e872caafb9555f52c55073781de84df05e7e7520b9fa5f3d5e7ae89f5061c"
+    },
     "description": "Same as include_baseline_upgrade1_annual but with applied_only=true. Hits the upgrade_only=False branch (because include_baseline forces the baseline join).",
-    "sql_file": "include_baseline_upgrade1_applied_only_annual.sql",
-    "data_file": "include_baseline_upgrade1_applied_only_annual.parquet",
     "args": {
-      "enduses": ["$ELECTRICITY_TOTAL"],
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
       "upgrade_id": "1",
-      "group_by": ["$BUILDING_TYPE_COL"],
-      "restrict": [["state", ["CO"]]],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": false,

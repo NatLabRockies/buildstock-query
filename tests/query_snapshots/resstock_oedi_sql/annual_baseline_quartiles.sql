@@ -1,5 +1,0 @@
-SELECT baseline."in.geometry_building_type_recs" AS geometry_building_type_recs, sum(1) AS sample_count, sum(baseline.weight) AS units_count, sum(baseline."out.electricity.total.energy_consumption" * baseline.weight) AS "electricity.total.energy_consumption", approx_percentile(baseline."out.electricity.total.energy_consumption", ARRAY[0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]) AS "electricity.total.energy_consumption__upgrade__quartiles", approx_percentile(baseline."out.electricity.total.energy_consumption", ARRAY[0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]) FILTER (WHERE baseline."out.electricity.total.energy_consumption" != 0) AS "electricity.total.energy_consumption__upgrade__nonzero_quartiles" 
-FROM (SELECT * 
-FROM resstock_2024_amy2018_release_2_metadata 
-WHERE resstock_2024_amy2018_release_2_metadata.upgrade = 0) AS baseline 
-WHERE baseline.applicability = true AND baseline."in.state" = 'CO' GROUP BY 1 ORDER BY 1

@@ -1,10 +1,23 @@
-"""Shared helpers for the query snapshot tests."""
+"""Shared helpers for the query snapshot tests.
+
+Snapshot entries are content-addressed: each JSON entry carries an `sql_hash`
+field, and the corresponding `<sql_hash>.sql` + `<sql_hash>.parquet` pair lives
+in `<schema>_cache/`. Lookups happen automatically through the bsq instance's
+SqlCache (set up in conftest via `cache_folder`).
+
+`--update-snapshot` flow:
+- Hash matches stored value → no-op (already correct).
+- Hash differs but sqlglot says equivalent → rename the parquet to the new hash,
+  rewrite the .sql sidecar, patch the JSON. No Athena re-run.
+- Hash differs and sqlglot says they really differ → run query, compare to old
+  parquet. Write new pair + delete old pair if data matches/is equivalent.
+  Leave both alone on real data drift unless --overwrite-snapshot.
+"""
 from __future__ import annotations
 
 import json
 import re
 import time
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -13,6 +26,8 @@ import numpy as np
 import pandas as pd
 import sqlglot
 
+from buildstock_query.sql_cache import SqlCache, hash_sql, normalize_sql
+
 
 SNAPSHOTS_ROOT = Path(__file__).parent / "query_snapshots"
 
@@ -20,12 +35,26 @@ DATA_RTOL = 1e-4
 DATA_ATOL = 1e-6
 
 
-# Status values for individual SQL comparisons.
-# Precedence (worst → best): mismatch > missing_sql > whitespace_only > sqlglot_only > match.
-# `skipped` sits outside the precedence: it means the schema doesn't support this query
-# shape yet (raises UnsupportedQueryShape during SQL generation), so no comparison or
-# write is meaningful and the entry is treated as a non-failure.
-STATUS_PRECEDENCE = ["mismatch", "missing_sql", "whitespace_only", "sqlglot_only", "match"]
+# Session-wide tally appended by evaluate_entries(); pytest_terminal_summary in
+# conftest.py reads this at the end of the run to print real entry/variant counts
+# (which exceed the test-function count because each pytest node processes a
+# whole JSON file of entries × variants).
+SESSION_TOTALS: dict[str, int] = {
+    "entries": 0,
+    "variants": 0,
+    "passed": 0,
+    "skipped": 0,
+    "errored": 0,
+    "updated": 0,
+    "failed": 0,
+}
+
+
+# Per-entry status precedence (worst → best). `match` = hash equal; `sqlglot_only`
+# = hash differs but sqlglot considers equivalent; `mismatch` = real SQL drift.
+# `skipped` sits outside the precedence: schema doesn't support this query shape
+# (raises UnsupportedQueryShape during SQL generation).
+STATUS_PRECEDENCE = ["mismatch", "sqlglot_only", "match"]
 
 
 # --- per-schema placeholder substitution -------------------------------------
@@ -164,19 +193,26 @@ def _resolve_placeholders(value: Any, schema: str, *, annual: bool) -> Any:
 class SnapshotEntry:
     name: str
     description: str
-    sql_file: str
-    data_file: str
+    sql_hash: str  # empty string for new entries; --update-snapshot fills it
     args: list[dict[str, Any]]  # list of equivalent arg-variants (≥1)
     source_path: Path
-    schema: str  # e.g. "resstock_oedi" — picks the artifact subdirectory
+    schema: str  # e.g. "resstock_oedi" — picks the cache directory
 
     @property
-    def sql_path(self) -> Path:
-        return SNAPSHOTS_ROOT / f"{self.schema}_sql" / self.sql_file
+    def cache_dir(self) -> Path:
+        return SNAPSHOTS_ROOT / f"{self.schema}_cache"
 
     @property
-    def data_path(self) -> Path:
-        return SNAPSHOTS_ROOT / f"{self.schema}_data" / self.data_file
+    def stored_sql_path(self) -> Path | None:
+        if not self.sql_hash:
+            return None
+        return self.cache_dir / f"{self.sql_hash}.sql"
+
+    @property
+    def stored_parquet_path(self) -> Path | None:
+        if not self.sql_hash:
+            return None
+        return self.cache_dir / f"{self.sql_hash}.parquet"
 
 
 @dataclass
@@ -184,7 +220,8 @@ class VariantResult:
     index: int
     args: dict[str, Any]
     actual_sql: str
-    status: str  # match, whitespace_only, sqlglot_only, mismatch, missing_sql
+    actual_hash: str
+    status: str  # match, sqlglot_only, mismatch
 
 
 @dataclass
@@ -192,15 +229,19 @@ class EntryOutcome:
     entry: SnapshotEntry
     status: str  # worst variant status (precedence above)
     variants: list[VariantResult]
-    expected_sql: str | None = None  # stored SQL (same for all variants)
-    data_status: str | None = None  # match, mismatch, missing, error
+    expected_sql: str | None = None  # stored .sql sidecar (same for all variants)
+    data_status: str | None = None  # match, equivalent, mismatch, missing, error, skipped
     data_error: str | None = None
-    updated_paths: list[Path] = field(default_factory=list)
+    updated: bool = False  # True if the cache/JSON was updated this run
+    update_note: str = ""  # human-readable description of what was updated
 
     @property
     def primary_sql(self) -> str:
-        """variant[0]'s SQL — the one used for updates and data check."""
         return self.variants[0].actual_sql
+
+    @property
+    def primary_hash(self) -> str:
+        return self.variants[0].actual_hash
 
 
 def load_entries(json_path: Path, *, schema: str) -> list[SnapshotEntry]:
@@ -237,12 +278,20 @@ def load_entries(json_path: Path, *, schema: str) -> list[SnapshotEntry]:
             resolved = _resolve_placeholders(raw_variant, schema, annual=annual_only)
             variants.append(_rehydrate_args(resolved))
 
+        # sql_hash in the JSON is a per-schema dict: {"resstock_oedi": "...", "comstock_oedi": "..."}.
+        # Resolve to the current schema so the rest of the harness stays unaware of the dict shape.
+        raw_hash = item.get("sql_hash", {})
+        if isinstance(raw_hash, str):
+            # Legacy single-string shape (pre-multi-schema migration). Treat as empty.
+            sql_hash = ""
+        else:
+            sql_hash = raw_hash.get(schema, "")
+
         entries.append(
             SnapshotEntry(
                 name=item["name"],
                 description=item.get("description", ""),
-                sql_file=item["sql_file"],
-                data_file=item["data_file"],
+                sql_hash=sql_hash,
                 args=variants,
                 source_path=json_path,
                 schema=schema,
@@ -260,16 +309,15 @@ def _rehydrate_args(args: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def normalize_whitespace(sql: str) -> str:
-    return re.sub(r"\s+", " ", sql).strip()
-
-
 def compare_sql(expected: str, actual: str) -> str:
-    """Return one of: match, whitespace_only, sqlglot_only, mismatch."""
-    if expected == actual:
+    """Return one of: match, sqlglot_only, mismatch.
+
+    Hashes are computed on normalized SQL, so whitespace-only differences never
+    reach this function. We're either looking at semantic equivalence
+    (sqlglot_only — cosmetic refactor like `a + b` → `b + a` on a commutative op,
+    parens reshuffles, etc.) or real drift (mismatch)."""
+    if normalize_sql(expected) == normalize_sql(actual):
         return "match"
-    if normalize_whitespace(expected) == normalize_whitespace(actual):
-        return "whitespace_only"
     try:
         diff = sqlglot.diff(sqlglot.parse_one(expected), sqlglot.parse_one(actual), delta_only=True)
     except Exception:
@@ -441,11 +489,13 @@ def evaluate_entries(
 ) -> list[EntryOutcome]:
     from buildstock_query.aggregate_query import UnsupportedQueryShape
 
+    cache = SqlCache(SNAPSHOTS_ROOT / f"{entries[0].schema}_cache") if entries else None
+
     outcomes: list[EntryOutcome] = []
     total = len(entries)
     for idx, entry in enumerate(entries, start=1):
         n_variants = len(entry.args)
-        stored_sql = entry.sql_path.read_text() if entry.sql_path.exists() else None
+        stored_sql = entry.stored_sql_path.read_text() if entry.stored_sql_path and entry.stored_sql_path.exists() else None
         _log(f"[{idx}/{total}] {entry.name} :: {n_variants} variant(s)")
 
         variants: list[VariantResult] = []
@@ -478,60 +528,51 @@ def evaluate_entries(
                 f"SQL generated in {time.time()-t0:.2f}s"
             )
 
-            if stored_sql is None:
-                v_status = "missing_sql"
-            else:
+            actual_hash = hash_sql(actual_sql)
+            if not entry.sql_hash:
+                v_status = "mismatch"  # new entry — must populate the hash
+            elif actual_hash == entry.sql_hash:
+                v_status = "match"
+            elif stored_sql is not None:
                 v_status = compare_sql(stored_sql, actual_sql)
+            else:
+                v_status = "mismatch"  # hash differs and we have no stored SQL to sqlglot-compare
             _log(
                 f"[{idx}/{total}] {entry.name} :: variant {v_idx + 1}/{n_variants} :: status={v_status}"
             )
-            if v_status == "sqlglot_only":
-                warnings.warn(
-                    f"{entry.name} variant {v_idx + 1}: SQL differs in whitespace/structure but "
-                    "sqlglot considers it equivalent.",
-                    stacklevel=2,
-                )
             variants.append(
-                VariantResult(index=v_idx, args=variant_args, actual_sql=actual_sql, status=v_status)
+                VariantResult(
+                    index=v_idx, args=variant_args, actual_sql=actual_sql,
+                    actual_hash=actual_hash, status=v_status,
+                )
             )
 
         if skip_reason is not None:
-            outcome = EntryOutcome(
-                entry=entry,
-                status="skipped",
-                variants=variants,
-                expected_sql=stored_sql,
-                data_status="skipped",
-                data_error=skip_reason,
-            )
-            outcomes.append(outcome)
+            outcomes.append(EntryOutcome(
+                entry=entry, status="skipped", variants=variants,
+                expected_sql=stored_sql, data_status="skipped", data_error=skip_reason,
+            ))
             continue
 
         if sql_error is not None:
-            outcome = EntryOutcome(
-                entry=entry,
-                status="error",
-                variants=variants,
-                expected_sql=stored_sql,
-                data_status="skipped",
-                data_error=sql_error,
-            )
-            outcomes.append(outcome)
+            outcomes.append(EntryOutcome(
+                entry=entry, status="error", variants=variants,
+                expected_sql=stored_sql, data_status="skipped", data_error=sql_error,
+            ))
             continue
 
         overall_status = _worst_status([v.status for v in variants])
         outcome = EntryOutcome(
-            entry=entry, status=overall_status, variants=variants, expected_sql=stored_sql
+            entry=entry, status=overall_status, variants=variants, expected_sql=stored_sql,
         )
 
-        # Data check fires when --check-data was passed (and SQL didn't match), or when
-        # --update-snapshot/--overwrite-snapshot needs the data result to decide whether
-        # the SQL change is safe to write. Cosmetic SQL drift skips the data check —
-        # sqlglot already proved the queries are equivalent.
-        sql_drift_needs_validation = outcome.status in {"mismatch", "missing_sql"}
+        # Data check fires when --check-data is set (regardless of SQL status), or when
+        # --update-snapshot needs to know whether real SQL drift is safe to write through.
+        # sqlglot_only skips the data check — sqlglot already proved equivalence.
+        sql_drift_real = outcome.status == "mismatch"
         needs_data_check = (
             (check_data and outcome.status != "match")
-            or ((update_snapshot or overwrite_snapshot) and sql_drift_needs_validation)
+            or ((update_snapshot or overwrite_snapshot) and sql_drift_real)
         )
         if needs_data_check:
             _log(
@@ -540,28 +581,39 @@ def evaluate_entries(
                 f"  SQL:\n{_indent(outcome.primary_sql, '    ')}"
             )
             t0 = time.time()
-            _run_and_compare_data(bsq, outcome)
+            _run_and_compare_data(bsq, outcome, cache=cache)
             _log(
                 f"[{idx}/{total}] {entry.name} :: data check finished in {time.time()-t0:.2f}s "
                 f"(data_status={outcome.data_status})"
             )
 
-        _maybe_update(outcome, update_snapshot=update_snapshot, overwrite_snapshot=overwrite_snapshot)
-        if outcome.updated_paths:
-            _log(
-                f"[{idx}/{total}] {entry.name} :: wrote {[str(p.name) for p in outcome.updated_paths]}"
-            )
+        _maybe_update(
+            outcome, cache=cache,
+            update_snapshot=update_snapshot, overwrite_snapshot=overwrite_snapshot,
+        )
+        if outcome.updated:
+            _log(f"[{idx}/{total}] {entry.name} :: {outcome.update_note}")
 
         outcomes.append(outcome)
+
+    SESSION_TOTALS["entries"] += len(outcomes)
+    SESSION_TOTALS["variants"] += sum(len(o.variants) for o in outcomes)
+    for o in outcomes:
+        if o.status == "skipped":
+            SESSION_TOTALS["skipped"] += 1
+        elif o.status == "error":
+            SESSION_TOTALS["errored"] += 1
+        elif o.updated:
+            SESSION_TOTALS["updated"] += 1
+        elif o.status == "match":
+            SESSION_TOTALS["passed"] += 1
+        else:
+            SESSION_TOTALS["failed"] += 1
     return outcomes
 
 
 def resolve_update_flags(config) -> tuple[bool, bool]:
-    """Pull --update-snapshot / --overwrite-snapshot from pytest config.
-
-    --overwrite-snapshot implies --update-snapshot — it does everything --update-snapshot
-    does plus also writes through real data mismatches.
-    """
+    """--overwrite-snapshot implies --update-snapshot."""
     update_snapshot = bool(config.getoption("--update-snapshot"))
     overwrite_snapshot = bool(config.getoption("--overwrite-snapshot"))
     if overwrite_snapshot:
@@ -577,68 +629,6 @@ def _indent(text: str, prefix: str) -> str:
     return "\n".join(prefix + line for line in text.splitlines())
 
 
-# --- invariant-test helpers --------------------------------------------------
-
-def build_snapshot_index(schema: str) -> dict[str, SnapshotEntry]:
-    """Index every snapshot entry for `schema` by normalized stored SQL.
-
-    Invariant tests use this to look up an entry whose SQL matches a freshly
-    generated one. Entries whose `.sql` file is missing are skipped (they'll be
-    bootstrapped by --update-snapshot later).
-    """
-    index: dict[str, SnapshotEntry] = {}
-    for json_path in sorted(SNAPSHOTS_ROOT.glob("*.json")):
-        for entry in load_entries(json_path, schema=schema):
-            if not entry.sql_path.exists():
-                continue
-            key = normalize_whitespace(entry.sql_path.read_text())
-            if key in index:
-                existing = index[key]
-                _log(
-                    f"[invariant-index] duplicate SQL between {existing.name} and "
-                    f"{entry.name} — keeping first"
-                )
-                continue
-            index[key] = entry
-    return index
-
-
-def find_data_for_sql(schema: str, sql: str) -> pd.DataFrame:
-    """Look up a snapshot entry whose stored SQL matches `sql` (normalized), return
-    the reference DataFrame loaded from that entry's parquet.
-
-    The caller is responsible for generating `sql`; this lets invariants use any
-    SQL source (a single `bsq.query()` call, a hand-composed query, etc.).
-
-    Raises AssertionError if no entry matches or the matching entry's parquet is
-    missing, with guidance on how to fix it.
-    """
-    key = normalize_whitespace(sql)
-    index = _cached_index(schema)
-    entry = index.get(key)
-    if entry is None:
-        raise AssertionError(
-            f"Invariant needs a snapshot entry for {schema} that stores this SQL:\n"
-            f"  normalized SQL:\n    {key}\n"
-            f"No such entry exists. Add it to a shared JSON file and re-run --update-snapshot."
-        )
-    if not entry.data_path.exists():
-        raise AssertionError(
-            f"Invariant matched entry '{entry.name}' but its parquet is missing at {entry.data_path}. "
-            f"Run `pytest --update-snapshot` to bootstrap."
-        )
-    return pd.read_parquet(entry.data_path)
-
-
-_INDEX_CACHE: dict[str, dict[str, SnapshotEntry]] = {}
-
-
-def _cached_index(schema: str) -> dict[str, SnapshotEntry]:
-    if schema not in _INDEX_CACHE:
-        _INDEX_CACHE[schema] = build_snapshot_index(schema)
-    return _INDEX_CACHE[schema]
-
-
 def _format_call(args: dict[str, Any], *, get_query_only: bool) -> str:
     """Render the bsq.query(...) call the entry is about to make, for live logging."""
     parts = [f"{k}={v!r}" for k, v in args.items()]
@@ -646,30 +636,39 @@ def _format_call(args: dict[str, Any], *, get_query_only: bool) -> str:
     return "bsq.query(" + ", ".join(parts) + ")"
 
 
-def _run_and_compare_data(bsq, outcome: EntryOutcome) -> None:
+def _run_and_compare_data(bsq, outcome: EntryOutcome, *, cache: SqlCache) -> None:
     """Run data check using variant[0]'s args — all variants are declared equivalent.
 
     Sets outcome.data_status to one of:
       - match: exact match within tolerance
-      - equivalent: column set differs but shared columns match (a refactor adding/
-        removing a metadata column, etc.)
+      - equivalent: column set differs but shared columns match
       - mismatch: shared columns disagree beyond tolerance
-      - missing: no parquet on disk yet
+      - missing: no parquet on disk yet (new entry, or stored hash points nowhere)
       - error: Athena query itself failed
     """
-    try:
-        actual_df = run_query_data(bsq, outcome.entry.args[0])
-    except Exception as exc:
-        outcome.data_status = "error"
-        outcome.data_error = f"query execution failed: {exc}"
-        outcome._actual_df = None
-        return
+    # Bypass cache for the freshly-generated SQL — we want the real Athena answer
+    # to compare against the stored parquet. We do this by deleting the new-hash
+    # parquet (if any) just before the call, then letting execute() repopulate.
+    new_hash_parquet = cache.root / f"{outcome.primary_hash}.parquet"
+    if new_hash_parquet.exists():
+        # The user might have a stale parquet under the new hash. Trust it: skip
+        # the call, treat it as fresh data.
+        actual_df = pd.read_parquet(new_hash_parquet)
+    else:
+        try:
+            actual_df = run_query_data(bsq, outcome.entry.args[0])
+        except Exception as exc:
+            outcome.data_status = "error"
+            outcome.data_error = f"query execution failed: {exc}"
+            outcome._actual_df = None
+            return
 
     outcome._actual_df = actual_df
-    if not outcome.entry.data_path.exists():
+    old_parquet = outcome.entry.stored_parquet_path
+    if old_parquet is None or not old_parquet.exists():
         outcome.data_status = "missing"
         return
-    expected_df = pd.read_parquet(outcome.entry.data_path)
+    expected_df = pd.read_parquet(old_parquet)
     matched, err = compare_data(expected_df, actual_df)
     if matched:
         outcome.data_status = "match"
@@ -683,67 +682,121 @@ def _run_and_compare_data(bsq, outcome: EntryOutcome) -> None:
     outcome.data_error = err
 
 
-def _maybe_update(outcome: EntryOutcome, *, update_snapshot: bool, overwrite_snapshot: bool) -> None:
-    """Decide what (if anything) to write to disk for this entry.
+def _maybe_update(
+    outcome: EntryOutcome,
+    *,
+    cache: SqlCache,
+    update_snapshot: bool,
+    overwrite_snapshot: bool,
+) -> None:
+    """Update the cache (and patch the JSON's sql_hash) per the decision table.
 
-    `update_snapshot` is the routine refresh: write anything the test can prove is
-    a safe refactor. `overwrite_snapshot` adds one extra power: also write through
-    a real data mismatch, on the user's assertion that the new value is correct.
+    Decisions (rows are SQL status, cols are data status):
 
-    Rules
-    -----
-                              update-snapshot    overwrite-snapshot
-    SQL match                 no-op              no-op
-    SQL whitespace_only       write SQL          write SQL
-    SQL sqlglot_only          write SQL          write SQL
-    SQL real-drift + data:
-        match                 write SQL          write SQL
-        equivalent            write SQL+data     write SQL+data
-        missing               write SQL+data     write SQL+data
-        mismatch              leave both         write SQL+data
-        error                 leave both         leave both
+                          update-snapshot      overwrite-snapshot
+    SQL match             no-op                no-op
+    SQL sqlglot_only      rename parquet,      rename parquet,
+                          patch JSON           patch JSON
+    SQL mismatch + data:
+        match             rename parquet,      rename parquet,
+                          patch JSON           patch JSON
+        equivalent        write new pair,      write new pair,
+                          delete old, patch    delete old, patch
+        missing           write new pair,      write new pair,
+                          patch JSON           patch JSON
+        mismatch          leave alone          write new pair,
+                                               delete old, patch
+        error             leave alone          leave alone
     """
-    sql_cosmetic_only = outcome.status in {"whitespace_only", "sqlglot_only"}
-    sql_drift_real = outcome.status in {"mismatch", "missing_sql"}
-
     if not (update_snapshot or overwrite_snapshot):
         return
     if outcome.status == "match":
         return
 
-    if sql_cosmetic_only:
-        _write_sql(outcome)
+    new_hash = outcome.primary_hash
+    new_sql = outcome.primary_sql
+    old_hash = outcome.entry.sql_hash
+
+    if outcome.status == "sqlglot_only":
+        # SQL refactored cosmetically; data unchanged. Rename the parquet to the
+        # new hash and rewrite the .sql sidecar.
+        if old_hash:
+            old_parquet = cache.root / f"{old_hash}.parquet"
+            old_sql_path = cache.root / f"{old_hash}.sql"
+            new_parquet = cache.root / f"{new_hash}.parquet"
+            if old_parquet.exists() and old_parquet != new_parquet:
+                old_parquet.rename(new_parquet)
+            (cache.root / f"{new_hash}.sql").write_text(normalize_sql(new_sql))
+            if old_sql_path.exists() and old_sql_path != cache.root / f"{new_hash}.sql":
+                old_sql_path.unlink()
+        else:
+            cache.put(new_sql, getattr(outcome, "_actual_df", None) or pd.DataFrame())
+        _patch_hash(outcome.entry.source_path, outcome.entry.name, outcome.entry.schema, new_hash)
+        outcome.updated = True
+        outcome.update_note = f"renamed parquet {old_hash[:12] if old_hash else '<empty>'} → {new_hash[:12]}; patched JSON"
         return
 
-    if sql_drift_real:
-        actual_df = getattr(outcome, "_actual_df", None)
-        ds = outcome.data_status
+    # outcome.status == "mismatch" — real SQL drift.
+    actual_df = getattr(outcome, "_actual_df", None)
+    ds = outcome.data_status
 
-        if ds == "match":
-            _write_sql(outcome)
-        elif ds in {"equivalent", "missing"} and actual_df is not None:
-            _write_sql(outcome)
-            _write_data(outcome, actual_df)
-        elif ds == "mismatch" and overwrite_snapshot and actual_df is not None:
-            _write_sql(outcome)
-            _write_data(outcome, actual_df)
-
-
-def _write_sql(outcome: EntryOutcome) -> None:
-    # variant[0]'s SQL is canonical; differing variants surface as mismatches on the next run.
-    if outcome.entry.sql_path in outcome.updated_paths:
+    if ds == "match":
+        # SQL changed but data is identical — same as sqlglot_only path.
+        if old_hash:
+            old_parquet = cache.root / f"{old_hash}.parquet"
+            old_sql_path = cache.root / f"{old_hash}.sql"
+            new_parquet = cache.root / f"{new_hash}.parquet"
+            if old_parquet.exists() and old_parquet != new_parquet:
+                old_parquet.rename(new_parquet)
+            (cache.root / f"{new_hash}.sql").write_text(normalize_sql(new_sql))
+            if old_sql_path.exists() and old_sql_path != cache.root / f"{new_hash}.sql":
+                old_sql_path.unlink()
+        _patch_hash(outcome.entry.source_path, outcome.entry.name, outcome.entry.schema, new_hash)
+        outcome.updated = True
+        outcome.update_note = f"data matched; renamed parquet {old_hash[:12] if old_hash else '<empty>'} → {new_hash[:12]}; patched JSON"
         return
-    outcome.entry.sql_path.parent.mkdir(parents=True, exist_ok=True)
-    outcome.entry.sql_path.write_text(outcome.primary_sql)
-    outcome.updated_paths.append(outcome.entry.sql_path)
 
-
-def _write_data(outcome: EntryOutcome, actual_df: pd.DataFrame) -> None:
-    if outcome.entry.data_path in outcome.updated_paths:
+    if ds in {"equivalent", "missing"} and actual_df is not None:
+        cache.put(new_sql, actual_df)
+        if old_hash and old_hash != new_hash:
+            (cache.root / f"{old_hash}.parquet").unlink(missing_ok=True)
+            (cache.root / f"{old_hash}.sql").unlink(missing_ok=True)
+        _patch_hash(outcome.entry.source_path, outcome.entry.name, outcome.entry.schema, new_hash)
+        outcome.updated = True
+        outcome.update_note = f"wrote new pair {new_hash[:12]}; deleted old {old_hash[:12] if old_hash else '<empty>'}; patched JSON"
         return
-    outcome.entry.data_path.parent.mkdir(parents=True, exist_ok=True)
-    actual_df.to_parquet(outcome.entry.data_path, index=False)
-    outcome.updated_paths.append(outcome.entry.data_path)
+
+    if ds == "mismatch" and overwrite_snapshot and actual_df is not None:
+        cache.put(new_sql, actual_df)
+        if old_hash and old_hash != new_hash:
+            (cache.root / f"{old_hash}.parquet").unlink(missing_ok=True)
+            (cache.root / f"{old_hash}.sql").unlink(missing_ok=True)
+        _patch_hash(outcome.entry.source_path, outcome.entry.name, outcome.entry.schema, new_hash)
+        outcome.updated = True
+        outcome.update_note = f"OVERWROTE: new pair {new_hash[:12]}; deleted old {old_hash[:12] if old_hash else '<empty>'}; patched JSON"
+        return
+
+
+def _patch_hash(json_path: Path, entry_name: str, schema: str, new_hash: str) -> None:
+    """Replace the per-schema sql_hash for `entry_name` by exact text substitution.
+
+    Locates `"name": "<entry_name>"`, then `"sql_hash": { ... "<schema>": "<old>" ... }`
+    within that entry's window, and rewrites just the `<old>` value. Preserves all
+    other formatting in the file."""
+    text = json_path.read_text()
+    # Anchor on entry name, then on sql_hash, then on the schema key.
+    pattern = re.compile(
+        r'("name"\s*:\s*"' + re.escape(entry_name)
+        + r'".*?"sql_hash"\s*:\s*\{[^{}]*?"' + re.escape(schema) + r'"\s*:\s*")[^"]*(")',
+        re.DOTALL,
+    )
+    new_text, n = pattern.subn(rf'\g<1>{new_hash}\g<2>', text, count=1)
+    if n == 0:
+        raise RuntimeError(
+            f"Could not patch sql_hash[{schema!r}] for entry {entry_name!r} in {json_path} — "
+            f"entry not found or sql_hash dict is missing the {schema!r} key."
+        )
+    json_path.write_text(new_text)
 
 
 def format_failures(outcomes: list[EntryOutcome], *, check_data: bool) -> str:
@@ -759,13 +812,12 @@ def format_failures(outcomes: list[EntryOutcome], *, check_data: bool) -> str:
 def _is_failure(outcome: EntryOutcome, *, check_data: bool) -> bool:
     if outcome.status == "skipped":
         return False
-    if outcome.updated_paths:
+    if outcome.updated:
         # Entry was auto-updated; treat as pass for reporting purposes.
         return False
     if check_data and outcome.data_status == "match":
-        # Data check ran and the returned DataFrame matches the snapshot — the
-        # query is functionally correct, so SQL-level drift (whitespace_only,
-        # sqlglot_only, or even mismatch) is not a test failure.
+        # Data check ran and the returned DataFrame matches — the query is
+        # functionally correct, so SQL-level drift is not a test failure.
         return False
     if outcome.status != "match":
         return True
@@ -777,9 +829,9 @@ def _is_failure(outcome: EntryOutcome, *, check_data: bool) -> bool:
 def _format_one(outcome: EntryOutcome) -> str:
     entry = outcome.entry
     header = f"\n--- {entry.name} [{outcome.status}] ---"
-    parts = [header, f"stored SQL file: {entry.sql_path}"]
+    parts = [header, f"stored sql_hash: {entry.sql_hash or '<empty>'}"]
     if outcome.expected_sql is None:
-        parts.append(f"(missing expected SQL at {entry.sql_path})")
+        parts.append("(no stored SQL on disk)")
     else:
         parts.append("EXPECTED SQL:")
         parts.append(outcome.expected_sql)
@@ -789,7 +841,8 @@ def _format_one(outcome: EntryOutcome) -> str:
         if variant.status == "match":
             continue
         parts.append(
-            f"\n  variant {variant.index + 1}/{len(outcome.variants)} [{variant.status}]"
+            f"\n  variant {variant.index + 1}/{len(outcome.variants)} "
+            f"[{variant.status}] hash={variant.actual_hash[:12]}"
         )
         parts.append(f"  args: {variant.args}")
         parts.append("  ACTUAL SQL:")

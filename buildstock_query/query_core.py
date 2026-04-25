@@ -371,18 +371,26 @@ class QueryCore:
                 candidate_tables = (self.bs_table, self.up_table, self.ts_table)
 
         search_tables = [self._get_table(table) for table in candidate_tables if table is not None]
-        valid_tables = []
-        for tbl in search_tables:
-            if column_name in tbl.columns:
-                valid_tables.append(tbl)
-        if not valid_tables:
-            raise ValueError(f"Column {column_name} not found in any tables {[t.name for t in search_tables]}")
-        if len(valid_tables) > 1:
-            logger.warning(
-                f"Column {column_name} found in multiple tables {[t.name for t in valid_tables]}. "
-                f"Using {valid_tables[0].name}"
-            )
-        return valid_tables[0].c[column_name]
+        char_prefix = self.db_schema.column_prefix.characteristics
+        names_to_try = [column_name]
+        if column_name.startswith(char_prefix):
+            names_to_try.append(column_name.removeprefix(char_prefix))
+        else:
+            names_to_try.append(f"{char_prefix}{column_name}")
+
+        for attempt_name in names_to_try:
+            valid_tables = [tbl for tbl in search_tables if attempt_name in tbl.columns]
+            if valid_tables:
+                if len(valid_tables) > 1:
+                    logger.warning(
+                        f"Column {attempt_name} found in multiple tables {[t.name for t in valid_tables]}. "
+                        f"Using {valid_tables[0].name}"
+                    )
+                return valid_tables[0].c[attempt_name]
+        raise ValueError(
+            f"Column {column_name} not found in any tables {[t.name for t in search_tables]} "
+            f"(also tried {names_to_try[1]!r})"
+        )
 
     def _get_subquery_table(
         self, source_table: DBTableType, where_clause: sa.ColumnElement, alias_name: str

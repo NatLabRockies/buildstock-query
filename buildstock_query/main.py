@@ -708,11 +708,9 @@ class BuildStockQuery(QueryCore):
     def _get_gcol(
         self, column: AnyColType, annual_only: bool = False
     ) -> DBColType:  # gcol => group by col
-        """Get a DB column for the purpose of grouping. If the provided column doesn't exist as is,
-        tries to get the column by prepending self._char_prefix."""
-
+        """Get a DB column for the purpose of grouping."""
         if isinstance(column, sa.Column):
-            return column.label(self._simple_label(column.name))  # already a col
+            return column.label(self._simple_label(column.name))
 
         if isinstance(column, SALabel):
             return column
@@ -721,15 +719,7 @@ class BuildStockQuery(QueryCore):
             return sa.literal(column).label(self._simple_label(column.name))
 
         if isinstance(column, str):
-            try:
-                return self._get_column(column, annual_only=annual_only).label(self._simple_label(column))
-            except (ValueError, KeyError):
-                if column.startswith(self._char_prefix):
-                    new_name = column.removeprefix(self._char_prefix)
-                    return self._get_column(new_name, annual_only=annual_only).label(column)
-                else:
-                    new_name = f"{self._char_prefix}{column}"
-                    return self._get_column(new_name, annual_only=annual_only).label(column)
+            return self._get_column(column, annual_only=annual_only).label(self._simple_label(column))
 
         raise ValueError(f"Invalid column name type {column}: {type(column)}")
 

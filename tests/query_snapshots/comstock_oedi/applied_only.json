@@ -7,7 +7,7 @@
     "args": {
       "enduses": ["out.electricity.total.energy_consumption..kwh"],
       "upgrade_id": "1",
-      "group_by": ["in.comstock_building_type"],
+      "group_by": ["comstock_building_type"],
       "restrict": [["state", ["CO"]]],
       "applied_only": true
     }
@@ -20,7 +20,7 @@
     "args": {
       "enduses": ["out.electricity.total.energy_consumption..kwh"],
       "upgrade_id": "1",
-      "group_by": ["in.comstock_building_type"],
+      "group_by": ["comstock_building_type"],
       "restrict": [["state", ["CO"]]],
       "applied_only": false
     }

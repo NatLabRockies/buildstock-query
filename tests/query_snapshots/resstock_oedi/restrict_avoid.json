@@ -6,7 +6,7 @@
     "data_file": "restrict_single_state_CO.parquet",
     "args": {
       "enduses": ["out.electricity.total.energy_consumption"],
-      "group_by": ["in.geometry_building_type_recs"],
+      "group_by": ["geometry_building_type_recs"],
       "restrict": [["state", ["CO"]]]
     }
   },
@@ -28,8 +28,8 @@
     "data_file": "restrict_state_plus_vintage.parquet",
     "args": {
       "enduses": ["out.electricity.total.energy_consumption"],
-      "group_by": ["in.vintage"],
-      "restrict": [["state", ["CO"]], ["in.vintage", ["1980s"]]]
+      "group_by": ["vintage"],
+      "restrict": [["state", ["CO"]], ["vintage", ["1980s"]]]
     }
   },
   {
@@ -39,9 +39,9 @@
     "data_file": "avoid_mobile_home_CO.parquet",
     "args": {
       "enduses": ["out.electricity.total.energy_consumption"],
-      "group_by": ["in.geometry_building_type_recs"],
+      "group_by": ["geometry_building_type_recs"],
       "restrict": [["state", ["CO"]]],
-      "avoid": [["in.geometry_building_type_recs", ["Mobile Home"]]]
+      "avoid": [["geometry_building_type_recs", ["Mobile Home"]]]
     }
   }
 ]

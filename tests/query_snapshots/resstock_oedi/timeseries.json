@@ -22,7 +22,7 @@
       "enduses": ["out.electricity.total.energy_consumption", "out.natural_gas.total.energy_consumption"],
       "annual_only": false,
       "timestamp_grouping_func": "month",
-      "group_by": ["in.geometry_building_type_recs", "time"],
+      "group_by": ["geometry_building_type_recs", "time"],
       "restrict": [["state", ["CO"]]]
     }
   },
@@ -35,7 +35,7 @@
       "enduses": ["out.electricity.total.energy_consumption"],
       "annual_only": false,
       "timestamp_grouping_func": "year",
-      "group_by": ["in.geometry_building_type_recs"],
+      "group_by": ["geometry_building_type_recs"],
       "restrict": [["state", ["CO"]]]
     }
   }

@@ -7,7 +7,7 @@
     "args": {
       "target": "group_by",
       "mapped_name": "simple_bldg_type",
-      "key_column": "in.geometry_building_type_recs",
+      "key_column": "geometry_building_type_recs",
       "mapping_dict": {
         "Mobile Home": "MH",
         "Single-Family Detached": "SF",

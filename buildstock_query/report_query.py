@@ -14,7 +14,6 @@ from collections.abc import Hashable, Sequence
 from buildstock_query.schema.utilities import AnyColType, typed_literal, validate_arguments
 from pydantic import Field
 from typing_extensions import assert_never
-pd.set_option('future.no_silent_downcasting', True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -99,8 +98,7 @@ class BuildStockReport:
             df["upgrade"] = df["upgrade"].map(str)
             df = df.set_index("upgrade").sort_index()
             change_df = change_df.join(df, how="outer") if len(change_df) > 0 else df
-        with pd.option_context("future.no_silent_downcasting", True):
-            change_df = change_df.fillna(0).infer_objects(copy=False)
+        change_df = change_df.fillna(0).astype(int)
         for chng_type in chng_types:
             if chng_type not in change_df.columns:
                 change_df[chng_type] = 0

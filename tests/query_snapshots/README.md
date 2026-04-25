@@ -32,9 +32,9 @@ query_snapshots/
 Each JSON entry runs once per schema. Per-schema column-name differences are written
 as `$ELECTRICITY_TOTAL` / `$NATURAL_GAS_TOTAL` / `$BUILDING_TYPE_COL` / etc.
 placeholders in the JSON args, resolved at load time by `tests/test_utility.py`'s
-`SCHEMA_PLACEHOLDER_BUILDERS` map. Comstock annual columns get the `..kwh` suffix
+`resolve_placeholder()` dispatcher. Comstock annual columns get the `..kwh` suffix
 that comstock's metadata table requires; comstock TS columns don't (the leg-aware
-substitution keys off `annual_only`).
+resolution keys off `annual_only`).
 
 ### Generic vs specialized
 
@@ -102,14 +102,18 @@ With `-s`, you'll see lines like:
 [fixture] constructing BuildStockQuery(resstock_oedi)...
 [fixture] resstock_oedi ready.
 
-=== tests/query_snapshots/annual.json: 4 entries (check_data=True, update_snapshot=True, overwrite_snapshot=False) ===
-[1/4] annual_totals_overall :: generating SQL...
-[1/4] annual_totals_overall :: SQL generated in 0.12s
-[1/4] annual_totals_overall :: status=missing_sql
-[1/4] annual_totals_overall :: executing query for data check...
+=== tests/query_snapshots/annual.json: 4 entries (5 variants, check_data=True, update_snapshot=True, overwrite_snapshot=False) ===
+[1/4] annual_totals_overall :: 1 variant(s)
+[1/4] annual_totals_overall :: variant 1/1 :: calling bsq.query(enduses=[...], get_query_only=True)
+[1/4] annual_totals_overall :: variant 1/1 :: SQL generated in 0.12s
+[1/4] annual_totals_overall :: variant 1/1 :: status=missing_sql
+[1/4] annual_totals_overall :: about to submit query (variant 1) for data check
+  call: bsq.query(enduses=[...], get_query_only=False)
+  SQL:
+    SELECT ...
 [1/4] annual_totals_overall :: data check finished in 14.33s (data_status=missing)
 [1/4] annual_totals_overall :: wrote ['annual_totals_overall.sql', 'annual_totals_overall.parquet']
-[2/4] annual_totals_by_building_type :: generating SQL...
+[2/4] annual_totals_by_building_type :: 1 variant(s)
 ...
 ```
 
@@ -193,11 +197,30 @@ Run with:
 pytest -s -v tests/test_invariants.py
 ```
 
-Included invariants (v1):
+Included invariants:
 
 - `test_annual_equals_ts_year_equals_ts_monthly_sum` — per-group annual totals
   agree across annual-only, year-collapsed timeseries, and summed monthly timeseries.
+  Also pins monthly `rows_per_sample` to `4 * 24 * days_in_month`.
 - `test_savings_decomposition` — `baseline - upgrade ≈ savings` per group.
+- `test_savings_only_matches_full_savings_query` — the savings column from a
+  savings-only query matches the savings column from a full
+  `include_baseline + include_upgrade + include_savings` query.
+- `test_group_by_sum_equals_overall` — sum across `group_by` groups equals the
+  no-group-by total.
+- `test_co_subset_of_co_plus_wy` — the CO row of `state IN ('CO', 'WY')` equals
+  the single-state CO totals.
+- `test_avoid_plus_avoided_equals_full` — `avoid=[(group, [X])]` plus the X row
+  from the unfiltered query equals the unfiltered totals.
+- `test_two_fuel_electricity_equals_single_fuel` — querying
+  `[electricity, natural_gas]` produces the same per-group electricity values
+  as querying `[electricity]` alone.
+- `test_mapped_column_aggregates_underlying_types` — a `MappedColumn` group_by
+  aggregates the underlying types in line with the supplied `mapping_dict`.
+- `test_15min_raw_sums_to_monthly` — per-state 15-min raw timeseries summed
+  within each calendar month equals the `timestamp_grouping_func='month'` aggregate.
+- `test_applied_in_intersection` — `applied_in=[1, 2]` returns the set
+  intersection of `applied_in=[1]` and `applied_in=[2]`.
 
 Tolerance: `rtol=1e-3, atol=1.0` (looser than the snapshot data check because
 aggregate sums accumulate float error).

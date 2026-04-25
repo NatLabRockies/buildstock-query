@@ -30,26 +30,34 @@ STATUS_PRECEDENCE = ["mismatch", "missing_sql", "whitespace_only", "sqlglot_only
 
 # --- per-schema placeholder substitution -------------------------------------
 #
-# Each merged JSON file is loaded once per schema. Strings inside the args tree
-# that *exactly equal* a placeholder are swapped for the schema-specific value.
-# Comstock annual tables suffix energy columns with `..kwh`; comstock TS tables
-# don't — so the electricity / gas substitution is leg-aware (`annual_only`).
-# The other placeholders are flat per-schema lookups.
+# Test JSON fixtures and invariant tests reference schema-specific values
+# (column names, building-type values, mapping dicts) by a placeholder name like
+# `"$ELECTRICITY_TOTAL"`. `resolve_placeholder(schema, name, annual=...)`
+# returns the corresponding concrete value for the requested schema.
 #
-# Substitution applies whole-string: `"$ELECTRICITY_TOTAL"` matches, but a
-# string that merely contains the token (e.g. inside a description) is left
-# untouched. Dict-valued placeholders (`$BUILDING_TYPE_MAPPING`) plug in a
-# whole sub-tree, so an entry can declare `"mapping_dict": "$BUILDING_TYPE_MAPPING"`
-# and have it expand to the per-schema dict at load time.
+# `annual` controls the comstock annual/timeseries column-suffix split:
+# annual energy columns end in `..kwh`, timeseries ones don't. Other
+# placeholders ignore `annual`.
+#
+# Two callers:
+#   1. Invariant tests (`test_invariants.py`) call `resolve_placeholder(...)`
+#      directly, one value at a time.
+#   2. The JSON fixture loader walks the args tree and calls it for each
+#      `"$"`-prefixed string it encounters (see `_resolve_placeholders` below).
+# Strings without a `$` prefix pass through unchanged. Names are case-
+# insensitive, accepted with or without the leading `$`.
 
-def _resstock_placeholders(annual_only: bool) -> dict[str, Any]:
-    return {
-        "$ELECTRICITY_TOTAL": "out.electricity.total.energy_consumption",
-        "$NATURAL_GAS_TOTAL": "out.natural_gas.total.energy_consumption",
-        "$BUILDING_TYPE_COL": "geometry_building_type_recs",
-        "$AVOID_BUILDING_TYPE": "Mobile Home",
-        "$VINTAGE_BUCKET": "1980s",
-        "$BUILDING_TYPE_MAPPING": {
+_SUPPORTED_SCHEMAS = ("resstock_oedi", "comstock_oedi")
+
+
+def _resolve_resstock_placeholder(name: str, *, annual: bool) -> Any:
+    table: dict[str, Any] = {
+        "ELECTRICITY_TOTAL": "out.electricity.total.energy_consumption",
+        "NATURAL_GAS_TOTAL": "out.natural_gas.total.energy_consumption",
+        "BUILDING_TYPE_COL": "geometry_building_type_recs",
+        "AVOID_BUILDING_TYPE": "Mobile Home",
+        "VINTAGE_BUCKET": "1980s",
+        "BUILDING_TYPE_MAPPING": {
             "Mobile Home": "MH",
             "Single-Family Detached": "SF",
             "Single-Family Attached": "SF",
@@ -57,17 +65,18 @@ def _resstock_placeholders(annual_only: bool) -> dict[str, Any]:
             "Multi-Family with 5+ Units": "MF",
         },
     }
+    return table[name]
 
 
-def _comstock_placeholders(annual_only: bool) -> dict[str, Any]:
-    suffix = "..kwh" if annual_only else ""
-    return {
-        "$ELECTRICITY_TOTAL": f"out.electricity.total.energy_consumption{suffix}",
-        "$NATURAL_GAS_TOTAL": f"out.natural_gas.total.energy_consumption{suffix}",
-        "$BUILDING_TYPE_COL": "comstock_building_type",
-        "$AVOID_BUILDING_TYPE": "Warehouse",
-        "$VINTAGE_BUCKET": "1980 to 1989",
-        "$BUILDING_TYPE_MAPPING": {
+def _resolve_comstock_placeholder(name: str, *, annual: bool) -> Any:
+    suffix = "..kwh" if annual else ""
+    table: dict[str, Any] = {
+        "ELECTRICITY_TOTAL": f"out.electricity.total.energy_consumption{suffix}",
+        "NATURAL_GAS_TOTAL": f"out.natural_gas.total.energy_consumption{suffix}",
+        "BUILDING_TYPE_COL": "comstock_building_type",
+        "AVOID_BUILDING_TYPE": "Warehouse",
+        "VINTAGE_BUCKET": "1980 to 1989",
+        "BUILDING_TYPE_MAPPING": {
             "FullServiceRestaurant": "Food",
             "QuickServiceRestaurant": "Food",
             "RetailStandalone": "Retail",
@@ -84,28 +93,45 @@ def _comstock_placeholders(annual_only: bool) -> dict[str, Any]:
             "Warehouse": "Warehouse",
         },
     }
+    return table[name]
 
 
-SCHEMA_PLACEHOLDER_BUILDERS: dict[str, Any] = {
-    "resstock_oedi": _resstock_placeholders,
-    "comstock_oedi": _comstock_placeholders,
-}
+def resolve_placeholder(schema: str, placeholder: str, *, annual: bool = True) -> Any:
+    """Return the schema-specific value for `placeholder`.
+
+    `placeholder` is accepted with or without a leading `$` and is case-
+    insensitive (`"$ELECTRICITY_TOTAL"`, `"electricity_total"` both work).
+    Raises `ValueError` for unknown schemas, and `KeyError` (with schema
+    context) for unknown placeholder names.
+    """
+    name = placeholder.lstrip("$").upper()
+    if schema == "resstock_oedi":
+        resolver = _resolve_resstock_placeholder
+    elif schema == "comstock_oedi":
+        resolver = _resolve_comstock_placeholder
+    else:
+        raise ValueError(f"unknown schema '{schema}'; expected one of {list(_SUPPORTED_SCHEMAS)}")
+    try:
+        return resolver(name, annual=annual)
+    except KeyError:
+        raise KeyError(f"unknown {schema} placeholder: ${name}") from None
 
 
-def _resolve_placeholders(value: Any, mapping: dict[str, Any]) -> Any:
-    """Recursively walk a JSON-loaded structure, replacing whole-string matches.
+def _resolve_placeholders(value: Any, schema: str, *, annual: bool) -> Any:
+    """Recursively walk a JSON-loaded structure, resolving `"$"`-prefixed strings.
 
-    Strings are matched only when they equal a placeholder key exactly — partial
-    matches are intentionally not supported, because the mapping for some
-    placeholders is itself a dict (which can't be substituted into a partial
-    string). Dicts and lists are walked into; other scalars pass through.
+    Only strings that start with `$` are treated as placeholders; everything
+    else passes through unchanged. Dicts and lists are walked into. Dict-
+    valued placeholders (`$BUILDING_TYPE_MAPPING`) plug in a whole sub-tree.
     """
     if isinstance(value, str):
-        return mapping.get(value, value)
+        if value.startswith("$"):
+            return resolve_placeholder(schema, value, annual=annual)
+        return value
     if isinstance(value, list):
-        return [_resolve_placeholders(item, mapping) for item in value]
+        return [_resolve_placeholders(item, schema, annual=annual) for item in value]
     if isinstance(value, dict):
-        return {k: _resolve_placeholders(v, mapping) for k, v in value.items()}
+        return {k: _resolve_placeholders(v, schema, annual=annual) for k, v in value.items()}
     return value
 
 
@@ -155,15 +181,14 @@ class EntryOutcome:
 def load_entries(json_path: Path, *, schema: str) -> list[SnapshotEntry]:
     """Load every entry from `json_path`, resolving placeholders for `schema`.
 
-    Each variant's `annual_only` flag picks the leg-aware substitution map
+    Each variant's `annual_only` flag picks the leg-aware resolution
     (comstock annual columns get the `..kwh` suffix, ts columns don't), so the
     same JSON entry can declare a single `$ELECTRICITY_TOTAL` placeholder and
     still produce the right column name for both legs.
     """
+    if schema not in _SUPPORTED_SCHEMAS:
+        raise ValueError(f"unknown schema '{schema}'; expected one of {list(_SUPPORTED_SCHEMAS)}")
     raw = json.loads(json_path.read_text())
-    builder = SCHEMA_PLACEHOLDER_BUILDERS.get(schema)
-    if builder is None:
-        raise ValueError(f"unknown schema '{schema}'; expected one of {list(SCHEMA_PLACEHOLDER_BUILDERS)}")
 
     entries = []
     for item in raw:
@@ -184,8 +209,7 @@ def load_entries(json_path: Path, *, schema: str) -> list[SnapshotEntry]:
         variants = []
         for raw_variant in raw_variants:
             annual_only = bool(raw_variant.get("annual_only", True))
-            mapping = builder(annual_only)
-            resolved = _resolve_placeholders(raw_variant, mapping)
+            resolved = _resolve_placeholders(raw_variant, schema, annual=annual_only)
             variants.append(_rehydrate_args(resolved))
 
         entries.append(

@@ -36,9 +36,9 @@ Invariants covered in this module
 
    Catches bugs in timeseries aggregation, baseline/timeseries join logic, and unit
    conversion between the annual and timeseries tables. Comstock uses different
-   enduse column names per leg (`..kwh` suffix on annual, no suffix on TS); the
-   `SCHEMA_PLACEHOLDER_BUILDERS` map in test_utility.py resolves the right name
-   for each leg, so the test body doesn't need to special-case it.
+   enduse column names per leg (`..kwh` suffix on annual, no suffix on TS);
+   `resolve_placeholder(...)` in test_utility.py resolves the right name for
+   each leg, so the test body doesn't need to special-case it.
 
 2. **savings decomposition: baseline - upgrade ≈ savings** — shared across both
    schemas. For a `query(..., include_baseline=True, include_upgrade=True,
@@ -60,7 +60,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.test_utility import SCHEMA_PLACEHOLDER_BUILDERS, find_data_for_sql
+from tests.test_utility import find_data_for_sql, resolve_placeholder
 
 
 pd.set_option("display.width", 1000)
@@ -145,8 +145,9 @@ def _find_first_col(df: pd.DataFrame, *, suffix: str, contains: str) -> str:
 
 # --- parametrization ---------------------------------------------------------
 #
-# All per-schema column-name differences live in `SCHEMA_PLACEHOLDER_BUILDERS`
-# in test_utility.py. Tests pull resolved column names from there at runtime,
+# All per-schema column-name differences live in the per-schema resolvers in
+# test_utility.py. Tests resolve schema-specific values via the
+# `resolve_placeholder(schema, name, annual=...)` dispatcher at runtime,
 # matching what the snapshot loader feeds into the stored SQL. `bsq.query()`
 # expects literal column names, so the resolution happens in the test body.
 
@@ -154,10 +155,6 @@ SCHEMA_CASES = [
     pytest.param("bsq_resstock_oedi", "resstock_oedi", id="resstock"),
     pytest.param("bsq_comstock_oedi", "comstock_oedi", id="comstock"),
 ]
-
-
-def _placeholders(schema: str, *, annual_only: bool) -> dict:
-    return SCHEMA_PLACEHOLDER_BUILDERS[schema](annual_only)
 
 
 # --- three-way invariant: annual == ts_year_collapse == sum(ts_monthly) -------
@@ -212,16 +209,20 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
 
     Both fuels (electricity + gas) are queried on every leg for both schemas —
     the comstock `..kwh` suffix on annual columns is handled by the placeholder
-    map (annual columns get the suffix, ts columns don't).
+    resolver (annual columns get the suffix, ts columns don't).
     """
     from buildstock_query.aggregate_query import UnsupportedQueryShape
 
     bsq = request.getfixturevalue(bsq_fixture)
-    annual_map = _placeholders(schema, annual_only=True)
-    ts_map = _placeholders(schema, annual_only=False)
-    group_col = annual_map["$BUILDING_TYPE_COL"]
-    annual_enduses = [annual_map["$ELECTRICITY_TOTAL"], annual_map["$NATURAL_GAS_TOTAL"]]
-    ts_enduses = [ts_map["$ELECTRICITY_TOTAL"], ts_map["$NATURAL_GAS_TOTAL"]]
+    group_col = resolve_placeholder(schema, "building_type_col")
+    annual_enduses = [
+        resolve_placeholder(schema, "electricity_total"),
+        resolve_placeholder(schema, "natural_gas_total"),
+    ]
+    ts_enduses = [
+        resolve_placeholder(schema, "electricity_total", annual=False),
+        resolve_placeholder(schema, "natural_gas_total", annual=False),
+    ]
     restrict = [("state", ["CO"])]
 
     try:
@@ -311,9 +312,8 @@ def test_savings_decomposition(request, bsq_fixture, schema):
     """For a savings query with include_baseline + include_upgrade + include_savings,
     the stored DataFrame should satisfy baseline - upgrade ≈ savings per group."""
     bsq = request.getfixturevalue(bsq_fixture)
-    annual_map = _placeholders(schema, annual_only=True)
-    enduse = annual_map["$ELECTRICITY_TOTAL"]
-    group_col = annual_map["$BUILDING_TYPE_COL"]
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
 
     sql = bsq.query(
         enduses=[enduse],
@@ -350,9 +350,11 @@ def test_group_by_sum_equals_overall(request, bsq_fixture, schema):
     """Sum across building-type groups must equal the no-group-by total. Same
     underlying query (annual electricity + gas, CO), different aggregation level."""
     bsq = request.getfixturevalue(bsq_fixture)
-    annual_map = _placeholders(schema, annual_only=True)
-    enduses = [annual_map["$ELECTRICITY_TOTAL"], annual_map["$NATURAL_GAS_TOTAL"]]
-    group_col = annual_map["$BUILDING_TYPE_COL"]
+    enduses = [
+        resolve_placeholder(schema, "electricity_total"),
+        resolve_placeholder(schema, "natural_gas_total"),
+    ]
+    group_col = resolve_placeholder(schema, "building_type_col")
     restrict = [("state", ["CO"])]
 
     overall_sql = bsq.query(enduses=enduses, restrict=restrict, get_query_only=True)
@@ -395,9 +397,8 @@ def test_co_subset_of_co_plus_wy(request, bsq_fixture, schema):
     scoping bugs where the IN clause inadvertently affects the filter beyond what's
     declared."""
     bsq = request.getfixturevalue(bsq_fixture)
-    annual_map = _placeholders(schema, annual_only=True)
-    enduse = annual_map["$ELECTRICITY_TOTAL"]
-    group_col = annual_map["$BUILDING_TYPE_COL"]
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
 
     co_only_sql = bsq.query(
         enduses=[enduse], group_by=[group_col],
@@ -443,10 +444,9 @@ def test_avoid_plus_avoided_equals_full(request, bsq_fixture, schema):
     """`avoid_building_type` (CO without target) + the avoided building type's row from
     `restrict_single_state` should equal the full `restrict_single_state` totals."""
     bsq = request.getfixturevalue(bsq_fixture)
-    annual_map = _placeholders(schema, annual_only=True)
-    enduse = annual_map["$ELECTRICITY_TOTAL"]
-    group_col = annual_map["$BUILDING_TYPE_COL"]
-    avoided_value = annual_map["$AVOID_BUILDING_TYPE"]
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
+    avoided_value = resolve_placeholder(schema, "avoid_building_type")
     restrict = [("state", ["CO"])]
 
     full_sql = bsq.query(
@@ -495,10 +495,9 @@ def test_mapped_column_aggregates_underlying_types(request, bsq_fixture, schema)
     The mapping_dict tells us which underlying types belong to each category."""
     from buildstock_query.schema.utilities import MappedColumn
     bsq = request.getfixturevalue(bsq_fixture)
-    annual_map = _placeholders(schema, annual_only=True)
-    enduse = annual_map["$ELECTRICITY_TOTAL"]
-    group_col = annual_map["$BUILDING_TYPE_COL"]
-    mapping_dict = annual_map["$BUILDING_TYPE_MAPPING"]
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
+    mapping_dict = resolve_placeholder(schema, "building_type_mapping")
     restrict = [("state", ["CO"])]
 
     # Direct group_by — one row per underlying building type.
@@ -554,8 +553,7 @@ def test_15min_raw_sums_to_monthly(request, bsq_fixture, schema):
     equal the monthly aggregate. Strong cadence invariant — catches `timestamp_grouping_func='month'`
     boundary bugs (timezone offsets, month boundaries, accumulation drift)."""
     bsq = request.getfixturevalue(bsq_fixture)
-    ts_map = _placeholders(schema, annual_only=False)
-    enduse = ts_map["$ELECTRICITY_TOTAL"]
+    enduse = resolve_placeholder(schema, "electricity_total", annual=False)
 
     raw_sql = bsq.query(
         enduses=[enduse], annual_only=False, upgrade_id=0,
@@ -618,9 +616,8 @@ def test_savings_only_matches_full_savings_query(request, bsq_fixture, schema):
     from the full `include_baseline + include_upgrade + include_savings` query —
     same SQL aggregations, just different output projection."""
     bsq = request.getfixturevalue(bsq_fixture)
-    annual_map = _placeholders(schema, annual_only=True)
-    enduse = annual_map["$ELECTRICITY_TOTAL"]
-    group_col = annual_map["$BUILDING_TYPE_COL"]
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
     restrict = [("state", ["CO"])]
 
     full_sql = bsq.query(
@@ -668,10 +665,9 @@ def test_two_fuel_electricity_equals_single_fuel(request, bsq_fixture, schema):
     the same electricity values per group. Same restrict, same group_by — adding a
     second enduse to the SELECT list shouldn't perturb the per-row aggregations."""
     bsq = request.getfixturevalue(bsq_fixture)
-    annual_map = _placeholders(schema, annual_only=True)
-    elec = annual_map["$ELECTRICITY_TOTAL"]
-    gas = annual_map["$NATURAL_GAS_TOTAL"]
-    group_col = annual_map["$BUILDING_TYPE_COL"]
+    elec = resolve_placeholder(schema, "electricity_total")
+    gas = resolve_placeholder(schema, "natural_gas_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
     restrict = [("state", ["CO"])]
 
     two_fuel_sql = bsq.query(
@@ -742,9 +738,11 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
     # Cross-check against the aggregated `applied_in_1_2` sample_count from the
     # invariant snapshot. The number of unique-key tuples here should equal the
     # `sample_count` reported there (which is COUNT(DISTINCT bs_key) at the SQL level).
-    annual_map = _placeholders(schema, annual_only=True)
-    enduses = [annual_map["$ELECTRICITY_TOTAL"], annual_map["$NATURAL_GAS_TOTAL"]]
-    group_col = annual_map["$BUILDING_TYPE_COL"]
+    enduses = [
+        resolve_placeholder(schema, "electricity_total"),
+        resolve_placeholder(schema, "natural_gas_total"),
+    ]
+    group_col = resolve_placeholder(schema, "building_type_col")
     inv_sql = bsq.query(
         enduses=enduses, upgrade_id="1", applied_only=True, applied_in=[1, 2],
         group_by=[group_col], restrict=[("state", ["CO"])], get_query_only=True,

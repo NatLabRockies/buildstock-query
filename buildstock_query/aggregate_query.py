@@ -560,6 +560,7 @@ class BuildStockAggregate:
             grouping_metrics_selection = [
                 distinct_bs_keys.label("sample_count"),
                 (distinct_bs_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
+                (safunc.sum(1) / distinct_bs_keys).label("rows_per_sample"),
             ]
         elif params.timestamp_grouping_func:
             colname = self._bsq.timestamp_column_name

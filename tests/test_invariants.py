@@ -40,10 +40,13 @@ Invariants covered in this module
    `resolve_placeholder(...)` in test_utility.py resolves the right name for
    each leg, so the test body doesn't need to special-case it.
 
-2. **savings decomposition: baseline - upgrade ≈ savings** — shared across both
-   schemas. For a `query(..., include_baseline=True, include_upgrade=True,
-   include_savings=True)` call, the returned DataFrame must satisfy
-   `baseline_col - upgrade_col ≈ savings_col` for every row.
+   On non-baseline scenarios, the same test additionally requests the savings
+   shape (`include_baseline=True, include_upgrade=True, include_savings=True`)
+   and asserts that each of the three output columns (`__baseline`, `__upgrade`,
+   `__savings`) agrees across all three flows, plus the in-flow decomposition
+   identity `b - u ≈ s` on every row of every flow. This closes the
+   symmetry-cancellation blind spot where a bug that inflates baseline and
+   upgrade by the same amount leaves savings correct.
 
 Tolerance
 ---------
@@ -201,6 +204,15 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
     Both fuels (electricity + gas) are queried on every leg for both schemas —
     the comstock `..kwh` suffix on annual columns is handled by the placeholder
     resolver (annual columns get the suffix, ts columns don't).
+
+    For non-baseline scenarios the test additionally requests the savings shape
+    (`include_baseline=True, include_upgrade=True, include_savings=True`) and
+    asserts that each of the three output columns (`__baseline`, `__upgrade`,
+    `__savings`) agrees across all three flows. This subsumes the standalone
+    `test_savings_decomposition` (the in-flow `b - u ≈ s` identity is asserted
+    here too) and closes the symmetry-cancellation blind spot: a bug that
+    inflates baseline and upgrade by the same amount leaves savings correct,
+    so any savings-only check would miss it.
     """
     from buildstock_query.aggregate_query import UnsupportedQueryShape
 
@@ -216,11 +228,21 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
     ]
     restrict = [("state", ["CO"])]
 
+    # Savings columns are invalid when upgrade_id="0" (the schema validator
+    # rejects include_savings on the baseline scenario); only request them
+    # when querying an upgrade.
+    is_baseline = scenario_extra.get("upgrade_id") == "0"
+    savings_kwargs: dict = (
+        {} if is_baseline
+        else {"include_baseline": True, "include_upgrade": True, "include_savings": True}
+    )
+
     try:
         annual_df = bsq.query(
             enduses=annual_enduses,
             group_by=[group_col],
             restrict=restrict,
+            **savings_kwargs,
             **scenario_extra,
         )
         ts_year_df = bsq.query(
@@ -229,6 +251,7 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
             timestamp_grouping_func="year",
             group_by=[group_col],
             restrict=restrict,
+            **savings_kwargs,
             **scenario_extra,
         )
         ts_monthly_df = bsq.query(
@@ -237,21 +260,70 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
             timestamp_grouping_func="month",
             group_by=[group_col, "time"],
             restrict=restrict,
+            **savings_kwargs,
             **scenario_extra,
         )
     except UnsupportedQueryShape as exc:
         pytest.skip(f"query shape unsupported on {schema}: {exc}")
 
-    # Pick the electricity enduse from each leg (always element 0) for the totals check.
-    annual_col = _strip_out_prefix(annual_enduses[0])
-    ts_col = _strip_out_prefix(ts_enduses[0])
+    # For non-savings scenarios the output column is just the enduse name; for
+    # savings scenarios there is no plain enduse column, only `__baseline`,
+    # `__upgrade`, `__savings`. Iterate over both fuels and the suffix list
+    # (empty string for baseline) and assert each flow agrees on each column.
+    annual_bases = [_strip_out_prefix(e) for e in annual_enduses]
+    ts_bases = [_strip_out_prefix(e) for e in ts_enduses]
+    suffixes = [""] if is_baseline else ["__baseline", "__upgrade", "__savings"]
+    for annual_base, ts_base in zip(annual_bases, ts_bases):
+        for suffix in suffixes:
+            annual_col = annual_base + suffix
+            ts_col = ts_base + suffix
+            annual_totals = _scalar_total_by_group(annual_df, annual_col, [group_col])
+            ts_year_totals = _scalar_total_by_group(ts_year_df, ts_col, [group_col])
+            ts_monthly_totals = _scalar_total_by_group(ts_monthly_df, ts_col, [group_col])
+            label = f"{ts_base}{suffix or ' (raw enduse)'}"
+            _assert_series_close(
+                f"annual vs ts_year_collapse [{label}]",
+                annual_totals,
+                ts_year_totals,
+            )
+            _assert_series_close(
+                f"annual vs sum(ts_monthly) [{label}]",
+                annual_totals,
+                ts_monthly_totals,
+            )
 
-    annual_totals = _scalar_total_by_group(annual_df, annual_col, [group_col])
-    ts_year_totals = _scalar_total_by_group(ts_year_df, ts_col, [group_col])
-    ts_monthly_totals = _scalar_total_by_group(ts_monthly_df, ts_col, [group_col])
-
-    _assert_series_close("annual vs ts_year_collapse", annual_totals, ts_year_totals)
-    _assert_series_close("annual vs sum(ts_monthly)", annual_totals, ts_monthly_totals)
+    # Per-flow savings decomposition: b - u ≈ s on every row of each frame.
+    # Subsumes the standalone test_savings_decomposition. Skipped on baseline.
+    # Covers both fuels — a sign-flip or wrong-column bug could affect one
+    # fuel and not the other.
+    if not is_baseline:
+        for flow_name, flow_df in (
+            ("annual", annual_df),
+            ("ts_year_collapse", ts_year_df),
+            ("sum(ts_monthly)", ts_monthly_df),
+        ):
+            bases = annual_bases if flow_name == "annual" else ts_bases
+            for base_name in bases:
+                b_col = base_name + "__baseline"
+                u_col = base_name + "__upgrade"
+                s_col = base_name + "__savings"
+                decomp_diffs = []
+                for _, row in flow_df.iterrows():
+                    expected = float(row[b_col]) - float(row[u_col])
+                    actual = float(row[s_col])
+                    if not np.isclose(
+                        expected, actual,
+                        rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL, equal_nan=True,
+                    ):
+                        decomp_diffs.append(
+                            f"  {row.get(group_col, '?')}: "
+                            f"baseline-upgrade={expected:.4f}, savings={actual:.4f}"
+                        )
+                if decomp_diffs:
+                    pytest.fail(
+                        f"savings decomposition failed in {flow_name} for {base_name}:\n"
+                        + "\n".join(decomp_diffs)
+                    )
 
     # Counts are per-group metadata (constant across monthly rows), so collapsing
     # the monthly frame uses mean, not sum. This check caught the comstock
@@ -288,41 +360,24 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
     if bad:
         pytest.fail("monthly rows_per_sample mismatch (expected 4*24*days_in_month):\n" + "\n".join(bad))
 
-
-# --- savings decomposition: baseline - upgrade ≈ savings ---------------------
-
-@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
-def test_savings_decomposition(request, bsq_fixture, schema):
-    """For a savings query with include_baseline + include_upgrade + include_savings,
-    the stored DataFrame should satisfy baseline - upgrade ≈ savings per group."""
-    bsq = request.getfixturevalue(bsq_fixture)
-    enduse = resolve_placeholder(schema, "electricity_total")
-    group_col = resolve_placeholder(schema, "building_type_col")
-
-    df = bsq.query(
-        enduses=[enduse],
-        upgrade_id="1",
-        group_by=[group_col],
-        restrict=[("state", ["CO"])],
-        include_baseline=True,
-        include_upgrade=True,
-        include_savings=True,
+    # Cross-flow rows_per_sample agreement: ts_year per-group rows_per_sample
+    # must equal sum-over-months of ts_monthly. Annual flow doesn't have this
+    # column. Catches divergence in TS cadence between aggregation levels —
+    # e.g. if ts_year used a different distinct-counting expression than
+    # ts_monthly, the per-group totals would diverge silently.
+    ts_year_rps = (
+        ts_year_df.assign(_rps=ts_year_df["rows_per_sample"].astype(int))
+        .groupby(group_col, dropna=False)["_rps"].first().sort_index()
     )
-
-    baseline_col = _find_first_col(df, suffix="__baseline", contains="electricity.total")
-    upgrade_col = _find_first_col(df, suffix="__upgrade", contains="electricity.total")
-    savings_col = _find_first_col(df, suffix="__savings", contains="electricity.total")
-
-    diffs = []
-    for _, row in df.iterrows():
-        expected = row[baseline_col] - row[upgrade_col]
-        actual = row[savings_col]
-        if not np.isclose(expected, actual, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL, equal_nan=True):
-            diffs.append(
-                f"  {row.get(group_col, '?')}: baseline-upgrade={expected:.4f}, savings={actual:.4f}"
-            )
-    if diffs:
-        pytest.fail("savings decomposition failed:\n" + "\n".join(diffs))
+    ts_monthly_rps = (
+        ts_monthly_df.assign(_rps=ts_monthly_df["rows_per_sample"].astype(int))
+        .groupby(group_col, dropna=False)["_rps"].sum().sort_index()
+    )
+    _assert_series_close(
+        "rows_per_sample: ts_year vs sum(ts_monthly)",
+        ts_year_rps,
+        ts_monthly_rps,
+    )
 
 
 # --- group_by sum equals overall total ---------------------------------------

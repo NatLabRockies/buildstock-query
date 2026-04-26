@@ -379,6 +379,23 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
         ts_monthly_rps,
     )
 
+    # Absolute pin on ts_year rows_per_sample: should equal 4*24*days_in_year
+    # (15-min cadence, 1 year). Independent of the monthly per-row check —
+    # if either gets disabled or weakened, the other still catches cadence
+    # drift on its own.
+    sim_year = pd.Timestamp(ts_monthly_df["timestamp"].iloc[0]).year
+    days_in_year = 366 if calendar.isleap(sim_year) else 365
+    expected_year_rps = 4 * 24 * days_in_year
+    bad_year = []
+    for group_key, actual in ts_year_rps.items():
+        if int(actual) != expected_year_rps:
+            bad_year.append(f"  {group_key}: rows_per_sample={int(actual)}, expected={expected_year_rps}")
+    if bad_year:
+        pytest.fail(
+            f"ts_year rows_per_sample mismatch (expected 4*24*{days_in_year}={expected_year_rps}):\n"
+            + "\n".join(bad_year)
+        )
+
 
 # --- group_by sum equals overall total ---------------------------------------
 
@@ -851,6 +868,153 @@ def test_savings_only_matches_full_savings_query(request, bsq_fixture, schema):
     if diffs:
         pytest.fail(
             "savings column differs between full savings query and savings-only query:\n"
+            + "\n".join(diffs)
+        )
+
+
+# --- savings column matches independent baseline-minus-upgrade --------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_savings_equals_independent_baseline_minus_upgrade(request, bsq_fixture, schema):
+    """The savings query's __baseline, __upgrade, __savings columns must each
+    equal the result of running a standalone baseline-only query, a standalone
+    upgrade-only query, and the difference of the two — all aggregated over the
+    same set of applicable buildings.
+
+    This is a strictly stronger check than the in-frame `b - u ≈ s` identity
+    (which is essentially tautological at the SQL level, since all three
+    columns are computed from a shared subquery). Here, baseline and upgrade
+    are computed by independent queries that don't share the savings query's
+    join graph, so any bug in the savings query's building-set selection or
+    aggregation would surface as a mismatch.
+
+    Recipe:
+      b_only = bsq.query(upgrade_id="0", applied_in=[1], ...)
+      u_only = bsq.query(upgrade_id="1", applied_only=True, ...)
+      full   = bsq.query(upgrade_id="1", applied_only=True,
+                         include_baseline + include_upgrade + include_savings, ...)
+
+      For each fuel × group:
+        full.<fuel>__baseline ≈ b_only.<fuel>
+        full.<fuel>__upgrade  ≈ u_only.<fuel>
+        full.<fuel>__savings  ≈ b_only.<fuel> - u_only.<fuel>
+
+    Both fuels (electricity + gas) are checked.
+    """
+    from buildstock_query.aggregate_query import UnsupportedQueryShape
+
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduses = [
+        resolve_placeholder(schema, "electricity_total"),
+        resolve_placeholder(schema, "natural_gas_total"),
+    ]
+    group_col = resolve_placeholder(schema, "building_type_col")
+    restrict = [("state", ["CO"])]
+
+    try:
+        b_only = bsq.query(
+            enduses=enduses, upgrade_id="0",
+            applied_in=[1], group_by=[group_col], restrict=restrict,
+        )
+        u_only = bsq.query(
+            enduses=enduses, upgrade_id="1",
+            applied_only=True, group_by=[group_col], restrict=restrict,
+        )
+        full = bsq.query(
+            enduses=enduses, upgrade_id="1",
+            applied_only=True, group_by=[group_col], restrict=restrict,
+            include_baseline=True, include_upgrade=True, include_savings=True,
+        )
+    except UnsupportedQueryShape as exc:
+        pytest.skip(f"query shape unsupported on {schema}: {exc}")
+
+    bases = [_strip_out_prefix(e) for e in enduses]
+    diffs = []
+    for base in bases:
+        b_series = b_only.set_index(group_col)[base].astype(float).sort_index()
+        u_series = u_only.set_index(group_col)[base].astype(float).sort_index()
+        full_indexed = full.set_index(group_col).sort_index()
+        for key in b_series.index:
+            b_indep = b_series[key]
+            u_indep = u_series[key]
+            f_b = float(full_indexed.loc[key, f"{base}__baseline"])
+            f_u = float(full_indexed.loc[key, f"{base}__upgrade"])
+            f_s = float(full_indexed.loc[key, f"{base}__savings"])
+            for label, expected, actual in (
+                (f"{base}__baseline", b_indep, f_b),
+                (f"{base}__upgrade", u_indep, f_u),
+                (f"{base}__savings", b_indep - u_indep, f_s),
+            ):
+                if not np.isclose(
+                    expected, actual,
+                    rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL, equal_nan=True,
+                ):
+                    diffs.append(
+                        f"  {key} {label}: independent={expected:.4f}, "
+                        f"savings_query={actual:.4f}"
+                    )
+    if diffs:
+        pytest.fail(
+            "savings query columns disagree with independent baseline/upgrade queries:\n"
+            + "\n".join(diffs)
+        )
+
+
+# --- savings invariant under applied_only flag --------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_savings_independent_of_applied_only_flag(request, bsq_fixture, schema):
+    """Savings totals per group must match between `applied_only=True` and the
+    default (applied_only=False) flavors of the same savings query. Inapplicable
+    buildings contribute zero savings (their baseline equals their upgrade via
+    the outerjoin + COALESCE), so toggling whether they're included in the
+    aggregation cannot change the savings column.
+
+    This catches bugs where the applied_only flag inadvertently affects the
+    savings aggregation path itself (rather than just controlling which
+    buildings are counted in baseline/upgrade).
+    """
+    from buildstock_query.aggregate_query import UnsupportedQueryShape
+
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduses = [
+        resolve_placeholder(schema, "electricity_total"),
+        resolve_placeholder(schema, "natural_gas_total"),
+    ]
+    group_col = resolve_placeholder(schema, "building_type_col")
+    restrict = [("state", ["CO"])]
+
+    try:
+        applied = bsq.query(
+            enduses=enduses, upgrade_id="1",
+            applied_only=True, group_by=[group_col], restrict=restrict,
+            include_baseline=True, include_upgrade=True, include_savings=True,
+        )
+        full = bsq.query(
+            enduses=enduses, upgrade_id="1",
+            group_by=[group_col], restrict=restrict,
+            include_baseline=True, include_upgrade=True, include_savings=True,
+        )
+    except UnsupportedQueryShape as exc:
+        pytest.skip(f"query shape unsupported on {schema}: {exc}")
+
+    bases = [_strip_out_prefix(e) for e in enduses]
+    diffs = []
+    for base in bases:
+        col = f"{base}__savings"
+        applied_indexed = applied.set_index(group_col)[col].astype(float).sort_index()
+        full_indexed = full.set_index(group_col)[col].astype(float).sort_index()
+        for key in applied_indexed.index:
+            a = applied_indexed[key]
+            f = full_indexed[key]
+            if not np.isclose(a, f, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL, equal_nan=True):
+                diffs.append(
+                    f"  {key} {col}: applied_only=True={a:.4f}, "
+                    f"applied_only=False(default)={f:.4f}"
+                )
+    if diffs:
+        pytest.fail(
+            "savings differs between applied_only=True and applied_only=False:\n"
             + "\n".join(diffs)
         )
 

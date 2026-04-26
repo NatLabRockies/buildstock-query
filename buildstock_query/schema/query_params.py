@@ -63,7 +63,7 @@ class Query(BaseQuery):
             raise ValueError("annual_only must be False when timestamp_grouping_func is provided")
         if effective_applied_only and self.upgrade_id == "0":
             raise ValueError("applied_only cannot be set when upgrade_id is '0'")
-        if self.applied_in and not effective_applied_only:
+        if self.applied_in and self.upgrade_id != "0" and not effective_applied_only:
             raise ValueError("applied_in cannot be set when applied_only is False")
         if self.get_nonzero_count and not self.annual_only:
             raise ValueError("get_nonzero_count cannot be True when annual_only is False")

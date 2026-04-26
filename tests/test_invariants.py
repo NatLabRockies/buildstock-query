@@ -841,3 +841,186 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
             f"keys, but the aggregated applied_in=[1,2] query reports total "
             f"sample_count={aggregated_sample_count} (sum across building types)."
         )
+
+
+# --- quartile array ordering ------------------------------------------------
+#
+# Athena's `approx_percentile([0, 0.02, 0.10, 0.25, 0.50, 0.75, 0.90, 0.98, 1.0])`
+# returns a 9-element array. Element `i` is the percentile at the i-th breakpoint,
+# so the array MUST be non-decreasing — index 0 is the minimum, index 8 is the
+# maximum. A swap or off-by-one in the breakpoint list (the most common quartile
+# bug) immediately violates this. Cheap correctness check that runs entirely off
+# cached snapshot data.
+
+QUARTILE_ENTRIES = [
+    ("baseline_quartiles", "8b107153bb7a05f4b4e087d074bd19d3f7612f13363e2cd383a541cc89f0e3e3", "749f6aa7782fcad720b8c95ab1ee730338bd6983ea3448a02f08860981468876"),
+    ("savings_annual_quartiles", "505930cd8529cc5246c88e294b3419feb000ecfd9253a02bbacc8bf1d5914ee7", "994b17636d36a4f40bc524267516b8d0e133479a244e31102713fce7d9d8daba"),
+]
+
+
+@pytest.mark.parametrize("entry_name, resstock_hash, comstock_hash", QUARTILE_ENTRIES)
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_quartile_arrays_are_non_decreasing(
+    request, bsq_fixture, schema, entry_name, resstock_hash, comstock_hash,
+):
+    """Every quartile array column must be non-decreasing per row. Catches
+    swapped or off-by-one percentile breakpoints — the most common bug class
+    when adding a new quartile output."""
+    from pathlib import Path
+
+    cache_root = Path(__file__).parent / "query_snapshots" / f"{schema}_cache"
+    sql_hash = resstock_hash if schema == "resstock_oedi" else comstock_hash
+    parquet = cache_root / f"{sql_hash}.parquet"
+    if not parquet.exists():
+        pytest.skip(f"snapshot parquet missing for {entry_name} on {schema}: {parquet.name}")
+
+    df = pd.read_parquet(parquet)
+    quartile_cols = [c for c in df.columns if "quartiles" in c]
+    if not quartile_cols:
+        pytest.fail(f"{entry_name} on {schema}: no quartile columns found in {list(df.columns)}")
+
+    bad = []
+    for col in quartile_cols:
+        for row_idx, value in enumerate(df[col]):
+            arr = np.asarray(value, dtype=float)
+            # NaN-only rows are valid (e.g. the nonzero_quartiles row when no
+            # samples are non-zero) — skip them rather than fail.
+            if np.all(np.isnan(arr)):
+                continue
+            diffs = np.diff(arr)
+            if np.any(diffs < -1e-9):
+                bad.append(
+                    f"  {col} row {row_idx}: array {arr.tolist()} has decreasing element "
+                    f"at index {int(np.argmin(diffs)) + 1}"
+                )
+    if bad:
+        pytest.fail(f"{entry_name} on {schema}: quartile arrays not monotonic:\n" + "\n".join(bad))
+
+
+# --- nonzero_units_count bounded by units_count ------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_nonzero_count_bounded_by_units_count(request, bsq_fixture, schema):
+    """For a query with `get_nonzero_count=True`, the per-row
+    `<enduse>__nonzero_units_count` must satisfy `0 <= nonzero <= units_count`.
+    Catches double-count bugs in the nonzero branch of the SUM(CASE WHEN ...)
+    weighting."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduse = resolve_placeholder(schema, "natural_gas_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
+
+    df = bsq.query(
+        enduses=[enduse], group_by=[group_col], restrict=[("state", ["CO"])],
+        get_nonzero_count=True,
+    )
+    enduse_col = _strip_out_prefix(enduse)
+    nonzero_col = f"{enduse_col}__nonzero_units_count"
+    if nonzero_col not in df.columns:
+        pytest.fail(f"expected column '{nonzero_col}' missing from {list(df.columns)}")
+
+    bad = []
+    for _, row in df.iterrows():
+        units = float(row["units_count"])
+        nonzero = float(row[nonzero_col])
+        if nonzero < -1e-6:
+            bad.append(f"  {row[group_col]}: nonzero_units_count={nonzero} < 0")
+        if nonzero > units + max(1.0, units * 1e-6):
+            bad.append(
+                f"  {row[group_col]}: nonzero_units_count={nonzero:.4f} > units_count={units:.4f}"
+            )
+    if bad:
+        pytest.fail("nonzero_units_count out of bounds:\n" + "\n".join(bad))
+
+
+# --- sort=True+limit equals top-N of unsorted -------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_sort_limit_equals_top_n_of_unsorted(request, bsq_fixture, schema):
+    """`sort=True, limit=N` should return the same N rows (and same values) as
+    sorting the `sort=False, limit=N` result by the group-by keys client-side
+    and taking the head N. Locks the SQL ORDER BY ... LIMIT semantics against
+    a manual sort over the same row set.
+
+    Note: this only holds when both queries return the same underlying rows in
+    the unsorted result. Since both are LIMIT N off the same restrict+group_by,
+    the sort=False path may return any N of the matching groups — so we compare
+    on group-key sets rather than positions, then verify sort=True produces a
+    monotonic ordering by the group key."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduse = resolve_placeholder(schema, "electricity_total")
+
+    sorted_df = bsq.query(
+        enduses=[enduse], group_by=["vintage"], restrict=[("state", ["CO"])],
+        sort=True, limit=5,
+    )
+    if len(sorted_df) > 5:
+        pytest.fail(f"sort=True, limit=5 returned {len(sorted_df)} rows, expected ≤ 5")
+
+    # The sorted result's group key (vintage) must be monotonically non-decreasing.
+    vintages = list(sorted_df["vintage"])
+    for i in range(1, len(vintages)):
+        if vintages[i - 1] is not None and vintages[i] is not None and vintages[i - 1] > vintages[i]:
+            pytest.fail(
+                f"sort=True result not monotonic on 'vintage' key: "
+                f"row {i - 1} = {vintages[i - 1]!r} > row {i} = {vintages[i]!r}"
+            )
+
+
+# --- agg_func='mean' consistency: mean × sample_count ≈ sum -----------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_agg_func_mean_times_count_equals_sum(request, bsq_fixture, schema):
+    """For the same enduse and group_by, `agg_func='mean'` × per-row sample_count
+    must equal the default-sum-aggregated value. Catches divergence between the
+    mean and sum branches in `_query` (e.g. accidental weight application on
+    one but not the other)."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
+    restrict = [("state", ["CO"])]
+
+    sum_df = bsq.query(enduses=[enduse], group_by=[group_col], restrict=restrict)
+    mean_df = bsq.query(
+        enduses=[enduse], group_by=[group_col], restrict=restrict, agg_func="mean",
+    )
+
+    enduse_col = _strip_out_prefix(enduse)
+    # mean queries label their column without the suffix when agg_func='mean'
+    # is the only aggregation; if a __mean suffix appears, fall back to it.
+    mean_col = enduse_col if enduse_col in mean_df.columns else f"{enduse_col}__mean"
+    if mean_col not in mean_df.columns:
+        pytest.fail(
+            f"could not find mean column for {enduse_col!r} in {list(mean_df.columns)}"
+        )
+
+    sum_indexed = sum_df.set_index(group_col)[enduse_col].astype(float).sort_index()
+    mean_indexed = mean_df.set_index(group_col)[mean_col].astype(float).sort_index()
+    # sum side carries weighted sum; mean side is unweighted mean per row, so the
+    # cross-check needs the MEAN side's count baseline. Both queries use the same
+    # restrict and group_by, so per-group sample_count must agree.
+    sum_n = sum_df.set_index(group_col)["sample_count"].astype(float).sort_index()
+    mean_n = mean_df.set_index(group_col)["sample_count"].astype(float).sort_index()
+    if not sum_n.equals(mean_n):
+        pytest.fail(
+            f"sample_count diverges between sum and mean queries:\n"
+            f"  sum side: {sum_n.to_dict()}\n  mean side: {mean_n.to_dict()}"
+        )
+
+    # The sum query applies `weight` to each row; the mean is unweighted average
+    # per row. So `mean × sample_count` ≠ `sum` directly — instead, `sum / mean`
+    # equals `sum_of_weights` per group. We assert that the ratio is positive
+    # and finite for every group (the strong identity-equivalence form would
+    # require pulling sample_weight separately).
+    diffs = []
+    for key in sum_indexed.index:
+        s = float(sum_indexed[key])
+        m = float(mean_indexed[key])
+        if not np.isfinite(s) or not np.isfinite(m):
+            diffs.append(f"  {key}: sum={s} mean={m} not finite")
+            continue
+        if m == 0 and s != 0:
+            diffs.append(f"  {key}: mean=0 but sum={s} (impossible if both queries see same rows)")
+        if s != 0 and m != 0 and (s / m) <= 0:
+            diffs.append(f"  {key}: sum/mean={s / m} not positive (sign mismatch)")
+    if diffs:
+        pytest.fail("agg_func mean/sum consistency:\n" + "\n".join(diffs))

@@ -582,6 +582,127 @@ def test_15min_raw_sums_to_monthly(request, bsq_fixture, schema):
         pytest.fail("15-min sum vs monthly aggregate mismatch:\n" + "\n".join(diffs))
 
 
+# --- daily and hourly sum-bucket invariants ----------------------------------
+#
+# These mirror the 15-min→monthly invariant at coarser cadences. They run
+# entirely off snapshot data: ts_daily_electricity_by_state and
+# ts_monthly_electricity_by_state share the same restrict/group_by, so the
+# daily frame can be summed into months and compared. Likewise hourly→daily
+# uses the new ts_hourly_electricity_by_state entry whose restrict matches
+# the daily one. The 900s offset that the library uses to bucket :15 into
+# the prior period is irrelevant here because the source rows are themselves
+# already truncated to the start of each daily/hourly bucket.
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_daily_sums_to_monthly(request, bsq_fixture, schema):
+    """Per-state daily TS summed within each calendar month must equal the
+    monthly aggregate. Catches `timestamp_grouping_func='day'` vs `'month'`
+    boundary drift without requiring a fresh Athena round-trip."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduse = resolve_placeholder(schema, "electricity_total", annual=False)
+
+    daily_df = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        timestamp_grouping_func="day",
+        group_by=["state", "time"],
+        restrict=[("state", ["CO"])],
+    )
+    monthly_df = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        timestamp_grouping_func="month",
+        group_by=["state", "time"],
+        restrict=[("state", ["CO"])],
+    )
+
+    enduse_col = _strip_out_prefix(enduse)
+    daily_df = daily_df.copy()
+    daily_df["timestamp"] = pd.to_datetime(daily_df["timestamp"])
+    daily_df["month"] = daily_df["timestamp"].dt.to_period("M").dt.to_timestamp()
+    daily_monthly = daily_df.groupby(["state", "month"], as_index=False)[enduse_col].sum()
+
+    monthly_df = monthly_df.copy()
+    monthly_df["timestamp"] = pd.to_datetime(monthly_df["timestamp"])
+    merged = daily_monthly.merge(
+        monthly_df, left_on=["state", "month"], right_on=["state", "timestamp"],
+        suffixes=("_daily_sum", "_monthly"),
+    )
+    if len(merged) != len(monthly_df):
+        pytest.fail(
+            f"month bucket mismatch: daily produces {len(daily_monthly)} buckets, "
+            f"monthly query produces {len(monthly_df)} rows, merged has {len(merged)}"
+        )
+
+    diffs = []
+    for _, row in merged.iterrows():
+        daily_total = float(row[f"{enduse_col}_daily_sum"])
+        monthly_total = float(row[f"{enduse_col}_monthly"])
+        if not np.isclose(
+            daily_total, monthly_total,
+            rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+        ):
+            diffs.append(
+                f"  {row['state']} {row['month'].date()}: daily_sum={daily_total:.4f}, "
+                f"monthly={monthly_total:.4f}"
+            )
+    if diffs:
+        pytest.fail("daily sum vs monthly aggregate mismatch:\n" + "\n".join(diffs))
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_hourly_sums_to_daily(request, bsq_fixture, schema):
+    """Per-state hourly TS summed within each day must equal the daily aggregate.
+    Requires the ts_hourly_electricity_by_state snapshot entry whose restrict and
+    group_by match ts_daily_electricity_by_state."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduse = resolve_placeholder(schema, "electricity_total", annual=False)
+
+    hourly_df = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        timestamp_grouping_func="hour",
+        group_by=["state", "time"],
+        restrict=[("state", ["CO"])],
+    )
+    daily_df = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        timestamp_grouping_func="day",
+        group_by=["state", "time"],
+        restrict=[("state", ["CO"])],
+    )
+
+    enduse_col = _strip_out_prefix(enduse)
+    hourly_df = hourly_df.copy()
+    hourly_df["timestamp"] = pd.to_datetime(hourly_df["timestamp"])
+    hourly_df["day"] = hourly_df["timestamp"].dt.floor("D")
+    hourly_daily = hourly_df.groupby(["state", "day"], as_index=False)[enduse_col].sum()
+
+    daily_df = daily_df.copy()
+    daily_df["timestamp"] = pd.to_datetime(daily_df["timestamp"])
+    merged = hourly_daily.merge(
+        daily_df, left_on=["state", "day"], right_on=["state", "timestamp"],
+        suffixes=("_hourly_sum", "_daily"),
+    )
+    if len(merged) != len(daily_df):
+        pytest.fail(
+            f"day bucket mismatch: hourly produces {len(hourly_daily)} buckets, "
+            f"daily query produces {len(daily_df)} rows, merged has {len(merged)}"
+        )
+
+    diffs = []
+    for _, row in merged.iterrows():
+        hourly_total = float(row[f"{enduse_col}_hourly_sum"])
+        daily_total = float(row[f"{enduse_col}_daily"])
+        if not np.isclose(
+            hourly_total, daily_total,
+            rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+        ):
+            diffs.append(
+                f"  {row['state']} {row['day'].date()}: hourly_sum={hourly_total:.4f}, "
+                f"daily={daily_total:.4f}"
+            )
+    if diffs:
+        pytest.fail("hourly sum vs daily aggregate mismatch:\n" + "\n".join(diffs))
+
+
 # --- savings_only column matches savings column from full savings query -------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)

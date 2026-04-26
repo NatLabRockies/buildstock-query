@@ -84,6 +84,17 @@ def _resolve_resstock_placeholder(name: str, *, annual: bool) -> Any:
         "ELECTRICITY_TOTAL": "out.electricity.total.energy_consumption",
         "NATURAL_GAS_TOTAL": "out.natural_gas.total.energy_consumption",
         "BUILDING_TYPE_COL": "geometry_building_type_recs",
+        # Raw column name as it appears on the SA-reflected baseline table.
+        # `restrict=[("state", ...)]` works without the prefix because the
+        # restrict resolver auto-tries `in.` variants; methods that index
+        # `tbl.c[...]` directly (get_distinct_vals/get_distinct_count) need
+        # the raw name.
+        "STATE_COL_BASELINE": "in.state",
+        # Real Athena table name for the resstock_oedi_vu baseline view.
+        # Some BSQ entry points (`get_distinct_vals`, `get_distinct_count`)
+        # require a literal table name when the implicit `bs_table.name` is
+        # the SA alias `"baseline"` rather than a real Athena table.
+        "BS_TABLE_NAME": "resstock_2024_amy2018_release_2_metadata",
         "AVOID_BUILDING_TYPE": "Mobile Home",
         "AVOID_BUILDING_TYPES_MULTI": ["Mobile Home", "Multi-Family with 5+ Units"],
         "VINTAGE_BUCKET": "1980s",
@@ -111,6 +122,10 @@ def _resolve_comstock_placeholder(name: str, *, annual: bool) -> Any:
         "ELECTRICITY_TOTAL": f"out.electricity.total.energy_consumption{suffix}",
         "NATURAL_GAS_TOTAL": f"out.natural_gas.total.energy_consumption{suffix}",
         "BUILDING_TYPE_COL": "comstock_building_type",
+        # comstock_oedi_state_and_county TOML places state as a top-level
+        # partition column on the baseline table — no `in.` prefix.
+        "STATE_COL_BASELINE": "state",
+        "BS_TABLE_NAME": "comstock_amy2018_r2_2025_md_by_state_and_county_parquet",
         "AVOID_BUILDING_TYPE": "Warehouse",
         "AVOID_BUILDING_TYPES_MULTI": ["Warehouse", "SmallOffice"],
         "VINTAGE_BUCKET": "1980 to 1989",
@@ -251,6 +266,12 @@ def load_entries(json_path: Path, *, schema: str) -> list[SnapshotEntry]:
     (comstock annual columns get the `..kwh` suffix, ts columns don't), so the
     same JSON entry can declare a single `$ELECTRICITY_TOTAL` placeholder and
     still produce the right column name for both legs.
+
+    Entries may declare an optional top-level `"schemas": ["resstock_oedi", ...]`
+    field to restrict which schemas they apply to. This is for methods that
+    only exist on a subset of schemas (e.g. utility queries need an `eiaid`
+    mapping configured, which only resstock has). Entries without this field
+    apply to all schemas.
     """
     if schema not in _SUPPORTED_SCHEMAS:
         raise ValueError(f"unknown schema '{schema}'; expected one of {list(_SUPPORTED_SCHEMAS)}")
@@ -258,6 +279,9 @@ def load_entries(json_path: Path, *, schema: str) -> list[SnapshotEntry]:
 
     entries = []
     for item in raw:
+        allowed_schemas = item.get("schemas")
+        if allowed_schemas is not None and schema not in allowed_schemas:
+            continue
         args_field = item["args"]
         # Accept either a single dict (legacy) or a list of dicts (new).
         if isinstance(args_field, dict):
@@ -315,16 +339,29 @@ def compare_sql(expected: str, actual: str) -> str:
     Hashes are computed on normalized SQL, so whitespace-only differences never
     reach this function. We're either looking at semantic equivalence
     (sqlglot_only — cosmetic refactor like `a + b` → `b + a` on a commutative op,
-    parens reshuffles, etc.) or real drift (mismatch)."""
+    parens reshuffles, etc.) or real drift (mismatch).
+
+    Multi-statement results (joined with MULTI_SQL_SEPARATOR by `_flatten_sql_result`)
+    are compared statement-by-statement: must have the same count and each pair must
+    match or be sqlglot-equivalent. Mismatched count → mismatch."""
     if normalize_sql(expected) == normalize_sql(actual):
         return "match"
-    try:
-        diff = sqlglot.diff(sqlglot.parse_one(expected), sqlglot.parse_one(actual), delta_only=True)
-    except Exception:
+    expected_parts = expected.split(MULTI_SQL_SEPARATOR)
+    actual_parts = actual.split(MULTI_SQL_SEPARATOR)
+    if len(expected_parts) != len(actual_parts):
         return "mismatch"
-    if not diff:
-        return "sqlglot_only"
-    return "mismatch"
+    overall = "match"
+    for exp_part, act_part in zip(expected_parts, actual_parts):
+        if normalize_sql(exp_part) == normalize_sql(act_part):
+            continue
+        try:
+            diff = sqlglot.diff(sqlglot.parse_one(exp_part), sqlglot.parse_one(act_part), delta_only=True)
+        except Exception:
+            return "mismatch"
+        if diff:
+            return "mismatch"
+        overall = "sqlglot_only"
+    return overall
 
 
 ARRAY_RTOL = 0.05  # approx_percentile sampling noise; scaled to max|array| (see _compare_array_column).
@@ -449,26 +486,66 @@ def is_data_equivalent_but_different(
     )
 
 
+# Separator inserted between SQL strings when a method (e.g. report.get_success_report,
+# utility.aggregate_ts_by_eiaid, agg.get_building_average_kws_at) returns multiple
+# SQL strings from get_query_only=True. The separator is a SQL comment so it
+# survives `normalize_sql` (whitespace-only) but gets stripped/ignored by sqlglot
+# when we split for diff. Stable text → stable hash across runs.
+MULTI_SQL_SEPARATOR = "\n-- next snapshot sql --\n"
+
+
 def _dispatch_method(bsq, args: dict[str, Any]):
     """Pick which BSQ method to call based on the entry's `_method` marker.
 
-    Defaults to `bsq.query` when `_method` is absent. Returns (method, args_without_method).
+    `_method` may be a dotted path like "utility.aggregate_ts_by_eiaid" — each
+    segment is followed via getattr. Defaults to `bsq.query` when absent.
+    Returns (method, args_without_method).
     """
     args = {k: v for k, v in args.items() if k != "get_query_only"}
     method_name = args.pop("_method", None)
-    method = getattr(bsq, method_name) if method_name else bsq.query
-    return method, args
+    if method_name is None:
+        return bsq.query, args
+    target = bsq
+    for segment in method_name.split("."):
+        target = getattr(target, segment)
+    return target, args
+
+
+def _flatten_sql_result(result: Any) -> str:
+    """Normalize get_query_only return into a single string for hashing.
+
+    Some methods (report.get_success_report, utility.aggregate_ts_by_eiaid,
+    agg.get_building_average_kws_at) return list[str] or tuple[str|list[str], ...]
+    instead of a bare string. Concatenating with a stable separator lets the
+    snapshot harness hash the whole call's SQL as one unit while staying agnostic
+    to the per-method return shape.
+    """
+    if isinstance(result, str):
+        return result
+    if isinstance(result, (list, tuple)):
+        parts = [_flatten_sql_result(item) for item in result]
+        return MULTI_SQL_SEPARATOR.join(parts)
+    raise TypeError(f"get_query_only returned unexpected type {type(result).__name__}: {result!r}")
 
 
 def run_query_sql(bsq, args: dict[str, Any]) -> str:
     """Generate SQL without execution for a single args-variant."""
     method, args = _dispatch_method(bsq, args)
-    return method(**args, get_query_only=True)
+    return _flatten_sql_result(method(**args, get_query_only=True))
 
 
-def run_query_data(bsq, args: dict[str, Any]) -> pd.DataFrame:
+def run_query_data(bsq, args: dict[str, Any]):
+    """Execute the query. Return type varies by method: usually a DataFrame, but
+    `get_distinct_vals` returns a pd.Series, `report.get_success_report` returns
+    a tuple of frames, etc. Series → single-column DataFrame so the harness's
+    parquet round-trip works uniformly. Callers that actually compare data
+    (only `_run_and_compare_data` today) treat other non-DataFrame returns as
+    'cannot data-check' and skip rather than crash."""
     method, args = _dispatch_method(bsq, args)
-    return method(**args, get_query_only=False)
+    result = method(**args, get_query_only=False)
+    if isinstance(result, pd.Series):
+        return result.to_frame()
+    return result
 
 
 def _worst_status(statuses: list[str]) -> str:

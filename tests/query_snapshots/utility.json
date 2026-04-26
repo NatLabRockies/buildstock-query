@@ -1,0 +1,47 @@
+[
+  {
+    "name": "utility_unit_counts_by_eiaid_with_state_groupby",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "e0fca64ae2827c4310e44b2d1c979fa5f05ab2e882738ab5c5542bddee16e276"
+    },
+    "description": "utility.aggregate_unit_counts_by_eiaid restricted to two utilities, grouped by state. Mirrors basic_usage_oedi.ipynb cell 7. Schema-restricted: comstock TOMLs don't define map_eiaid_column.",
+    "args": {
+      "_method": "utility.aggregate_unit_counts_by_eiaid",
+      "eiaid_list": ["4110", "14328"],
+      "group_by": ["state"]
+    }
+  },
+  {
+    "name": "utility_annual_by_eiaid_all",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "d03a6caf2b0d45c785be0d98a7af9eabc7295c444b4fc3cf133a03e3813b2506"
+    },
+    "description": "utility.aggregate_annual_by_eiaid with no eiaid_list — pins the all-EIAIDs branch (no restrict). Mirrors basic_usage_oedi.ipynb cell 8.",
+    "args": {
+      "_method": "utility.aggregate_annual_by_eiaid",
+      "enduses": [
+        "out.site_energy.net.energy_consumption",
+        "out.site_energy.total.energy_consumption"
+      ]
+    }
+  },
+  {
+    "name": "utility_calculate_tou_bill_flat_rate_monthly_co",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "69fc6ce50980bfa9be31f8a195481de3f05b626c82e30e8074a20b12fc39797d"
+    },
+    "description": "utility.calculate_tou_bill with a flat-rate (10c/kWh everywhere) rate map, restricted to CO (cost guardrail per CLAUDE.md — TS queries without state restrict scan ~3.2 TB on OEDI). Pins the TOU SQL shape (timestamp→month/weekend/hour MappedColumn rate, multiplied into a meter column) without depending on the example-CSV rate files. The rate_map is built from the JSON marker `rate_map_flat: 0.10` in the specialized test function. The meter_col uses an OEDI-style TS column; the method's default (`fuel_use__electricity__total__kwh`) is non-OEDI.",
+    "args": {
+      "_method": "utility.calculate_tou_bill",
+      "rate_map_flat": 0.10,
+      "meter_col": "out.electricity.total.energy_consumption",
+      "group_by": ["state"],
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
+  }
+]

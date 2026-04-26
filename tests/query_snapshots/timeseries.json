@@ -169,5 +169,33 @@
         ]
       ]
     }
+  },
+  {
+    "name": "ts_hourly_electricity_by_state",
+    "sql_hash": {
+      "resstock_oedi": "1f344ba252461efeb035c669f7a48293b0c814bd4cc716da4047d50b4c42b976",
+      "comstock_oedi": "95f9d4c2583847ae9e0bc391361abe6437267d77761c9ff6233493b8d20b3cc5"
+    },
+    "description": "Hourly TS electricity grouped by state, CO only. Restrict and group_by deliberately match ts_daily_electricity_by_state and ts_monthly_electricity_by_state so the hourly\u2192daily\u2192monthly sum invariants align.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "hour",
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
   }
 ]

@@ -45,11 +45,66 @@ SCHEMA_FIXTURES = [
         "restrict_avoid",
         "invariants_three_way",
         "building_ids",
+        "helpers",
+        # NOTE: report.get_success_report removed. The method's pivot logic
+        # produces "Index contains duplicate entries, cannot reshape" on OEDI
+        # schemas where `applicability` is 'true'/'false' strings rather than
+        # the classic ResStock 'Success'/'Fail'. Re-add once report_query.py
+        # handles OEDI applicability values.
+        "utility",
+        # NOTE: agg.get_building_average_kws_at intentionally NOT covered here.
+        # The method's signature lacks any restrict / state / upgrade filter, and
+        # its TS-side join doesn't constrain the upgrade column either, so a
+        # naive snapshot scans the full timeseries table across all upgrades —
+        # 3.2 TB on OEDI ResStock per call. Re-add only after the method gains
+        # a restrict/state-filter API. Tracked separately.
     ],
 )
 def test_snapshot_flavor(request, schema, fixture_name, flavor):
     bsq = request.getfixturevalue(fixture_name)
-    run_snapshot_file(SNAPSHOTS_ROOT / f"{flavor}.json", bsq, request.config, schema=schema)
+    json_path = SNAPSHOTS_ROOT / f"{flavor}.json"
+    if flavor == "utility":
+        _rewrite_utility_entries(json_path, bsq, request.config, schema=schema)
+        return
+    run_snapshot_file(json_path, bsq, request.config, schema=schema)
+
+
+def _rewrite_utility_entries(json_path, bsq, config, *, schema):
+    """utility.calculate_tou_bill needs a `rate_map` dict whose keys are
+    (month, weekend, hour) tuples — JSON can't represent that directly. The
+    JSON entry stores `rate_map_flat: <rate>` instead; here we expand it into
+    the canonical flat-rate dict before invoking the harness."""
+    if not json_path.exists():
+        pytest.skip(f"snapshot file not found: {json_path}")
+
+    entries = load_entries(json_path, schema=schema)
+    if not entries:
+        pytest.skip(f"no entries in {json_path}")
+
+    for entry in entries:
+        rewritten = []
+        for variant in entry.args:
+            if "rate_map_flat" in variant:
+                flat_rate = variant.pop("rate_map_flat")
+                variant["rate_map"] = {
+                    (m, w, h): flat_rate
+                    for m in range(1, 13) for w in (0, 1) for h in range(24)
+                }
+            rewritten.append(variant)
+        entry.args = rewritten
+
+    check_data = config.getoption("--check-data")
+    update_snapshot, overwrite_snapshot = resolve_update_flags(config)
+
+    outcomes: list[EntryOutcome] = evaluate_entries(
+        bsq, entries,
+        check_data=check_data,
+        update_snapshot=update_snapshot,
+        overwrite_snapshot=overwrite_snapshot,
+    )
+    report = format_failures(outcomes, check_data=check_data)
+    if report:
+        pytest.fail(report, pytrace=False)
 
 
 # --- specialized: mapped_column needs to construct the MappedColumn live ------

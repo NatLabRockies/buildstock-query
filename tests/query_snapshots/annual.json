@@ -167,5 +167,105 @@
       ],
       "get_quartiles": true
     }
+  },
+  {
+    "name": "annual_agg_func_mean",
+    "sql_hash": {
+      "resstock_oedi": "f2b3b8dcb4248d94fb8260698180198c5c81bd45b32a13c66e4ef0dcc170fe68",
+      "comstock_oedi": "017e475483d1292a34156182dbf211567517f29b83e19f33f9429b5d4143c890"
+    },
+    "description": "Annual electricity with agg_func='mean'. Pins the non-sum aggregation branch (no weight multiplication, AVG instead of SUM).",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "agg_func": "mean"
+    }
+  },
+  {
+    "name": "annual_agg_func_max",
+    "sql_hash": {
+      "resstock_oedi": "9729fe0ea6288e8207e5e814f87fb1f910e93024d10f09e7ce0f352e50d4a8bd",
+      "comstock_oedi": "0c673adb0c9fb5f13d24580a1a6289d2eabe9f864c4081995fa846b49dc56e19"
+    },
+    "description": "Annual electricity with agg_func='max'. Pins the MAX() aggregation branch.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "agg_func": "max"
+    }
+  },
+  {
+    "name": "annual_agg_func_min",
+    "sql_hash": {
+      "resstock_oedi": "bfb02435694a3fa899f175f5557ed674bbb5ee11215651f5ceb750e57e63439f",
+      "comstock_oedi": "8cab6ee4f52ab5f729b7c952b0640bef626db599eb5aacbc94201e38f337f65f"
+    },
+    "description": "Annual electricity with agg_func='min'. Pins the MIN() aggregation branch.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "agg_func": "min"
+    }
+  },
+  {
+    "name": "annual_agg_func_arbitrary",
+    "sql_hash": {
+      "resstock_oedi": "4440177a772e76efc18b47acc8410e3ea4d1d93c6ab2aad93b4c34e4fd9a8263",
+      "comstock_oedi": "1639c0fe36fc75171cab6d258968380495373ce09b0eae0430aedf3495ca6992"
+    },
+    "description": "Annual electricity with agg_func='arbitrary'. Pins the ARBITRARY() (Athena's any-value) aggregation branch.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "agg_func": "arbitrary"
+    }
   }
 ]

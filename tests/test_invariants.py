@@ -843,6 +843,98 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
         )
 
 
+# --- aggregate sample_count == get_building_ids row count -------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_aggregate_sample_count_matches_building_ids(request, bsq_fixture, schema):
+    """For an annual baseline aggregate (no upgrade pairing), the sum of
+    `sample_count` across all groups must equal the number of unique baseline
+    rows under the same restrict — which is what `get_building_ids` returns.
+    Any divergence implies the aggregate query is silently dropping or
+    duplicating buildings (e.g. a join that fans out, or an applicability
+    filter that the building_ids path doesn't apply)."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
+    restrict = [("state", ["CO"])]
+
+    agg_df = bsq.query(enduses=[enduse], group_by=[group_col], restrict=restrict)
+    agg_total_count = int(agg_df["sample_count"].sum())
+
+    bldg_ids_df = bsq.get_building_ids(restrict=restrict)
+    # On comstock the unique key is composite (bldg_id, nhgis_tract_gisjoin, state)
+    # so each row is one (building × tract × state) tuple — same shape that
+    # baseline COUNT(*) produces. resstock has just (bldg_id) per row.
+    bldg_ids_count = len(bldg_ids_df)
+
+    if agg_total_count != bldg_ids_count:
+        pytest.fail(
+            f"{schema}: sample_count sum across building_type groups = {agg_total_count}, "
+            f"but get_building_ids returned {bldg_ids_count} rows under the same restrict. "
+            f"Diff = {agg_total_count - bldg_ids_count}."
+        )
+
+
+# --- TS time monotonicity + bucket count ------------------------------------
+#
+# For any timestamp_grouping_func aggregate, the per-group timestamp column
+# must be strictly monotonic (no duplicates, sorted ascending) and produce
+# the expected number of buckets. Catches off-by-one in date_trunc, missing
+# months, or accidental cross-product duplications.
+
+TS_BUCKET_ENTRIES = [
+    # (entry_name, group_col_placeholder, grouping_func, expected_buckets)
+    ("ts_monthly_electricity_by_state", None, "month", 12),       # group_by=[state, time], one state
+    ("ts_daily_electricity_by_state", None, "day", 365),          # 2018 isn't a leap year
+    ("ts_hourly_electricity_by_state", None, "hour", 365 * 24),
+]
+
+
+@pytest.mark.parametrize("entry_name, _group_col, grouping_func, expected_buckets", TS_BUCKET_ENTRIES)
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_ts_time_buckets_monotonic_and_complete(
+    request, bsq_fixture, schema, entry_name, _group_col, grouping_func, expected_buckets,
+):
+    """Each cached TS aggregate (one row per state×time bucket) must have a
+    strictly monotonic timestamp column with the right total count for the
+    grouping_func. AMY 2018 → 365 days, 8760 hours, 12 months."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduse = resolve_placeholder(schema, "electricity_total", annual=False)
+
+    df = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        timestamp_grouping_func=grouping_func,
+        group_by=["state", "time"],
+        restrict=[("state", ["CO"])],
+    )
+    if "timestamp" not in df.columns:
+        pytest.fail(f"{entry_name}: 'timestamp' column missing from {list(df.columns)}")
+    if "state" not in df.columns:
+        pytest.fail(f"{entry_name}: 'state' column missing from {list(df.columns)}")
+
+    for state, group in df.groupby("state"):
+        ts = pd.to_datetime(group["timestamp"]).reset_index(drop=True)
+        if not ts.is_monotonic_increasing:
+            first_drop = next(
+                (i for i in range(1, len(ts)) if ts.iloc[i] <= ts.iloc[i - 1]),
+                None,
+            )
+            pytest.fail(
+                f"{entry_name} state={state}: timestamp not strictly monotonic; "
+                f"first non-increasing pair at index {first_drop}: "
+                f"{ts.iloc[first_drop - 1] if first_drop else '?'} → "
+                f"{ts.iloc[first_drop] if first_drop else '?'}"
+            )
+        if ts.duplicated().any():
+            dup_count = int(ts.duplicated().sum())
+            pytest.fail(f"{entry_name} state={state}: {dup_count} duplicate timestamp(s)")
+        if len(ts) != expected_buckets:
+            pytest.fail(
+                f"{entry_name} state={state}: got {len(ts)} buckets, expected {expected_buckets} "
+                f"({grouping_func} aggregation over AMY 2018)"
+            )
+
+
 # --- quartile array ordering ------------------------------------------------
 #
 # Athena's `approx_percentile([0, 0.02, 0.10, 0.25, 0.50, 0.75, 0.90, 0.98, 1.0])`

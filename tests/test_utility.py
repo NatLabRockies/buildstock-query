@@ -552,15 +552,16 @@ def run_query_sql(bsq, args: dict[str, Any]) -> str:
 
 def run_query_data(bsq, args: dict[str, Any]):
     """Execute the query. Return type varies by method: usually a DataFrame, but
-    `get_distinct_vals` returns a pd.Series, `report.get_success_report` returns
-    a tuple of frames, etc. Series → single-column DataFrame so the harness's
-    parquet round-trip works uniformly. Callers that actually compare data
-    (only `_run_and_compare_data` today) treat other non-DataFrame returns as
-    'cannot data-check' and skip rather than crash."""
+    `get_distinct_vals` returns a pd.Series, `report.get_buildings_by_change`
+    returns a list[int], `report.get_success_report` returns a tuple of frames.
+    Normalize Series and list into single-column DataFrames so the harness's
+    parquet round-trip works uniformly."""
     method, args = _dispatch_method(bsq, args)
     result = method(**args, get_query_only=False)
     if isinstance(result, pd.Series):
         return result.to_frame()
+    if isinstance(result, list):
+        return pd.DataFrame({"value": result})
     return result
 
 

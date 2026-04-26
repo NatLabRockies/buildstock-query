@@ -1,5 +1,18 @@
 [
   {
+    "name": "report_buildings_by_change_ok",
+    "sql_hash": {
+      "resstock_oedi": "b558767dae81b9057dd91d4de739143d95e6b1421d7b23061f997300ba9e2fc0",
+      "comstock_oedi": "0d0a36cf7439c5d855d6dbf365eef1af2c3fd911570cb868a4b08de45a7d6565"
+    },
+    "description": "report.get_buildings_by_change for upgrade 1, change_type='ok-chng' — buildings whose upgrade succeeded with an acceptable energy change. Pins the change-condition SQL shape now that the OEDI applicability fix lets the report layer resolve.",
+    "args": {
+      "_method": "report.get_buildings_by_change",
+      "upgrade_id": "1",
+      "change_type": "ok-chng"
+    }
+  },
+  {
     "name": "report_success_report",
     "sql_hash": {
       "resstock_oedi": "48e792a6a9acd4973d6fdaede15369fa548adbeb0a5fc13b39868945bf41b56b",

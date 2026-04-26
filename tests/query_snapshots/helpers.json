@@ -1,5 +1,19 @@
 [
   {
+    "name": "results_csv_three_buildings",
+    "sql_hash": {
+      "resstock_oedi": "71321fef59c2a88b3e13655c3e82d39ea133e6ee65a2048a1c01a683168aa21f",
+      "comstock_oedi": "cc3538de28e99b2041f9c16910b6177fe96d042ed70405b6bd2bf6932f6d3cb8"
+    },
+    "description": "get_results_csv restricted to a tiny known building_id list. Pins the SELECT-* shape of the baseline metadata projection used by basic_usage.ipynb. Bounded to 3 buildings so the data parquet stays small (results_csv has ~150 columns, full state would be 100+ MB).",
+    "args": {
+      "_method": "get_results_csv",
+      "restrict": [
+        ["bldg_id", [1, 2, 3]]
+      ]
+    }
+  },
+  {
     "name": "distinct_vals_state_baseline",
     "sql_hash": {
       "resstock_oedi": "d40dd40b407d8ba027f29792779f2e3898c5ee54a6ef39b2771dc787ec9e3102",

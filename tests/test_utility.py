@@ -95,6 +95,9 @@ def _resolve_resstock_placeholder(name: str, *, annual: bool) -> Any:
         # require a literal table name when the implicit `bs_table.name` is
         # the SA alias `"baseline"` rather than a real Athena table.
         "BS_TABLE_NAME": "resstock_2024_amy2018_release_2_metadata",
+        # Per-schema sqft column for the `weights` snapshot — the `..ft2`
+        # suffix on comstock annual columns mirrors the `..kwh` enduse suffix.
+        "SQFT_COL": "in.sqft",
         "AVOID_BUILDING_TYPE": "Mobile Home",
         "AVOID_BUILDING_TYPES_MULTI": ["Mobile Home", "Multi-Family with 5+ Units"],
         "VINTAGE_BUCKET": "1980s",
@@ -126,6 +129,7 @@ def _resolve_comstock_placeholder(name: str, *, annual: bool) -> Any:
         # partition column on the baseline table — no `in.` prefix.
         "STATE_COL_BASELINE": "state",
         "BS_TABLE_NAME": "comstock_amy2018_r2_2025_md_by_state_and_county_parquet",
+        "SQFT_COL": "in.sqft..ft2",
         "AVOID_BUILDING_TYPE": "Warehouse",
         "AVOID_BUILDING_TYPES_MULTI": ["Warehouse", "SmallOffice"],
         "VINTAGE_BUCKET": "1980 to 1989",

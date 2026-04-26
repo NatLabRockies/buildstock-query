@@ -244,6 +244,31 @@
     }
   },
   {
+    "name": "annual_with_extra_weight_sqft",
+    "sql_hash": {
+      "resstock_oedi": "7941c01caa155408501af7f0f727bde81b9d11dffa30629df74552b9b8267e23",
+      "comstock_oedi": "1ad665382ce98343159a3565184c61e2303332460d983a6c9d0759a60c3ce2fc"
+    },
+    "description": "Annual electricity with weights=[$SQFT_COL] — resstock 'in.sqft', comstock 'in.sqft..ft2'. Pins the SQL shape where the user supplies an explicit additional weight column on top of the default sample_weight; Athena gets `electricity * sample_weight * sqft`. Internally exercised by utility queries (eiaid_weights.weight); no other entry covers user-supplied weights directly.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "weights": ["$SQFT_COL"]
+    }
+  },
+  {
     "name": "annual_agg_func_arbitrary",
     "sql_hash": {
       "resstock_oedi": "4440177a772e76efc18b47acc8410e3ea4d1d93c6ab2aad93b4c34e4fd9a8263",

@@ -976,6 +976,59 @@ def test_aggregate_sample_count_matches_building_ids(request, bsq_fixture, schem
         )
 
 
+# --- sample_count is integer-valued and non-negative ------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_sample_count_integer_and_nonnegative(request, bsq_fixture, schema):
+    """sample_count is `sum(1)` over a row set — it must always be a
+    non-negative integer. Catches sign bugs (negative counts) and bugs that
+    accidentally divide sample_count by something (fractional values)."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
+
+    df = bsq.query(
+        enduses=[enduse], group_by=[group_col], restrict=[("state", ["CO"])],
+    )
+    counts = df["sample_count"].astype(float)
+    bad = []
+    for key, val in zip(df[group_col], counts):
+        if val < 0:
+            bad.append(f"  {key}: sample_count={val} < 0")
+        if not float(val).is_integer():
+            bad.append(f"  {key}: sample_count={val} not integer")
+    if bad:
+        pytest.fail("sample_count violations:\n" + "\n".join(bad))
+
+
+# --- annual baseline enduses are non-negative ------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_annual_baseline_enduses_nonnegative(request, bsq_fixture, schema):
+    """Energy enduses on the annual baseline are summed across positive
+    weights; the result must be >= 0 for every group. A negative would mean
+    sign flip in the SUM column expression, weight-multiplication bug, or
+    raw negative values in the source data."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduses = [
+        resolve_placeholder(schema, "electricity_total"),
+        resolve_placeholder(schema, "natural_gas_total"),
+    ]
+    group_col = resolve_placeholder(schema, "building_type_col")
+
+    df = bsq.query(
+        enduses=enduses, group_by=[group_col], restrict=[("state", ["CO"])],
+    )
+    bad = []
+    for enduse in enduses:
+        col = _strip_out_prefix(enduse)
+        for key, val in zip(df[group_col], df[col].astype(float)):
+            if val < 0:
+                bad.append(f"  {col} {key}: {val} < 0")
+    if bad:
+        pytest.fail("baseline enduse aggregate negative:\n" + "\n".join(bad))
+
+
 # --- TS time monotonicity + bucket count ------------------------------------
 #
 # For any timestamp_grouping_func aggregate, the per-group timestamp column

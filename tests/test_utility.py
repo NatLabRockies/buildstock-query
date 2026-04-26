@@ -194,7 +194,11 @@ def _resolve_placeholders(value: Any, schema: str, *, annual: bool) -> Any:
     valued placeholders (`$BUILDING_TYPE_MAPPING`) plug in a whole sub-tree.
     """
     if isinstance(value, str):
-        if value.startswith("$"):
+        # Only treat as a placeholder if the WHOLE string is a single $TOKEN.
+        # Multi-token strings like "$ELECTRICITY_TOTAL - $NATURAL_GAS_TOTAL"
+        # (used by calculated_column expressions) are left alone so a
+        # specialized test function can substitute them with proper context.
+        if value.startswith("$") and re.fullmatch(r"\$[A-Z_][A-Z0-9_]*", value):
             return resolve_placeholder(schema, value, annual=annual)
         return value
     if isinstance(value, list):
@@ -298,7 +302,19 @@ def load_entries(json_path: Path, *, schema: str) -> list[SnapshotEntry]:
 
         variants = []
         for raw_variant in raw_variants:
-            annual_only = bool(raw_variant.get("annual_only", True))
+            # `annual_only` is a `bsq.query()` kwarg that signals the leg-aware
+            # column-suffix resolution (`out.electricity.total.energy_consumption..kwh`
+            # for comstock annual; bare for TS). For methods that don't accept
+            # `annual_only` but operate on the TS table (agg.get_building_average_kws_at,
+            # utility.aggregate_ts_by_eiaid, utility.calculate_tou_bill), the
+            # entry can opt out of annual resolution by setting
+            # `_annual_resolve: false`. This marker is consumed at load time and
+            # not passed through to the method.
+            annual_resolve_override = raw_variant.pop("_annual_resolve", None)
+            if annual_resolve_override is not None:
+                annual_only = bool(annual_resolve_override)
+            else:
+                annual_only = bool(raw_variant.get("annual_only", True))
             resolved = _resolve_placeholders(raw_variant, schema, annual=annual_only)
             variants.append(_rehydrate_args(resolved))
 

@@ -115,6 +115,35 @@
     }
   },
   {
+    "name": "savings_annual_two_fuel",
+    "sql_hash": {
+      "resstock_oedi": "268be3d8ec0fb0b52698a4a694d153a6e20f8052684729a171b1f5e41236f7ea",
+      "comstock_oedi": "6d5e24841cceb38a04f3d9069fbaf66ce094fdc7b7e964ae3ee653de84bcd1f8"
+    },
+    "description": "Annual savings for upgrade 1 covering both electricity and natural gas as enduses, grouped by building type, CO only. Pins the multi-fuel column-suffix shape across the baseline/upgrade/savings projection — every prior savings entry is electricity-only.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL",
+        "$NATURAL_GAS_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true
+    }
+  },
+  {
     "name": "savings_ts_monthly_upgrade1_quartiles",
     "sql_hash": {
       "resstock_oedi": "6f5e253fe516247746bf0edde5048fbd012bf9dd77f595a391f9c8b7656a6c59",

@@ -192,6 +192,8 @@ class BuildStockAggregate:
         at_hour: Union[list[float], float],
         at_days: list[float],
         enduses: list[str],
+        upgrade_id: Union[int, str] = "0",
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: bool = False,
     ):
         """
@@ -212,6 +214,14 @@ class BuildStockAggregate:
             at_days: The list of days (of year) for which the average kW is to be calculated for.
 
             enduses: The list of enduses for which to calculate the average kWs
+
+            upgrade_id: Which upgrade scenario to compute against. Defaults to "0" (baseline). The TS-side join
+                        constrains `ts.upgrade = upgrade_id` so the join doesn't cross-product across all upgrades
+                        present in the TS table — without this filter, the scan multiplies by the number of
+                        upgrades, which on OEDI is 3 TB+ per call.
+
+            restrict: Optional WHERE clauses (e.g. `[("state", ["CO"])]`) to narrow the scan. Strongly recommended
+                      on partitioned TS tables — without a state restrict, the join scans every state's partition.
 
             get_query_only: Skips submitting the query to Athena and just returns the query strings. Useful for batch
                             submitting multiple queries or debugging.
@@ -281,10 +291,35 @@ class BuildStockAggregate:
         upper_timestamps = [get_upper_timestamps(d - 1, h) for d, h in zip(at_days, at_hour)]
 
         ts_key_cols = self._bsq.ts_key_cols
+        ts = self._bsq.ts_table
+        if ts is None:
+            raise ValueError("No timeseries table found in database.")
+        ucol = self._bsq._ts_upgrade_col
+
+        # Constrain the TS-side upgrade in the join condition. Without this, the
+        # join cross-products against every upgrade present in the TS table —
+        # the bs subquery's `WHERE upgrade = ...` doesn't filter the TS scan.
+        # Also push any user-supplied restrict into the bs/ts split so partition
+        # filters (e.g. state='CO') ride the JOIN ON instead of the outer WHERE.
+        upgrade_str = "0" if upgrade_id in (None, "0") else str(upgrade_id)
+        bs_restrict_split, ts_restrict_split, extra_restrict_split = self._bsq._split_restrict(list(restrict))
+        bs_restrict_clauses = self._bsq._get_restrict_clauses(bs_restrict_split, annual_only=True)
+        ts_restrict_clauses = self._bsq._get_restrict_clauses(ts_restrict_split, annual_only=False)
+
         query = sa.select(*ts_key_cols + grouping_metrics_selection + enduse_selection)
-        query = query.join(self._bsq.bs_table, self._bsq._baseline_timeseries_join_condition())
+        query = query.join(
+            self._bsq.bs_table,
+            sa.and_(
+                self._bsq._baseline_timeseries_join_condition(),
+                ucol == typed_literal(ucol, upgrade_str),
+                *bs_restrict_clauses,
+                *ts_restrict_clauses,
+            ),
+        )
         query = self._bsq._add_group_by(query, ts_key_cols)
         query = self._bsq._add_order_by(query, ts_key_cols)
+        if extra_restrict_split:
+            query = self._bsq._add_restrict(query, extra_restrict_split, annual_only=False)
 
         lower_val_query = self._bsq._add_restrict(query, [(self._bsq.timestamp_column_name, lower_timestamps)])
         upper_val_query = self._bsq._add_restrict(query, [(self._bsq.timestamp_column_name, upper_timestamps)])
@@ -313,8 +348,15 @@ class BuildStockAggregate:
                 ]
             )
             avg_lower_weight = 1 - avg_upper_weight
-            # modify the lower vals to make it weighted average of upper and lower vals
-            lower_vals[enduses] = lower_vals[enduses] * avg_lower_weight + upper_vals[enduses] * avg_upper_weight
+            # The result columns use the simple-label form (stripped of `out.`
+            # prefix), not the raw enduse strings the user passed. Translate
+            # before indexing so the weighted-average update lands on the right
+            # columns.
+            enduse_label_cols = [self._bsq._simple_label(e) for e in enduses]
+            lower_vals[enduse_label_cols] = (
+                lower_vals[enduse_label_cols] * avg_lower_weight
+                + upper_vals[enduse_label_cols] * avg_upper_weight
+            )
             return lower_vals
 
     def validate_partition_by(self, partition_by: Sequence[str]) -> Sequence[str]:
@@ -349,15 +391,25 @@ class BuildStockAggregate:
         total_weight = self._bsq._get_weight(params.weights)
         agg_func, agg_weight = self._bsq._get_agg_func_and_weight(params.weights, params.agg_func)
         time_indx = 0
-        if "time" in params.group_by:  # time will be added as necessary later
-            time_indx = params.group_by.index("time")
-            params.group_by = [g for g in params.group_by if g != "time"]
+        # The library accepts both the canonical alias `"time"` and the schema's
+        # actual timestamp column name (e.g. `"timestamp"` on OEDI) as a marker
+        # for "insert the time column at this position". Strip whichever one the
+        # user passed; the time-column expression is re-inserted later, so
+        # leaving it in `group_by` would project the column twice (Athena
+        # rejects with DUPLICATE_COLUMN_NAME).
+        time_aliases = {"time", self._bsq.timestamp_column_name}
+        for alias in time_aliases:
+            if alias in params.group_by:
+                time_indx = params.group_by.index(alias)
+                params.group_by = [g for g in params.group_by if g not in time_aliases]
+                break
         group_by_selection = self._bsq._process_groupby_cols(params.group_by, annual_only=params.annual_only)
 
         if params.annual_only:
             bs_tbl, up_tbl, tbljoin = self.__get_annual_bs_up_table(upgrade_id, params.applied_only)
+            extra_restrict: list = []
         else:
-            bs_restrict, ts_restrict = self._bsq._split_restrict(bs_restrict)
+            bs_restrict, ts_restrict, extra_restrict = self._bsq._split_restrict(bs_restrict)
             # When the caller wants only upgrade values (no savings, no baseline), skip the
             # ts_b/ts_u subquery pairing. Required for applied_only=True since the column
             # expressions for applied_only reference only up_tbl; also lets runs without
@@ -524,6 +576,11 @@ class BuildStockAggregate:
         if params.annual_only:
             query = query.where(self._bsq._bs_successful_condition)
         query = self._bsq._add_restrict(query, bs_restrict, annual_only=params.annual_only)
+        # Restricts on join_list tables (e.g. utility eiaid_weights.eiaid) didn't
+        # land on bs or ts — they go to the outer WHERE after _add_join has
+        # introduced their referenced tables.
+        if extra_restrict:
+            query = self._bsq._add_restrict(query, extra_restrict, annual_only=params.annual_only)
         query = self._bsq._add_avoid(query, params.avoid, annual_only=params.annual_only)
         query = self._bsq._add_group_by(query, group_by_selection)
         query = self._bsq._add_order_by(query, group_by_selection if params.sort else [])

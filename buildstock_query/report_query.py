@@ -29,6 +29,13 @@ class BuildStockReport:
     def _rename_completed_status_column(self, df: DataFrame) -> DataFrame:
         df = df.rename(columns={self._bsq.db_schema.column_names.completed_status: "completed_status"})
         rev_value_map = {db_val: normal_val for normal_val, db_val in self._bsq.db_schema.completion_values}
+        # OEDI schemas return booleans (True/False) for `applicability`; classic
+        # ResStock returns strings ("Success"/"Fail"). Normalize to lowercase
+        # strings so the rev_value_map (whose keys come from the TOML, always
+        # lowercase strings) matches both. Without this, OEDI rows produce all-
+        # NaN completed_status and the downstream pivot collapses with a
+        # "duplicate index" reshape error.
+        df["completed_status"] = df["completed_status"].astype(str).str.lower()
         df["completed_status"] = df["completed_status"].map(rev_value_map)
         return df
 

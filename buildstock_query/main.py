@@ -831,8 +831,14 @@ class BuildStockQuery(QueryCore):
         # When that happens, restrict BOTH sides — Athena's planner often can't push
         # a ts-side filter back through the bldg_id join to the bs scan, so a single-
         # sided filter leaves the metadata subquery scanning the full table.
+        #
+        # `extra_restrict` holds clauses whose column targets neither bs nor ts —
+        # typically a join_list table (e.g. `eiaid_weights.eiaid` from the utility
+        # methods). These can't ride the inner ts/bs join ON-clause because the
+        # referenced table isn't in scope yet; they must go to the outer WHERE.
         bs_restrict = []
         ts_restrict = []
+        extra_restrict = []
         for col, restrict_vals in restrict:
             targets_ts = self._restrict_targets_ts(col)
             targets_bs = self._restrict_targets_bs(col)
@@ -842,9 +848,11 @@ class BuildStockQuery(QueryCore):
                 else:
                     col_name = col if isinstance(col, str) else col.name
                     ts_restrict.append([self.ts_table.c[col_name], restrict_vals])
-            if targets_bs or not targets_ts:
+            if targets_bs:
                 bs_restrict.append([self._get_gcol(col, annual_only=True), restrict_vals])
-        return bs_restrict, ts_restrict
+            if not targets_ts and not targets_bs:
+                extra_restrict.append([col, restrict_vals])
+        return bs_restrict, ts_restrict, extra_restrict
 
     def _restrict_targets_ts(self, col: AnyColType) -> bool:
         if self.ts_table is None:

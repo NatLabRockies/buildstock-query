@@ -28,6 +28,25 @@
     }
   },
   {
+    "name": "utility_ts_by_eiaid",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "64ab9794948e415c3e6e852b16ed54edf2330a109b955533e696fed8fd65a1b3"
+    },
+    "description": "utility.aggregate_ts_by_eiaid for two utilities. Returns a list of SQL (one per query_group_size batch); the harness joins with MULTI_SQL_SEPARATOR. Pinned only after the _split_restrict 3-bucket fix that routes eiaid_weights.eiaid restricts to the outer WHERE instead of the bs JOIN ON-clause. State-restricted to keep Athena cost bounded — every TS-side join must be partition-filtered (CLAUDE.md cost guardrail).",
+    "args": {
+      "_method": "utility.aggregate_ts_by_eiaid",
+      "eiaid_list": ["4110"],
+      "enduses": [
+        "out.site_energy.total.energy_consumption"
+      ],
+      "group_by": ["state", "timestamp"],
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
+  },
+  {
     "name": "utility_calculate_tou_bill_flat_rate_monthly_co",
     "schemas": ["resstock_oedi"],
     "sql_hash": {

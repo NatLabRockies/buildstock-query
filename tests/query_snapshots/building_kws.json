@@ -1,0 +1,38 @@
+[
+  {
+    "name": "building_kws_noon_grid_aligned_co",
+    "sql_hash": {
+      "resstock_oedi": "f308353084569da766fa54f7222f1d0174345f1c088bd6042abb3876c6bd777a",
+      "comstock_oedi": "bb038449926c06efa030c5727913e28a2a895d7542986a23d7aa638c9ef5899e"
+    },
+    "description": "agg.get_building_average_kws_at at noon (12.0) for three days, restricted to CO. Hour aligns to the 15-min grid (12*3600 % 900 == 0) so the method returns a single-element SQL list — pins the 'exact_times' branch. The restrict + upgrade=0 filter on the TS join (added 2026-04-25) caps Athena scan to a single state's partition; without those, this query was a 3.2 TB landmine.",
+    "args": {
+      "_method": "agg.get_building_average_kws_at",
+      "_annual_resolve": false,
+      "at_hour": 12.0,
+      "at_days": [1, 100, 200],
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
+  },
+  {
+    "name": "building_kws_off_grid_interpolated_co",
+    "sql_hash": {
+      "resstock_oedi": "1a49b177fe0dd932cc6034e32219afee008ec7fbcbeff5f660f4a5de191c9340",
+      "comstock_oedi": "4f69a72aff72a7639b70b2f17d670b16be10b5f094e6c17d7cf01b8689652ea0"
+    },
+    "description": "agg.get_building_average_kws_at at 12.1h (off the 15-min grid) for three days, CO restrict. Returns two SQL strings (lower + upper timestamps for interpolation), joined with MULTI_SQL_SEPARATOR. Pins the two-query interpolation branch.",
+    "args": {
+      "_method": "agg.get_building_average_kws_at",
+      "_annual_resolve": false,
+      "at_hour": 12.1,
+      "at_days": [1, 100, 200],
+      "enduses": ["$ELECTRICITY_TOTAL"],
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
+  }
+]

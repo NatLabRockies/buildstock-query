@@ -1,0 +1,14 @@
+[
+  {
+    "name": "report_success_report",
+    "sql_hash": {
+      "resstock_oedi": "48e792a6a9acd4973d6fdaede15369fa548adbeb0a5fc13b39868945bf41b56b",
+      "comstock_oedi": "89910bb6fcfe3f9949b1879f18dd918edcea0c12a0477f71f268f98fc15d9c67"
+    },
+    "description": "report.get_success_report — returns three SQL statements (baseline counts, per-upgrade counts, change-type breakdown). Joined into one snapshot via the harness's MULTI_SQL_SEPARATOR. Pins the most-used reporting entry point. Requires the OEDI applicability fix in _rename_completed_status_column (commit added a lowercase-string normalize so True/False booleans map correctly).",
+    "args": {
+      "_method": "report.get_success_report",
+      "trim_missing_bs": "auto"
+    }
+  }
+]

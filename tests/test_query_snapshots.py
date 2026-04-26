@@ -46,18 +46,9 @@ SCHEMA_FIXTURES = [
         "invariants_three_way",
         "building_ids",
         "helpers",
-        # NOTE: report.get_success_report removed. The method's pivot logic
-        # produces "Index contains duplicate entries, cannot reshape" on OEDI
-        # schemas where `applicability` is 'true'/'false' strings rather than
-        # the classic ResStock 'Success'/'Fail'. Re-add once report_query.py
-        # handles OEDI applicability values.
+        "report",
         "utility",
-        # NOTE: agg.get_building_average_kws_at intentionally NOT covered here.
-        # The method's signature lacks any restrict / state / upgrade filter, and
-        # its TS-side join doesn't constrain the upgrade column either, so a
-        # naive snapshot scans the full timeseries table across all upgrades —
-        # 3.2 TB on OEDI ResStock per call. Re-add only after the method gains
-        # a restrict/state-filter API. Tracked separately.
+        "building_kws",
     ],
 )
 def test_snapshot_flavor(request, schema, fixture_name, flavor):
@@ -67,6 +58,61 @@ def test_snapshot_flavor(request, schema, fixture_name, flavor):
         _rewrite_utility_entries(json_path, bsq, request.config, schema=schema)
         return
     run_snapshot_file(json_path, bsq, request.config, schema=schema)
+
+
+# --- specialized: calculated column needs to be constructed live ------
+
+@pytest.mark.parametrize("schema, fixture_name", SCHEMA_FIXTURES)
+def test_calculated_column(request, schema, fixture_name):
+    """JSON entries store `column_name`, `column_expr` (with placeholders),
+    `table`, and the rest of the args. The test resolves placeholders inside
+    the expression string, calls `bsq.get_calculated_column(...)` to build the
+    SA expression, and passes it as the only enduse to `bsq.query()`."""
+    bsq = request.getfixturevalue(fixture_name)
+    from tests.test_utility import resolve_placeholder
+
+    json_path = SNAPSHOTS_ROOT / "calculated_column.json"
+    if not json_path.exists():
+        pytest.skip(f"snapshot file not found: {json_path}")
+
+    entries = load_entries(json_path, schema=schema)
+    if not entries:
+        pytest.skip(f"no entries in {json_path}")
+
+    # The expression-side placeholder substitution happens here because the
+    # generic loader resolves placeholders only for "$"-prefixed atomic
+    # values, not embedded inside larger strings. We do the textual rewrite
+    # manually so the user-facing JSON keeps the placeholder name.
+    import re as _re
+    placeholder_re = _re.compile(r"\$[A-Z_]+")
+
+    for entry in entries:
+        rewritten_variants = []
+        for variant_args in entry.args:
+            column_name = variant_args.pop("column_name")
+            column_expr = variant_args.pop("column_expr")
+            table = variant_args.pop("table", "baseline")
+            # Substitute every $PLACEHOLDER token in the expression string.
+            def _sub(match):
+                return resolve_placeholder(schema, match.group(0), annual=True)
+            resolved_expr = placeholder_re.sub(_sub, column_expr)
+            calculated_col = bsq.get_calculated_column(column_name, resolved_expr, table=table)
+            rewritten_variants.append({**variant_args, "enduses": [calculated_col]})
+        entry.args = rewritten_variants
+
+    config = request.config
+    check_data = config.getoption("--check-data")
+    update_snapshot, overwrite_snapshot = resolve_update_flags(config)
+
+    outcomes: list[EntryOutcome] = evaluate_entries(
+        bsq, entries,
+        check_data=check_data,
+        update_snapshot=update_snapshot,
+        overwrite_snapshot=overwrite_snapshot,
+    )
+    report = format_failures(outcomes, check_data=check_data)
+    if report:
+        pytest.fail(report, pytrace=False)
 
 
 def _rewrite_utility_entries(json_path, bsq, config, *, schema):

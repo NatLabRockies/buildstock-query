@@ -139,8 +139,8 @@
   {
     "name": "ts_hourly_electricity_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "e080e02b70014ec4d2ef29ce32b45b19894a430fef0a1379aabb11537d58b2b6",
-      "comstock_oedi": "94419dad26ecb6d7ff391e09ab675638355b07be80cdab3bb6aa3b2572802d58"
+      "resstock_oedi": "da96760ceaaf6657f5cb5fac7465e013397988cfb0b199a5bf769c4bbac6bde0",
+      "comstock_oedi": "dd2275e013723a9f781209647e466be92479ce23bcd55428be40e613bcf51be4"
     },
     "description": "Hourly-grouped timeseries electricity, CO + single building type. Exercises date_trunc('hour', ...) \u2014 the smallest grouping_func granularity.",
     "args": {

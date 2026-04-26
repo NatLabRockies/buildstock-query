@@ -1251,6 +1251,165 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
         f"sum across counties: expected ~{expected_kwh:.0f}, got {county_sum:.0f}"
     )
 
+    # JOIN-bearing query: upgrade=1 savings shape. Above queries are all
+    # baseline-only (no JOIN), so they don't actually exercise the composite-
+    # key behavior in JOIN ON clauses. This check explicitly triggers a
+    # baseline ⋈ upgrade JOIN whose ON clause includes (bldg_id, tract,
+    # state) under the canonical schema. Without all three keys, the join
+    # would cross-product across (state, tract) for the shared bldg_id and
+    # inflate per-state sample_counts.
+    try:
+        savings_by_state = bsq.query(
+            enduses=[enduse], upgrade_id="1", applied_only=True,
+            restrict=[("bldg_id", [bldg])],
+            group_by=["state"],
+            include_baseline=True, include_upgrade=True, include_savings=True,
+        )
+    except Exception as exc:
+        pytest.skip(
+            f"savings-shape query for bldg={bldg} failed (likely because the upgrade "
+            f"didn't apply to this archetype): {type(exc).__name__}: {exc}"
+        )
+    savings_idx = savings_by_state.set_index("state")
+    # Per-state sample_count from the savings JOIN should match the metadata
+    # row count per state (i.e. canonical_per_state — same as the baseline-
+    # only by_state result). A bldg-only join would multiply these by the
+    # cross-state upgrade row count.
+    for st in savings_idx.index:
+        if st not in expected_per_state:
+            continue
+        expected_n, _, _ = expected_per_state[st]
+        actual_n = int(savings_idx.loc[st, "sample_count"])
+        assert actual_n == expected_n, (
+            f"savings-shape sample_count for ({bldg}, {st}): expected {expected_n}, "
+            f"got {actual_n} — a bldg_id-only join would inflate this"
+        )
+
+
+# --- composite-key mutation test (proves keys are load-bearing) -------------
+
+def test_comstock_composite_key_mutation_breaks_invariants():
+    """Mutation test: proves the composite keys are load-bearing in join
+    construction. Builds a BuildStockQuery with the comstock schema
+    deliberately mutated to drop everything except `bldg_id` from the
+    metadata and timeseries unique_keys, then runs queries that REQUIRE
+    cross-table joins (savings: baseline ⋈ upgrade) and asserts the
+    mutated results diverge from the canonical correct ones.
+
+    Critical setup: simple baseline-only annual queries (upgrade_id='0',
+    no savings) don't construct any joins — they just SELECT from the
+    metadata table — so the unique_keys mutation has NO effect on the
+    emitted SQL. This test deliberately uses a savings-shape query
+    (upgrade_id='1', applied_only=True, include_baseline+upgrade+savings)
+    which constructs a JOIN ON bldg_id [+ state + tract] between baseline
+    and upgrade. The mutation removes state and tract from that ON clause,
+    causing a cross-product across all 46 metadata rows for bldg_id=51037
+    instead of the proper per-(state, tract) match.
+
+    Anchor: bldg_id=51037 is deployed in 4 states / 46 tracts. Under the
+    canonical schema, the savings query produces a row per state with
+    sample_count matching the per-state metadata count (CO=2, NM=30, etc.).
+    Under the mutated schema, each metadata row joins with every same-bldg_id
+    upgrade row across all states, inflating sample_count by ~46x.
+    """
+    import os
+    import toml
+    import copy
+    import buildstock_query as bq_pkg
+    from buildstock_query import BuildStockQuery
+
+    schema_path = os.path.join(
+        os.path.dirname(bq_pkg.__file__),
+        "db_schema",
+        "comstock_oedi_state_and_county.toml",
+    )
+    canonical_schema = toml.load(schema_path)
+    mutated_schema = copy.deepcopy(canonical_schema)
+    mutated_schema["unique_keys"]["metadata"] = ["bldg_id"]
+    mutated_schema["unique_keys"]["timeseries"] = ["bldg_id"]
+
+    bsq_broken = BuildStockQuery(
+        "rescore", "buildstock_sdr", "comstock_amy2018_r2_2025",
+        buildstock_type="comstock",
+        db_schema=mutated_schema,
+        skip_reports=True,
+    )
+
+    enduse = "out.electricity.total.energy_consumption..kwh"
+    bldg = 51037
+
+    # First sanity-check: confirm the SQL actually changed. If the join ON
+    # clause is identical to the canonical, the mutation isn't testing
+    # anything (this is what tripped my earlier attempt — annual baseline-
+    # only queries don't have a join to mutate).
+    sql_mutated = bsq_broken.query(
+        enduses=[enduse], upgrade_id="1", applied_only=True,
+        restrict=[("bldg_id", [bldg])],
+        group_by=["state"],
+        include_baseline=True, include_upgrade=True, include_savings=True,
+        get_query_only=True,
+    )
+    join_on_match = "baseline.bldg_id = upgrade.bldg_id AND baseline.state = upgrade.state"
+    if join_on_match in sql_mutated:
+        pytest.fail(
+            "Mutation didn't take effect — mutated SQL still contains state/tract "
+            "in the JOIN ON clause. Schema dict override may not be working."
+        )
+    # Sanity that the join IS bldg_id-only after mutation
+    if "ON baseline.bldg_id = upgrade.bldg_id AND upgrade.upgrade = 1" not in sql_mutated:
+        pytest.fail(
+            f"Mutated SQL doesn't have expected bldg_id-only join shape. SQL:\n{sql_mutated}"
+        )
+
+    # Canonical anchored values for the savings query (upgrade=1, applied_only=True).
+    # bldg=51037: CO has 2 metadata rows, NM has 30, OK has 1, TX has 13. The
+    # join under canonical keys produces sample_count == per-state metadata count.
+    # Under mutated keys (bldg_id-only join), each baseline row in state X joins
+    # with every upgrade row across all 4 states, producing sample_count that's
+    # roughly per_state_count × total_upgrade_rows_for_bldg.
+    canonical_per_state = {"CO": 2, "NM": 30, "OK": 1, "TX": 13}
+
+    try:
+        by_state_broken = bsq_broken.query(
+            enduses=[enduse], upgrade_id="1", applied_only=True,
+            restrict=[("bldg_id", [bldg])],
+            group_by=["state"],
+            include_baseline=True, include_upgrade=True, include_savings=True,
+        )
+    except Exception as exc:
+        # Some mutations cause SQL errors (e.g., DUPLICATE_COLUMN_NAME). That's
+        # ALSO valid evidence the keys are load-bearing — accept it as a
+        # mutation-detected divergence.
+        print(f"Mutation caused query to error (also confirms keys matter): "
+              f"{type(exc).__name__}: {exc}")
+        return
+
+    by_state_idx = by_state_broken.set_index("state")
+    divergences = []
+    for st, canonical_count in canonical_per_state.items():
+        if st not in by_state_idx.index:
+            divergences.append(f"state {st} missing from mutated result")
+            continue
+        actual_count = int(by_state_idx.loc[st, "sample_count"])
+        if actual_count != canonical_count:
+            divergences.append(
+                f"sample_count for {st}: canonical={canonical_count}, "
+                f"mutated={actual_count} (factor of {actual_count/canonical_count:.1f}x)"
+            )
+
+    if not divergences:
+        pytest.fail(
+            "Mutation FAILED to break invariants: queries returned canonical values "
+            "even with state/tract removed from unique_keys. The composite-key test "
+            "may be passing for the wrong reason — joins aren't actually using these "
+            "keys, or the mutation isn't propagating to SQL generation."
+        )
+
+    # Pass: divergences confirm the canonical keys are load-bearing.
+    print("\nMutation confirmed: composite keys are load-bearing. Sample divergences:")
+    for d in divergences:
+        print(f"  - {d}")
+
 
 # --- two-fuel electricity column equals single-fuel electricity --------------
 

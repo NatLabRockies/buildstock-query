@@ -58,8 +58,8 @@
   {
     "name": "ts_year_collapse_electricity",
     "sql_hash": {
-      "resstock_oedi": "91360e5bb734179867a916bc2b72cbdf87e0b71474f6c6fe778a44f9c21a3814",
-      "comstock_oedi": "64d3d1eeef1a61e1059326246c2267e41ee0e806e508f985cead89ed2f6aec83"
+      "resstock_oedi": "5d656b172943592d8f256ece33387901baf5b34757b6dd699e4d2ec75353a9a3",
+      "comstock_oedi": "69277eec75a48927764a00b12b53be9227a8002c60d36a5919f609eee2749aee"
     },
     "description": "Year-collapsed timeseries electricity, grouped by building type, CO only.",
     "args": {

@@ -479,10 +479,17 @@ class BuildStockAggregate:
                 safunc.sum(total_weight).label("units_count"),
             ]
         elif params.timestamp_grouping_func == "year":  # Use timeseries tables but collapse timeseries
-            rows_per_building = self._bsq._get_rows_per_building()
+            # Equivalent to dividing sum(1)/rows_per_building, but computed inline
+            # from the data instead of pre-fetching rows_per_building via a heavy
+            # `count(*) GROUP BY upgrade, bldg_id` over the full TS table. The
+            # integrity check in report.check_ts_bs_integrity is the appropriate
+            # place to spend that scan; here we trust the cadence and let Athena
+            # compute counts in one pass.
+            bs_key_cols = [self._bsq.bs_table.c[k] for k in self._bsq.bs_key]
+            distinct_bs_keys = self._bsq._count_distinct(bs_key_cols)
             grouping_metrics_selection = [
-                (safunc.sum(1) / rows_per_building).label("sample_count"),
-                safunc.sum(total_weight / rows_per_building).label("units_count"),
+                distinct_bs_keys.label("sample_count"),
+                (distinct_bs_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
             ]
         elif params.timestamp_grouping_func:
             colname = self._bsq.timestamp_column_name

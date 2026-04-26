@@ -2,8 +2,8 @@
   {
     "name": "inv_baseline_ts_year_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "eebeca7e9922aaab3c1678336df763b171515a1c015f051fd5ec77643bfe54c2",
-      "comstock_oedi": "57a0560e7f9c7d58a1afb34a332f4d96a4361a5e1c56d775c255c90a0e9284ce"
+      "resstock_oedi": "d66beb9010ce6bb05dbe487dc51cdfdf3d46d3f240bf3506e1e8aad4187ed01e",
+      "comstock_oedi": "3863ff5f4fe966259be123b7699627fb5ee58c5526b26df0b89e94882f7c2b91"
     },
     "description": "Three-way invariant: ts-year-collapse leg, baseline. Two fuels.",
     "args": {
@@ -57,7 +57,7 @@
   {
     "name": "inv_upgrade1_ts_year_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "34f65af8f6b261153d5a1e19a49dd5e2b37e5d1f4fd9284d8d7eb21792d973c1",
+      "resstock_oedi": "5375d824f14f2d8b3735ade8c96590808a15792dd64e87f410946df0e5b1951e",
       "comstock_oedi": ""
     },
     "description": "Three-way invariant: ts-year-collapse leg, upgrade 1 (no applied filter). Two fuels.",
@@ -143,8 +143,8 @@
   {
     "name": "inv_upgrade1_applied_ts_year_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "871f56179a723071950cb6c29dd75753160942c90fe087f319a906c4f6172d6f",
-      "comstock_oedi": "5164a52b6d8bb2627d25910b63126cadd37f2d8b68b4f39a44011b0de158d035"
+      "resstock_oedi": "5dcc8dc15be15398d2b3152ca651f0031865684364bb3c394f94a51b55cefae8",
+      "comstock_oedi": "b279d6dd6e4818c4b75aec3087e18bbc45910477d3e609c9950c74db96f3bfbf"
     },
     "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True. Two fuels.",
     "args": {
@@ -233,8 +233,8 @@
   {
     "name": "inv_upgrade1_applied_in_1_2_ts_year_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "34d8cbfdd57b5ab5b5009af09557214f08e9166a2802085aaf5234e0851e5d83",
-      "comstock_oedi": "3b4f5b45aa2a12ba0275a9d5f832bf56d84021af3d4b42f30044b9bb2e28a8f7"
+      "resstock_oedi": "995650b87ee7b06c43229956cc8cf11cc236e19a992c623d050b552df0fe4781",
+      "comstock_oedi": "458827b2f89e798062ecdb65a1312c31173178e0166532a6b0fe0f3003500b3f"
     },
     "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True, applied_in=[1,2]. Two fuels.",
     "args": {

@@ -1,1 +1,0 @@
-SELECT resstock_2024_amy2018_release_2_by_state_vu.upgrade, resstock_2024_amy2018_release_2_by_state_vu.bldg_id, count(*) AS row_count FROM resstock_2024_amy2018_release_2_by_state_vu GROUP BY 1, 2

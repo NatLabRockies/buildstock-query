@@ -16,13 +16,9 @@ build/
 *.parquet
 # Track snapshot-cache parquets so the data-check survives a fresh clone.
 !tests/query_snapshots/*_cache/*.parquet
-# Two orphan internal-helper parquets (count(*) GROUP BY upgrade, bldg_id
-# results from _get_rows_per_building) are 40-53 MB each and not
-# referenced by any JSON entry — they get auto-regenerated lazily on
-# first TS query. Excluded to keep the repo small.
-tests/query_snapshots/resstock_oedi_cache/5ad03b86124ceea31747711733af6e7134a9d5b28d89a74d47b37cdd22854174.parquet
-tests/query_snapshots/comstock_oedi_cache/7d299330454045358f40a49b6ff60a10fe614c1b2ed949c1c7af4dfeef91943c.parquet
 *.txt
 *.csv
 *.yml
 .bsq_cache
+# Transient query-execution audit log written by query_core; not snapshot data.
+.execution_history

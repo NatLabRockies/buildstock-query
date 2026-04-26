@@ -582,6 +582,66 @@ def test_15min_raw_sums_to_monthly(request, bsq_fixture, schema):
         pytest.fail("15-min sum vs monthly aggregate mismatch:\n" + "\n".join(diffs))
 
 
+# --- 15-min raw timeseries sums to hourly ------------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_15min_raw_sums_to_hourly(request, bsq_fixture, schema):
+    """Per-state, 15-min raw rows summed within each calendar hour must equal
+    the hourly-grouped query. Mirrors the 15-min→monthly invariant at the
+    finest aggregation step the library supports — catches `date_trunc('hour',
+    ...)` boundary drift, the same -900s offset, and any hour-bucketing
+    rounding bugs in between."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduse = resolve_placeholder(schema, "electricity_total", annual=False)
+
+    raw_df = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        group_by=["state", "time"],
+        restrict=[("state", ["CO"])],
+    )
+    hourly_df = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        timestamp_grouping_func="hour",
+        group_by=["state", "time"],
+        restrict=[("state", ["CO"])],
+    )
+
+    enduse_col = _strip_out_prefix(enduse)
+    raw_df = raw_df.copy()
+    raw_df["timestamp"] = pd.to_datetime(raw_df["timestamp"])
+    # Same -900s shift the library applies before date_trunc — :15 belongs to
+    # the prior period (period-end vs period-beginning convention).
+    raw_df["hour"] = (raw_df["timestamp"] - pd.Timedelta(seconds=900)).dt.floor("h")
+    raw_hourly = raw_df.groupby(["state", "hour"], as_index=False)[enduse_col].sum()
+
+    hourly_df = hourly_df.copy()
+    hourly_df["timestamp"] = pd.to_datetime(hourly_df["timestamp"])
+    merged = raw_hourly.merge(
+        hourly_df, left_on=["state", "hour"], right_on=["state", "timestamp"],
+        suffixes=("_raw_sum", "_hourly"),
+    )
+    if len(merged) != len(hourly_df):
+        pytest.fail(
+            f"hour bucket mismatch: raw produces {len(raw_hourly)} buckets, "
+            f"hourly query produces {len(hourly_df)} rows, merged has {len(merged)}"
+        )
+
+    diffs = []
+    for _, row in merged.iterrows():
+        raw_total = float(row[f"{enduse_col}_raw_sum"])
+        hourly_total = float(row[f"{enduse_col}_hourly"])
+        if not np.isclose(
+            raw_total, hourly_total,
+            rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+        ):
+            diffs.append(
+                f"  {row['state']} {row['hour']}: raw_sum={raw_total:.4f}, "
+                f"hourly={hourly_total:.4f}"
+            )
+    if diffs:
+        pytest.fail("15-min sum vs hourly aggregate mismatch:\n" + "\n".join(diffs))
+
+
 # --- daily and hourly sum-bucket invariants ----------------------------------
 #
 # These mirror the 15-min→monthly invariant at coarser cadences. They run

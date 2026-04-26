@@ -422,7 +422,12 @@ def compare_data(expected: pd.DataFrame, actual: pd.DataFrame) -> tuple[bool, st
                 exp_sorted[scalar_cols], act_sorted[scalar_cols],
                 rtol=DATA_RTOL, atol=DATA_ATOL, check_dtype=False,
             )
-        except AssertionError as exc:
+        except (AssertionError, TypeError) as exc:
+            # TypeError fires when assert_frame_equal can't even attempt the
+            # element-wise check — e.g. one parquet's column is dtype=object
+            # holding Decimal/python-int values while the other is native int64.
+            # That's a real shape difference; treat it as a mismatch so the
+            # overwrite path writes the new parquet rather than crashing.
             return False, str(exc)
         for col in array_cols:
             err = _compare_array_column(col, exp_sorted[col], act_sorted[col])
@@ -433,7 +438,7 @@ def compare_data(expected: pd.DataFrame, actual: pd.DataFrame) -> tuple[bool, st
         pd.testing.assert_frame_equal(
             exp_sorted, act_sorted, rtol=DATA_RTOL, atol=DATA_ATOL, check_dtype=False
         )
-    except AssertionError as exc:
+    except (AssertionError, TypeError) as exc:
         return False, str(exc)
     return True, None
 

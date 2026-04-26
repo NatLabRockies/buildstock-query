@@ -379,9 +379,27 @@ class BuildStockAggregate:
             annual_only=params.annual_only,
             upgrade_id=upgrade_id,
         )
+        # On TS paths, `applied_only=True` must filter the surviving bs_keys to
+        # buildings where the upgrade applied — the annual flow does this via an
+        # up_table join carrying `applicability=true`, but the TS flow has no
+        # such join in the single-upgrade or upgrade-pair shapes. Synthesize an
+        # `applied_in=[upgrade_id]` to ride the existing `_get_applied_in_subquery`
+        # machinery (which already enforces `_up_successful_condition`). On
+        # OEDI-style schemas with `inapplicables_have_ts=true`, omitting this
+        # filter silently inflates totals across all `applied_only=True` TS
+        # queries; on classic schemas the inapplicable rows aren't in the TS
+        # table, so the filter is a no-op rather than wrong.
+        effective_applied_in = params.applied_in
+        if (
+            not params.annual_only
+            and params.applied_only
+            and upgrade_id != "0"
+            and not effective_applied_in
+        ):
+            effective_applied_in = [upgrade_id]
         bs_restrict = self._bsq._add_applied_in_restrict(
             params.restrict,
-            applied_in=params.applied_in,
+            applied_in=effective_applied_in,
             annual_only=params.annual_only,
         )
         enduse_cols = self._bsq._get_enduse_cols(

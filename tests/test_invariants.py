@@ -167,26 +167,17 @@ SCHEMA_CASES = [
 # - upgrade1: upgrade 1, with applied_only=False (count both applied and unapplied
 #   rows; without this explicit False, the schema validator would silently flip to
 #   True and collapse this scenario onto the next one).
-# - upgrade1_applied: upgrade 1, applied_only=True.
+# - upgrade1_applied: upgrade 1, applied_only=True. Pins the fix that synthesizes
+#   `applied_in=[upgrade_id]` on TS paths so the TS flow filters inapplicable
+#   buildings the same way the annual flow does (via up.applicability=true).
 # - upgrade1_applied_in_1_2: upgrade 1, applied_only=True, restricted further to
 #   buildings to which both upgrades 1 and 2 applied.
-# `upgrade1_applied` is xfail because the timeseries upgrade-pair flow doesn't apply
-# the same `up.applicability='true'` filter that the annual flow does — the TS table
-# includes inapplicable buildings when `inapplicables_have_ts=true`. Annual reports
-# fewer building types / lower totals than TS for any `applied_only=True` query.
-# Fix would touch user-facing "applied" semantics; deferred until that decision lands.
-APPLICABILITY_DIVERGENCE = pytest.mark.xfail(
-    reason="Known: TS upgrade-pair flow doesn't filter inapplicable buildings the way annual does.",
-    strict=True,
-)
-
 SCENARIOS = [
     pytest.param({"upgrade_id": "0"}, id="baseline"),
     pytest.param({"upgrade_id": "1", "applied_only": False}, id="upgrade1"),
     pytest.param(
         {"upgrade_id": "1", "applied_only": True},
         id="upgrade1_applied",
-        marks=APPLICABILITY_DIVERGENCE,
     ),
     pytest.param(
         {"upgrade_id": "1", "applied_only": True, "applied_in": [1, 2]},

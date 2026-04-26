@@ -98,6 +98,11 @@ def _resolve_resstock_placeholder(name: str, *, annual: bool) -> Any:
         # Per-schema sqft column for the `weights` snapshot — the `..ft2`
         # suffix on comstock annual columns mirrors the `..kwh` enduse suffix.
         "SQFT_COL": "in.sqft",
+        # Pair of states used by test_multi_state_savings_equals_sum_of_per_state.
+        # Resstock's bldg_id namespace happens to be globally unique across
+        # states, so any two states give a clean disjoint additivity test —
+        # CO + WY chosen for the small data volume.
+        "MULTI_STATE_PAIR": ["CO", "WY"],
         "AVOID_BUILDING_TYPE": "Mobile Home",
         "AVOID_BUILDING_TYPES_MULTI": ["Mobile Home", "Multi-Family with 5+ Units"],
         "VINTAGE_BUCKET": "1980s",
@@ -130,6 +135,17 @@ def _resolve_comstock_placeholder(name: str, *, annual: bool) -> Any:
         "STATE_COL_BASELINE": "state",
         "BS_TABLE_NAME": "comstock_amy2018_r2_2025_md_by_state_and_county_parquet",
         "SQFT_COL": "in.sqft..ft2",
+        # Pair of states used by test_multi_state_savings_equals_sum_of_per_state.
+        # Comstock's bldg_id namespace IS reused across states (the schema's
+        # composite key (bldg_id, state) is what disambiguates them), so this
+        # pair is chosen specifically for confirmed bldg_id collision: CO ∩ NM
+        # contains 413 overlapping bldg_id values. CO is already cached from
+        # other tests, so this pair only needs one fresh Athena query (NM-only)
+        # plus the multi-state aggregate. Additivity holding under this pair
+        # confirms the join logic correctly treats (bldg_id, state) as the
+        # composite identity rather than bldg_id alone — a bldg_id-only join
+        # would double-count overlapping buildings and break the sum check.
+        "MULTI_STATE_PAIR": ["CO", "NM"],
         "AVOID_BUILDING_TYPE": "Warehouse",
         "AVOID_BUILDING_TYPES_MULTI": ["Warehouse", "SmallOffice"],
         "VINTAGE_BUCKET": "1980 to 1989",

@@ -1023,25 +1023,27 @@ def test_savings_independent_of_applied_only_flag(request, bsq_fixture, schema):
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
 def test_multi_state_savings_equals_sum_of_per_state(request, bsq_fixture, schema):
-    """Savings query restricted to ['CO', 'WY'] must equal the per-group sum of
-    the same query restricted to ['CO'] alone plus the same query restricted to
-    ['WY'] alone — for each of __baseline, __upgrade, __savings, both fuels.
+    """Savings query restricted to two states must equal the per-group sum of
+    the same query run on each state alone — for each of __baseline,
+    __upgrade, __savings, both fuels.
 
-    Catches bugs that surface only when multiple states are part of the same
-    query: state-axis aggregation errors, joins that don't propagate the state
-    partition predicate to all sides, or implicit assumptions that bldg_id is
-    globally unique (it can collide across states on the TS table when the
-    underlying view doesn't carry state in the join key — `bldg_id` is unique
-    *per state* on resstock_oedi, and is part of a composite key on
-    comstock_oedi).
+    The state pair is per-schema (`MULTI_STATE_PAIR` placeholder):
 
-    Soundness check: this test asserts additivity, which only holds when the
-    bldg_id sets across the two states are disjoint. Both schemas currently
-    satisfy that (resstock CO bldg_ids ~9k, WY ~1k, no overlap; comstock CO
-    bldg_ids ~50k centered at 50216, WY ~18k centered at 99625, no overlap).
-    If a future data release introduces overlap, the additivity formulation
-    here would no longer hold — the test should be re-derived to subtract the
-    double-counted overlap rather than just be silenced.
+    - resstock: ['CO', 'WY']. bldg_ids happen to be globally unique across
+      states in this dataset, so additivity falls out of the disjoint key
+      sets — the test is a structural regression guard.
+    - comstock: ['CO', 'NM']. ~413 bldg_id values appear in BOTH states.
+      The schema's composite key (bldg_id, state) is what makes them
+      distinct buildings; if the join logic ever degrades to bldg_id-only,
+      overlapping buildings would be double-counted and additivity would
+      break. This pair specifically exercises the composite-key path; CO
+      is reused from other tests so only NM-only and (CO, NM) need fresh
+      Athena calls.
+
+    Catches bugs that surface only when multiple states are part of the
+    same query: state-axis aggregation errors, joins that don't propagate
+    the state partition predicate to all sides, and implicit assumptions
+    that bldg_id is globally unique.
     """
     from buildstock_query.aggregate_query import UnsupportedQueryShape
 
@@ -1051,24 +1053,26 @@ def test_multi_state_savings_equals_sum_of_per_state(request, bsq_fixture, schem
         resolve_placeholder(schema, "natural_gas_total"),
     ]
     group_col = resolve_placeholder(schema, "building_type_col")
+    state_pair = resolve_placeholder(schema, "multi_state_pair")
+    s1, s2 = state_pair[0], state_pair[1]
 
     try:
-        co = bsq.query(
+        s1_df = bsq.query(
             enduses=enduses, upgrade_id="1",
             applied_only=True, group_by=[group_col],
-            restrict=[("state", ["CO"])],
+            restrict=[("state", [s1])],
             include_baseline=True, include_upgrade=True, include_savings=True,
         )
-        wy = bsq.query(
+        s2_df = bsq.query(
             enduses=enduses, upgrade_id="1",
             applied_only=True, group_by=[group_col],
-            restrict=[("state", ["WY"])],
+            restrict=[("state", [s2])],
             include_baseline=True, include_upgrade=True, include_savings=True,
         )
         both = bsq.query(
             enduses=enduses, upgrade_id="1",
             applied_only=True, group_by=[group_col],
-            restrict=[("state", ["CO", "WY"])],
+            restrict=[("state", [s1, s2])],
             include_baseline=True, include_upgrade=True, include_savings=True,
         )
     except UnsupportedQueryShape as exc:
@@ -1079,15 +1083,15 @@ def test_multi_state_savings_equals_sum_of_per_state(request, bsq_fixture, schem
 
     # Combined per-group totals must equal the union of building-type keys
     # across both single-state queries.
-    co_indexed = co.set_index(group_col).sort_index()
-    wy_indexed = wy.set_index(group_col).sort_index()
+    s1_indexed = s1_df.set_index(group_col).sort_index()
+    s2_indexed = s2_df.set_index(group_col).sort_index()
     both_indexed = both.set_index(group_col).sort_index()
-    expected_keys = sorted(set(co_indexed.index) | set(wy_indexed.index))
+    expected_keys = sorted(set(s1_indexed.index) | set(s2_indexed.index))
     actual_keys = sorted(both_indexed.index)
     if expected_keys != actual_keys:
         pytest.fail(
-            f"multi-state group_by key set differs from union of per-state keys:\n"
-            f"  expected={expected_keys}\n  actual={actual_keys}"
+            f"multi-state group_by key set differs from union of per-state keys "
+            f"({s1}+{s2}):\n  expected={expected_keys}\n  actual={actual_keys}"
         )
 
     diffs = []
@@ -1095,22 +1099,22 @@ def test_multi_state_savings_equals_sum_of_per_state(request, bsq_fixture, schem
         for suffix in suffixes:
             col = f"{base}{suffix}"
             for key in expected_keys:
-                co_val = float(co_indexed.loc[key, col]) if key in co_indexed.index else 0.0
-                wy_val = float(wy_indexed.loc[key, col]) if key in wy_indexed.index else 0.0
+                s1_val = float(s1_indexed.loc[key, col]) if key in s1_indexed.index else 0.0
+                s2_val = float(s2_indexed.loc[key, col]) if key in s2_indexed.index else 0.0
                 both_val = float(both_indexed.loc[key, col])
-                expected = co_val + wy_val
+                expected = s1_val + s2_val
                 if not np.isclose(
                     expected, both_val,
                     rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL, equal_nan=True,
                 ):
                     diffs.append(
-                        f"  {key} {col}: CO+WY={expected:.4f}, "
+                        f"  {key} {col}: {s1}+{s2}={expected:.4f}, "
                         f"multi-state={both_val:.4f}"
                     )
     if diffs:
         pytest.fail(
-            "multi-state savings query disagrees with sum of per-state queries:\n"
-            + "\n".join(diffs)
+            f"multi-state savings query ({s1}+{s2}) disagrees with sum of "
+            f"per-state queries:\n" + "\n".join(diffs)
         )
 
 

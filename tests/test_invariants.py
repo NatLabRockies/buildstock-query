@@ -1118,6 +1118,140 @@ def test_multi_state_savings_equals_sum_of_per_state(request, bsq_fixture, schem
         )
 
 
+# --- comstock composite-key handling for shared bldg_id ---------------------
+
+def test_comstock_shared_bldg_id_composite_key_handling(request):
+    """Targeted check that comstock's composite-key architecture is handled
+    correctly throughout the query stack. Uses bldg_id=51037, which is a
+    building archetype deployed in 4 states (CO=2 tracts, NM=30 tracts,
+    OK=1 tract, TX=13 tracts — 46 metadata rows total) but stored as ONE
+    timeseries stream per (bldg_id, state) pair.
+
+    The composite metadata key is (bldg_id, state, tract); the TS unique key
+    is (bldg_id, state). Bugs in handling this would show as one of:
+      - state filter not propagating to the TS join (multi-state query
+        inflates a single-state archetype)
+      - bldg_id-only join (TS rows fan out across unrelated metadata rows)
+      - GROUP BY collapsing on bldg_id alone (loses tract-level breakdown)
+
+    Anchored expected values:
+      no group_by, bldg=51037: sample_count=46, units_count≈8.987, kWh≈3.711M
+      bldg=51037, state=CO:    sample_count=2,  units_count≈0.616, kWh≈0.255M
+      bldg=51037, state=NM:    sample_count=30, units_count≈5.694, kWh≈2.352M
+      bldg=51037, state=OK:    sample_count=1,  units_count≈0.043, kWh≈0.018M
+      bldg=51037, state=TX:    sample_count=13, units_count≈2.633, kWh≈1.088M
+
+    Comstock-only — resstock's bldg_ids are globally unique (one bldg_id ↔
+    one (state, tract)), so the composite-key behavior under test is
+    structurally absent from that schema.
+    """
+    bsq = request.getfixturevalue("bsq_comstock_oedi")
+    enduse = "out.electricity.total.energy_consumption..kwh"
+    bldg = 51037
+
+    # Identity: query with no state filter returns all 46 metadata rows
+    # across all 4 states. If the library implicitly picked one state, we'd
+    # see fewer; if it cross-products with TS rows incorrectly, we'd see more.
+    by_state = bsq.query(
+        enduses=[enduse], upgrade_id="0",
+        restrict=[("bldg_id", [bldg])],
+        group_by=["state"],
+    )
+    by_state_indexed = by_state.set_index("state")
+    expected_per_state = {
+        "CO": (2,  0.616301, 254552.65),
+        "NM": (30, 5.694012, 2351817.0),
+        "OK": (1,  0.043486, 17961.03),
+        "TX": (13, 2.633057, 1087540.0),
+    }
+    if set(by_state_indexed.index) != set(expected_per_state):
+        pytest.fail(
+            f"bldg=51037 by state: expected states {sorted(expected_per_state)}, "
+            f"got {sorted(by_state_indexed.index)}"
+        )
+    for st, (n, w, kwh) in expected_per_state.items():
+        row = by_state_indexed.loc[st]
+        assert int(row["sample_count"]) == n, (
+            f"sample_count for ({bldg}, {st}): expected {n}, got {row['sample_count']}"
+        )
+        assert np.isclose(float(row["units_count"]), w, rtol=1e-3), (
+            f"units_count for ({bldg}, {st}): expected ~{w:.4f}, got {row['units_count']}"
+        )
+        assert np.isclose(
+            float(row["electricity.total.energy_consumption..kwh"]), kwh, rtol=1e-3,
+        ), f"kWh for ({bldg}, {st}): expected ~{kwh:.0f}, got {row['electricity.total.energy_consumption']:.0f}"
+
+    # Compositional sum: no-group-by total = sum across states. Catches
+    # apportionment bugs where the no-group-by aggregation paths combine
+    # weights/energy differently than the per-state path.
+    no_grp = bsq.query(
+        enduses=[enduse], upgrade_id="0",
+        restrict=[("bldg_id", [bldg])],
+    )
+    expected_n = sum(v[0] for v in expected_per_state.values())  # 46
+    expected_w = sum(v[1] for v in expected_per_state.values())  # ~8.987
+    expected_kwh = sum(v[2] for v in expected_per_state.values())  # ~3.711M
+    assert int(no_grp["sample_count"].iloc[0]) == expected_n, (
+        f"no-group-by sample_count: expected {expected_n}, got {no_grp['sample_count'].iloc[0]}"
+    )
+    assert np.isclose(float(no_grp["units_count"].iloc[0]), expected_w, rtol=1e-3), (
+        f"no-group-by units_count: expected ~{expected_w:.4f}, got {no_grp['units_count'].iloc[0]}"
+    )
+    assert np.isclose(
+        float(no_grp["electricity.total.energy_consumption..kwh"].iloc[0]),
+        expected_kwh, rtol=1e-3,
+    ), f"no-group-by kWh: expected ~{expected_kwh:.0f}"
+
+    # Filter composition: state filter should restrict to exactly that state.
+    # bldg=51037 in CO has 2 tracts → sample_count=2.
+    co_only = bsq.query(
+        enduses=[enduse], upgrade_id="0",
+        restrict=[("bldg_id", [bldg]), ("state", ["CO"])],
+    )
+    assert int(co_only["sample_count"].iloc[0]) == 2, (
+        f"bldg+state restrict (CO): expected sample_count=2, got {co_only['sample_count'].iloc[0]}"
+    )
+    assert np.isclose(
+        float(co_only["electricity.total.energy_consumption..kwh"].iloc[0]), 254552.65, rtol=1e-3,
+    )
+
+    # Tract-level group_by forces (bldg_id, state, tract) granularity. For
+    # bldg=51037 we should see exactly 46 rows — one per metadata row. If
+    # GROUP BY collapsed on bldg_id, we'd see 1; if it collapsed on
+    # (bldg_id, state), we'd see 4. Sum across tracts equals the no-group-by
+    # total — this also tests that per-tract weights apportion correctly.
+    by_tract = bsq.query(
+        enduses=[enduse], upgrade_id="0",
+        restrict=[("bldg_id", [bldg])],
+        group_by=["state", "in.nhgis_tract_gisjoin"],
+    )
+    assert len(by_tract) == 46, (
+        f"by-tract row count: expected 46 (one per (state, tract) for bldg=51037), "
+        f"got {len(by_tract)}"
+    )
+    tract_sum = float(by_tract["electricity.total.energy_consumption..kwh"].sum())
+    assert np.isclose(tract_sum, expected_kwh, rtol=1e-3), (
+        f"sum across tracts: expected ~{expected_kwh:.0f}, got {tract_sum:.0f}"
+    )
+
+    # County-level group_by: bldg=51037 spans Las Animas and Otero in CO,
+    # multiple counties in NM, etc. Total county count for bldg=51037 must
+    # be > 4 (more than one county per state in NM at minimum) and the sum
+    # across counties must still equal the bldg-total kWh.
+    by_county = bsq.query(
+        enduses=[enduse], upgrade_id="0",
+        restrict=[("bldg_id", [bldg])],
+        group_by=["state", "in.county_name"],
+    )
+    assert len(by_county) > 4, (
+        f"by-county row count: expected > 4 (multi-county states), got {len(by_county)}"
+    )
+    county_sum = float(by_county["electricity.total.energy_consumption..kwh"].sum())
+    assert np.isclose(county_sum, expected_kwh, rtol=1e-3), (
+        f"sum across counties: expected ~{expected_kwh:.0f}, got {county_sum:.0f}"
+    )
+
+
 # --- two-fuel electricity column equals single-fuel electricity --------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)

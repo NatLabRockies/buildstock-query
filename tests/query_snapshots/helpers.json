@@ -1,5 +1,33 @@
 [
   {
+    "name": "upgrades_csv_three_buildings_upgrade1",
+    "sql_hash": {
+      "resstock_oedi": "9502a2af013d3929e455c59cece7a8ebc11682f8bb607813b966f7d80dcd9625",
+      "comstock_oedi": "6173c21ca49e5bbd7afca068e9d16c9c6077f2f023b05acddff05e268b5c4e73"
+    },
+    "description": "get_upgrades_csv for upgrade=1 restricted to a tiny known building_id list. Mirrors results_csv_three_buildings on the upgrade-table side.",
+    "args": {
+      "_method": "get_upgrades_csv",
+      "upgrade_id": "1",
+      "restrict": [
+        ["bldg_id", [1, 2, 3]]
+      ]
+    }
+  },
+  {
+    "name": "buildings_by_locations_state",
+    "sql_hash": {
+      "resstock_oedi": "4e70e43b76806ab75435230991eb180b954b4f4a965dcf7e1c62f21403616b0c",
+      "comstock_oedi": "1024d9eb8ad6eca2803279964ca523c6cd25503598f08dbcfcac08f7aba595d4"
+    },
+    "description": "get_buildings_by_locations: list bs-keys whose location_col=$STATE_COL_BASELINE is in ['CO']. Different code path from restrict — uses bs_key_cols projection and IN-list filter directly.",
+    "args": {
+      "_method": "get_buildings_by_locations",
+      "location_col": "$STATE_COL_BASELINE",
+      "locations": ["CO"]
+    }
+  },
+  {
     "name": "results_csv_three_buildings",
     "sql_hash": {
       "resstock_oedi": "71321fef59c2a88b3e13655c3e82d39ea133e6ee65a2048a1c01a683168aa21f",

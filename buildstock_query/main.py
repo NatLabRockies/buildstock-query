@@ -540,14 +540,25 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         restrict = list(restrict) if restrict else []
+        if self.up_table is None:
+            raise ValueError("This run has no upgrades")
         query = sa.select("*").select_from(self.up_table)
         if upgrade_id:
-            if self.up_table is None:
-                raise ValueError("This run has no upgrades")
             up_col = self.up_table.c["upgrade"]
             query = query.where(up_col == typed_literal(up_col, upgrade_id))
 
-        query = self._add_restrict(query, restrict, annual_only=True)
+        # Resolve restrict columns to up_table-side references when the column
+        # name exists on up_table; otherwise _add_restrict's default _get_column
+        # path returns the baseline-side column, which makes SA introduce the
+        # baseline subquery as an implicit FROM, cross-joining with up_table
+        # and producing duplicate-named columns under SELECT *.
+        rewritten_restrict = []
+        for col, vals in restrict:
+            if isinstance(col, str) and col in self.up_table.c:
+                rewritten_restrict.append((self.up_table.c[col], vals))
+            else:
+                rewritten_restrict.append((col, vals))
+        query = self._add_restrict(query, rewritten_restrict, annual_only=True)
         compiled_query = self._compile(query)
         if get_query_only:
             return compiled_query

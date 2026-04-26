@@ -144,6 +144,37 @@
     }
   },
   {
+    "name": "savings_ts_monthly_two_fuel",
+    "sql_hash": {
+      "resstock_oedi": "e0bdc6932860a12e8680dcd8c25543d12967e8b53b32e8f0166bfe9d1fb81b48",
+      "comstock_oedi": ""
+    },
+    "description": "Monthly TS savings for upgrade 1 covering both electricity and natural gas, grouped by time, CO only. Mirrors savings_annual_two_fuel on the TS path — pins the multi-fuel column-suffix shape across baseline/upgrade/savings projections in the TS upgrade-pair flow. Comstock skips per UnsupportedQueryShape (TS upgrade-pair queries on comstock).",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL",
+        "$NATURAL_GAS_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": [
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true
+    }
+  },
+  {
     "name": "savings_ts_monthly_upgrade1_quartiles",
     "sql_hash": {
       "resstock_oedi": "6f5e253fe516247746bf0edde5048fbd012bf9dd77f595a391f9c8b7656a6c59",

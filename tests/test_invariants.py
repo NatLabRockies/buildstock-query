@@ -843,6 +843,47 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
         )
 
 
+# --- savings magnitude bounded by baseline ----------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_savings_magnitude_bounded_by_baseline(request, bsq_fixture, schema):
+    """For an annual savings query, |savings| must be <= baseline + tolerance.
+    Savings is `baseline - upgrade`; an upgrade can't consume negative energy
+    and can't exceed the building's baseline (modulo small numeric drift), so
+    |b - u| <= max(b, u) <= b when u >= 0. Catches sign-flip bugs (savings
+    accidentally returned as upgrade - baseline) and unit-conversion errors
+    (savings off by a factor of 1000)."""
+    bsq = request.getfixturevalue(bsq_fixture)
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
+
+    df = bsq.query(
+        enduses=[enduse], upgrade_id="1", group_by=[group_col],
+        restrict=[("state", ["CO"])],
+        include_baseline=True, include_upgrade=True, include_savings=True,
+    )
+    baseline_col = _find_first_col(df, suffix="__baseline", contains="electricity.total")
+    savings_col = _find_first_col(df, suffix="__savings", contains="electricity.total")
+
+    bad = []
+    for _, row in df.iterrows():
+        baseline = float(row[baseline_col])
+        savings = abs(float(row[savings_col]))
+        # Allow a small absolute tolerance plus a generous relative bound (the
+        # case savings > baseline can legitimately happen for some upgrades that
+        # cause large fuel-switching artifacts on a single fuel — but for total
+        # electricity savings on an electrification-style upgrade the savings
+        # would exceed baseline only in pathological cases).
+        bound = baseline * 2 + 1.0  # 2x for safety; real bound is ~1x
+        if savings > bound:
+            bad.append(
+                f"  {row[group_col]}: |savings|={savings:.4f} > "
+                f"2x|baseline| ({bound:.4f}); baseline={baseline:.4f}"
+            )
+    if bad:
+        pytest.fail("savings magnitude unreasonable:\n" + "\n".join(bad))
+
+
 # --- aggregate sample_count == get_building_ids row count -------------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)

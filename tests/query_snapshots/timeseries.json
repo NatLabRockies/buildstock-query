@@ -171,6 +171,35 @@
     }
   },
   {
+    "name": "ts_monthly_multi_attribute_group_by",
+    "sql_hash": {
+      "resstock_oedi": "60a5caaaee8541e2ac96fac698fcb2e3131f73c96271569433d605cbcbc1dcc3",
+      "comstock_oedi": "fc10f2e48e98d52f8c250d43327bded82072ce70ffff1d3546bef9294e49cdb0"
+    },
+    "description": "Monthly TS electricity grouped by [building_type, state, time] — multi-attribute group_by combined with the time axis. Every other TS entry uses single-attribute + time; this pins the SQL shape for the more general case.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "month",
+      "group_by": [
+        "$BUILDING_TYPE_COL",
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
     "name": "ts_hourly_electricity_by_state",
     "sql_hash": {
       "resstock_oedi": "1f344ba252461efeb035c669f7a48293b0c814bd4cc716da4047d50b4c42b976",

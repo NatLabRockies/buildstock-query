@@ -76,7 +76,9 @@ class BuildStockUtility:
     ):
         new_table = self._bsq._get_table(map_table_name)
         new_column = self._bsq._get_column(map_column_name, candidate_tables=[new_table])
-        baseline_column = self._bsq._get_column(baseline_column_name, candidate_tables=[self._bsq.md_table])
+        # Bind to bs_table (not md_table directly): the outer aggregate query's
+        # FROM is the bs alias, so md_table-bound references can't resolve.
+        baseline_column = self._bsq._get_column(baseline_column_name, candidate_tables=[self._bsq.bs_table])
         params.group_by = [new_table.c[id_column], *params.group_by]
         params.weights = [*params.weights, new_table.c["weight"]]
         params.join_list = [(new_table, baseline_column, new_column), *params.join_list]

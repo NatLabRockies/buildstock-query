@@ -1,0 +1,1 @@
+SELECT CAST(upgrade.upgrade AS INTEGER) AS upgrade, CAST(NULL AS VARCHAR) AS upgrade_name FROM (SELECT * FROM resstock_2024_amy2018_release_2_metadata WHERE resstock_2024_amy2018_release_2_metadata.upgrade != 0) AS upgrade GROUP BY 1 ORDER BY 1

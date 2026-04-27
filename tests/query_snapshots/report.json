@@ -13,6 +13,31 @@
     }
   },
   {
+    "name": "report_successful_simulation_count_co",
+    "sql_hash": {
+      "resstock_oedi": "ad386cb7efd5ac6b82134c58e00c0243655a473f51661628504c33d73ee5a534",
+      "comstock_oedi": "3389a4cacb810dba906f6490ecd929112519f6c5bb8a2679d7533a92498792f8"
+    },
+    "description": "report.get_successful_simulation_count restricted to CO. Pins the metadata-only count shape. Method was broken before fix in 2026-04-26: the call passed `bs_only=True` to _add_restrict() which doesn't accept that kwarg, causing TypeError on every call with a non-empty restrict.",
+    "args": {
+      "_method": "report.get_successful_simulation_count",
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
+  },
+  {
+    "name": "report_successful_simulation_count_no_restrict",
+    "sql_hash": {
+      "resstock_oedi": "79a09db8a359dc5ef5fefcdcf3229eba38b9ba4d670eaf709ee45b1b7f0d0534",
+      "comstock_oedi": "3b6634ef57cfedf72453247222835d9c5ee1de1a95671c4dd448e013fd5690fd"
+    },
+    "description": "report.get_successful_simulation_count with no restrict — pins the no-WHERE branch (only the implicit applicability=true filter). Pairs with report_successful_simulation_count_co to cover both restrict and no-restrict paths.",
+    "args": {
+      "_method": "report.get_successful_simulation_count"
+    }
+  },
+  {
     "name": "report_success_report",
     "sql_hash": {
       "resstock_oedi": "48e792a6a9acd4973d6fdaede15369fa548adbeb0a5fc13b39868945bf41b56b",

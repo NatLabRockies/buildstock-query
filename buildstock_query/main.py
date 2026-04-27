@@ -179,16 +179,43 @@ class BuildStockQuery(QueryCore):
 
     @validate_arguments
     def get_upgrade_names(self, get_query_only: bool = False) -> Union[str, dict]:
+        """Return a dict of {upgrade_id: upgrade_name} for all upgrades in the run.
+
+        On classic ResStock/ComStock schemas the upgrade name is stored in the
+        metadata table (`apply_upgrade.upgrade_name` column) and gets populated
+        per upgrade. On OEDI schemas that column doesn't exist — the name field
+        is degraded to `None` for every upgrade, but the dict still contains an
+        entry per available upgrade so downstream iteration code keeps working
+        regardless of schema.
+        """
         if self.up_table is None:
             raise ValueError("This run has no upgrades")
-        upgrade_table = self.up_table
-        query = f"""
-            Select cast(upgrade as integer) as upgrade, arbitrary("apply_upgrade.upgrade_name") as upgrade_name
-            from {upgrade_table}
-            group by 1 order by 1
-        """
+        # Build via SA rather than f-string interpolation: self.up_table is a
+        # Subquery (see _get_subquery_table), and str(Subquery) yields the inner
+        # SELECT without enclosing parens — embedding it in `FROM {table}`
+        # produces malformed `FROM SELECT * FROM ...`. SA's select() handles
+        # the subquery shape correctly.
+        upgrade_col = self.up_table.c["upgrade"]
+        upgrade_name_col_name = "apply_upgrade.upgrade_name"
+        has_name_col = upgrade_name_col_name in self.up_table.c
+        if has_name_col:
+            upgrade_name_col = self.up_table.c[upgrade_name_col_name]
+            name_select = safunc.arbitrary(upgrade_name_col).label("upgrade_name")
+        else:
+            # OEDI: no upgrade_name column. Project a literal NULL labeled
+            # `upgrade_name` so the result shape stays the same as the
+            # classic-schema path.
+            name_select = sa.cast(sa.null(), sa.String).label("upgrade_name")
+        query = (
+            sa.select(
+                sa.cast(upgrade_col, sa.Integer).label("upgrade"),
+                name_select,
+            )
+            .group_by(sa.literal_column("1"))
+            .order_by(sa.literal_column("1"))
+        )
         if get_query_only:
-            return query
+            return self._compile(query)
         up_name_dict = self.execute(query).set_index("upgrade").to_dict()["upgrade_name"]
         return up_name_dict
 

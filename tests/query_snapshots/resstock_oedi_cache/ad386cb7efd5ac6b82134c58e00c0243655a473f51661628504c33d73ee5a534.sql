@@ -1,0 +1,1 @@
+SELECT count(*) AS count FROM (SELECT * FROM resstock_2024_amy2018_release_2_metadata WHERE resstock_2024_amy2018_release_2_metadata.upgrade = 0) AS baseline WHERE baseline.applicability = true AND baseline."in.state" = 'CO'

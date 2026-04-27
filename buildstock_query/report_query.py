@@ -831,7 +831,12 @@ class BuildStockReport:
         restrict.insert(
             0, (self._bsq.db_schema.column_names.completed_status, [self._bsq.db_schema.completion_values.success])
         )
-        query = self._bsq._add_restrict(query, restrict, bs_only=True)
+        # `annual_only=True` here restricts column resolution to the baseline
+        # and upgrade tables, skipping the TS table — appropriate since this is
+        # a metadata-only count. Was `bs_only=True` (a stale call signature
+        # that didn't match the base `_add_restrict`), which crashed every
+        # call that passed a non-empty restrict.
+        query = self._bsq._add_restrict(query, restrict, annual_only=True)
         if get_query_only:
             return self._bsq._compile(query)
 

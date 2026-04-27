@@ -826,7 +826,9 @@ class BuildStockReport:
         Returns:
             Pandas integer counting the number of successful simulation
         """
-        query = sa.select(safunc.count().label("count"))
+        # Restrict to baseline rows on the unified annual_and_metadata table,
+        # else the count would multiply by num_upgrades.
+        query = sa.select(safunc.count().label("count")).where(self._bsq._bs_upgrade_filter())
 
         restrict = list(restrict) if restrict else []
         restrict.insert(
@@ -834,9 +836,7 @@ class BuildStockReport:
         )
         # `annual_only=True` here restricts column resolution to the baseline
         # and upgrade tables, skipping the TS table — appropriate since this is
-        # a metadata-only count. Was `bs_only=True` (a stale call signature
-        # that didn't match the base `_add_restrict`), which crashed every
-        # call that passed a non-empty restrict.
+        # a metadata-only count.
         query = self._bsq._add_restrict(query, restrict, annual_only=True)
         if get_query_only:
             return self._bsq._compile(query)

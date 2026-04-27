@@ -236,6 +236,10 @@ class SnapshotEntry:
     args: list[dict[str, Any]]  # list of equivalent arg-variants (≥1)
     source_path: Path
     schema: str  # e.g. "resstock_oedi" — picks the cache directory
+    # If True, the entry's data is intentionally nondeterministic (e.g. LIMIT
+    # without ORDER BY, agg_func='arbitrary') — skip the data check, only
+    # validate SQL shape. Set via JSON field `nondeterministic: true`.
+    nondeterministic: bool = False
 
     @property
     def cache_dir(self) -> Path:
@@ -355,6 +359,7 @@ def load_entries(json_path: Path, *, schema: str) -> list[SnapshotEntry]:
                 args=variants,
                 source_path=json_path,
                 schema=schema,
+                nondeterministic=bool(item.get("nondeterministic", False)),
             )
         )
     return entries
@@ -578,15 +583,19 @@ def run_query_sql(bsq, args: dict[str, Any]) -> str:
 def run_query_data(bsq, args: dict[str, Any]):
     """Execute the query. Return type varies by method: usually a DataFrame, but
     `get_distinct_vals` returns a pd.Series, `report.get_buildings_by_change`
-    returns a list[int], `report.get_success_report` returns a tuple of frames.
-    Normalize Series and list into single-column DataFrames so the harness's
-    parquet round-trip works uniformly."""
+    returns a list[int], `report.get_success_report` returns a tuple of frames,
+    `get_upgrade_names` returns a dict. Normalize all of those into DataFrames
+    so the harness's parquet round-trip works uniformly."""
     method, args = _dispatch_method(bsq, args)
     result = method(**args, get_query_only=False)
     if isinstance(result, pd.Series):
         return result.to_frame()
     if isinstance(result, list):
         return pd.DataFrame({"value": result})
+    if isinstance(result, dict):
+        # Two-column DataFrame: keys + values. Column names match the historical
+        # `get_upgrade_names`-shaped parquet that's been the only consumer.
+        return pd.DataFrame({"upgrade": list(result.keys()), "upgrade_name": list(result.values())})
     return result
 
 
@@ -688,10 +697,15 @@ def evaluate_entries(
         # Data check fires when --check-data is set (regardless of SQL status), or when
         # --update-snapshot needs to know whether real SQL drift is safe to write through.
         # sqlglot_only skips the data check — sqlglot already proved equivalence.
+        # nondeterministic entries (LIMIT-without-ORDER-BY, agg_func='arbitrary') skip
+        # the data check entirely — they validate SQL shape only.
         sql_drift_real = outcome.status == "mismatch"
         needs_data_check = (
-            (check_data and outcome.status != "match")
-            or ((update_snapshot or overwrite_snapshot) and sql_drift_real)
+            not entry.nondeterministic
+            and (
+                (check_data and outcome.status != "match")
+                or ((update_snapshot or overwrite_snapshot) and sql_drift_real)
+            )
         )
         if needs_data_check:
             _log(
@@ -835,6 +849,24 @@ def _maybe_update(
     new_hash = outcome.primary_hash
     new_sql = outcome.primary_sql
     old_hash = outcome.entry.sql_hash
+
+    # Nondeterministic entries skipped the data check; treat SQL drift like
+    # sqlglot_only — rename parquet (data is "whatever Athena returned last
+    # time"; not meaningful to compare) and patch the JSON hash.
+    if outcome.entry.nondeterministic and outcome.status == "mismatch":
+        if old_hash:
+            old_parquet = cache.root / f"{old_hash}.parquet"
+            old_sql_path = cache.root / f"{old_hash}.sql"
+            new_parquet = cache.root / f"{new_hash}.parquet"
+            if old_parquet.exists() and old_parquet != new_parquet:
+                old_parquet.rename(new_parquet)
+            (cache.root / f"{new_hash}.sql").write_text(normalize_sql(new_sql))
+            if old_sql_path.exists() and old_sql_path != cache.root / f"{new_hash}.sql":
+                old_sql_path.unlink()
+        _patch_hash(outcome.entry.source_path, outcome.entry.name, outcome.entry.schema, new_hash)
+        outcome.updated = True
+        outcome.update_note = f"nondeterministic; renamed parquet {old_hash[:12] if old_hash else '<empty>'} → {new_hash[:12]}; patched JSON"
+        return
 
     if outcome.status == "sqlglot_only":
         # SQL refactored cosmetically; data unchanged. Rename the parquet to the

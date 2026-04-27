@@ -207,6 +207,11 @@ class BuildStockQuery(QueryCore):
                 sa.cast(upgrade_col, sa.Integer).label("upgrade"),
                 name_select,
             )
+            # Exclude baseline rows from the upgrade names listing. The unified
+            # annual_and_metadata table has upgrade=0 baseline rows that pre-2-table-
+            # pivot lived on a separate parquet — historical callers expect this
+            # method to return upgrades only (1+).
+            .where(upgrade_col != typed_literal(upgrade_col, "0"))
             .group_by(sa.literal_column("1"))
             .order_by(sa.literal_column("1"))
         )
@@ -1036,7 +1041,9 @@ class BuildStockQuery(QueryCore):
 
         """
         bs_key_cols = self.bs_key_cols
-        query = sa.select(*bs_key_cols)
+        # bs_table aliases the unified annual_and_metadata table — restrict to
+        # baseline rows so each (key) appears once, not once per upgrade.
+        query = sa.select(*bs_key_cols).where(self._bs_upgrade_filter())
         query = query.where(self._get_column(location_col, [self.bs_table]).in_(locations))
         query = self._add_order_by(query, bs_key_cols)
         if get_query_only:

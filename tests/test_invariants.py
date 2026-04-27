@@ -226,7 +226,14 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
         resolve_placeholder(schema, "electricity_total", annual=False),
         resolve_placeholder(schema, "natural_gas_total", annual=False),
     ]
-    restrict = [("state", ["CO"])]
+    # Use the schema's MULTI_STATE_PAIR for the state restrict — exercises
+    # cross-flow consistency under the multi-state SQL shape, which is
+    # different from single-state. On comstock especially, MULTI_STATE_PAIR
+    # is CO+NM where 413 bldg_id values appear in both states (composite-key
+    # disambiguation territory). On resstock the pair is CO+WY (no bldg_id
+    # collision, but still validates cross-flow agreement under the multi-
+    # state IN-list path).
+    restrict = [("state", resolve_placeholder(schema, "multi_state_pair"))]
 
     # Savings columns are invalid when upgrade_id="0" (the schema validator
     # rejects include_savings on the baseline scenario); only request them
@@ -1452,57 +1459,105 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
     of `applied_in=[1]` (buildings that applied to upgrade 1) and `applied_in=[2]`
     (buildings that applied to upgrade 2). Asserts the `_get_applied_in_subquery`
     HAVING-count machinery actually computes a set intersection rather than something
-    weaker (e.g. union, or a wrong join semantic)."""
+    weaker (e.g. union, or a wrong join semantic).
+
+    Run for two restrict scopes:
+      - single state (CO): the original case.
+      - multi-state from MULTI_STATE_PAIR: validates that the intersection logic
+        composes correctly with multi-state restricts. Catches bugs where the
+        applied_in subquery accidentally restricts to one state, drops state
+        from the IN-tuple, or where the multi-state restrict is applied
+        inconsistently across the three queries.
+    """
     bsq = request.getfixturevalue(bsq_fixture)
-
-    df_1 = bsq.get_building_ids(applied_in=[1], restrict=[("state", ["CO"])])
-    df_2 = bsq.get_building_ids(applied_in=[2], restrict=[("state", ["CO"])])
-    df_12 = bsq.get_building_ids(applied_in=[1, 2], restrict=[("state", ["CO"])])
-
-    # Each row of get_building_ids is a unique-key tuple. For resstock that's
-    # (bldg_id,); for comstock it's (bldg_id, in.nhgis_tract_gisjoin, state) because
-    # a single physical building can appear in multiple tracts. Itertuples gives us
-    # exactly the right shape to use as a set element.
-    keys_1 = set(map(tuple, df_1.itertuples(index=False, name=None)))
-    keys_2 = set(map(tuple, df_2.itertuples(index=False, name=None)))
-    keys_12 = set(map(tuple, df_12.itertuples(index=False, name=None)))
-    expected = keys_1 & keys_2
-
-    if keys_12 != expected:
-        only_in_actual = keys_12 - expected
-        only_in_expected = expected - keys_12
-        msg = [
-            f"applied_in=[1,2] returned {len(keys_12)} keys, "
-            f"intersection of applied_in=[1] ({len(keys_1)}) and applied_in=[2] "
-            f"({len(keys_2)}) has {len(expected)} keys.",
-        ]
-        if only_in_actual:
-            sample = list(sorted(only_in_actual))[:5]
-            msg.append(f"  in [1,2] but not in intersection ({len(only_in_actual)} total): {sample}")
-        if only_in_expected:
-            sample = list(sorted(only_in_expected))[:5]
-            msg.append(f"  in intersection but not in [1,2] ({len(only_in_expected)} total): {sample}")
-        pytest.fail("\n".join(msg))
-
-    # Cross-check against the aggregated `applied_in_1_2` sample_count from the
-    # invariant snapshot. The number of unique-key tuples here should equal the
-    # `sample_count` reported there (which is COUNT(DISTINCT bs_key) at the SQL level).
+    state_pair = resolve_placeholder(schema, "multi_state_pair")
     enduses = [
         resolve_placeholder(schema, "electricity_total"),
         resolve_placeholder(schema, "natural_gas_total"),
     ]
     group_col = resolve_placeholder(schema, "building_type_col")
-    inv_df = bsq.query(
-        enduses=enduses, upgrade_id="1", applied_only=True, applied_in=[1, 2],
-        group_by=[group_col], restrict=[("state", ["CO"])],
-    )
-    aggregated_sample_count = int(inv_df["sample_count"].sum())
-    if aggregated_sample_count != len(keys_12):
-        pytest.fail(
-            f"sample_count mismatch: get_building_ids returned {len(keys_12)} unique "
-            f"keys, but the aggregated applied_in=[1,2] query reports total "
-            f"sample_count={aggregated_sample_count} (sum across building types)."
+
+    for restrict_label, state_list in (
+        ("single state (CO)", ["CO"]),
+        (f"multi-state ({'+'.join(state_pair)})", state_pair),
+    ):
+        restrict = [("state", state_list)]
+
+        df_1 = bsq.get_building_ids(applied_in=[1], restrict=restrict)
+        df_2 = bsq.get_building_ids(applied_in=[2], restrict=restrict)
+        df_12 = bsq.get_building_ids(applied_in=[1, 2], restrict=restrict)
+
+        # Each row of get_building_ids is a unique-key tuple. For resstock that's
+        # (bldg_id,); for comstock it's (bldg_id, in.nhgis_tract_gisjoin, state)
+        # because a single physical building can appear in multiple tracts.
+        # Itertuples gives us exactly the right shape to use as a set element.
+        keys_1 = set(map(tuple, df_1.itertuples(index=False, name=None)))
+        keys_2 = set(map(tuple, df_2.itertuples(index=False, name=None)))
+        keys_12 = set(map(tuple, df_12.itertuples(index=False, name=None)))
+        expected = keys_1 & keys_2
+
+        if keys_12 != expected:
+            only_in_actual = keys_12 - expected
+            only_in_expected = expected - keys_12
+            msg = [
+                f"[{restrict_label}] applied_in=[1,2] returned {len(keys_12)} keys, "
+                f"intersection of applied_in=[1] ({len(keys_1)}) and applied_in=[2] "
+                f"({len(keys_2)}) has {len(expected)} keys.",
+            ]
+            if only_in_actual:
+                sample = list(sorted(only_in_actual))[:5]
+                msg.append(f"  in [1,2] but not in intersection ({len(only_in_actual)} total): {sample}")
+            if only_in_expected:
+                sample = list(sorted(only_in_expected))[:5]
+                msg.append(f"  in intersection but not in [1,2] ({len(only_in_expected)} total): {sample}")
+            pytest.fail("\n".join(msg))
+
+        # Cross-check against the aggregated `applied_in_1_2` sample_count from
+        # the invariant snapshot. The number of unique-key tuples here should
+        # equal the `sample_count` reported there (which is COUNT(DISTINCT bs_key)
+        # at the SQL level).
+        inv_df = bsq.query(
+            enduses=enduses, upgrade_id="1", applied_only=True, applied_in=[1, 2],
+            group_by=[group_col], restrict=restrict,
         )
+        aggregated_sample_count = int(inv_df["sample_count"].sum())
+        if aggregated_sample_count != len(keys_12):
+            pytest.fail(
+                f"[{restrict_label}] sample_count mismatch: get_building_ids "
+                f"returned {len(keys_12)} unique keys, but the aggregated "
+                f"applied_in=[1,2] query reports total "
+                f"sample_count={aggregated_sample_count} (sum across building types)."
+            )
+
+    # Composition check: the multi-state intersection should equal the union of
+    # per-state intersections. With state being part of the comstock composite
+    # key (bldg, tract, state), per-state key sets are disjoint even when the
+    # underlying bldg_id values collide — so the multi-state intersection should
+    # be exactly the sum of the per-state intersections in cardinality and
+    # exactly the union as sets.
+    s1, s2 = state_pair[0], state_pair[1]
+    df_12_s1 = bsq.get_building_ids(applied_in=[1, 2], restrict=[("state", [s1])])
+    df_12_s2 = bsq.get_building_ids(applied_in=[1, 2], restrict=[("state", [s2])])
+    df_12_both = bsq.get_building_ids(applied_in=[1, 2], restrict=[("state", state_pair)])
+    keys_s1 = set(map(tuple, df_12_s1.itertuples(index=False, name=None)))
+    keys_s2 = set(map(tuple, df_12_s2.itertuples(index=False, name=None)))
+    keys_both = set(map(tuple, df_12_both.itertuples(index=False, name=None)))
+    expected_union = keys_s1 | keys_s2
+    if keys_both != expected_union:
+        only_in_both = keys_both - expected_union
+        only_in_union = expected_union - keys_both
+        msg = [
+            f"applied_in=[1,2] over multi-state ({s1}+{s2}) returned {len(keys_both)} "
+            f"keys, expected union of per-state ({s1}: {len(keys_s1)}, {s2}: "
+            f"{len(keys_s2)}) = {len(expected_union)} keys.",
+        ]
+        if only_in_both:
+            sample = list(sorted(only_in_both))[:5]
+            msg.append(f"  in multi-state but not in per-state union: {sample}")
+        if only_in_union:
+            sample = list(sorted(only_in_union))[:5]
+            msg.append(f"  in per-state union but not in multi-state: {sample}")
+        pytest.fail("\n".join(msg))
 
 
 # --- savings magnitude bounded by baseline ----------------------------------

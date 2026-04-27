@@ -326,9 +326,13 @@ class BuildStockReport:
         Returns:
             Union[str, pd.DataFrame]: If get_query_only then returns the query string. Otherwise returns the dataframe.
         """
+        up_col = self._bsq.up_table.c["upgrade"]
         up_query = sa.select(
-            *[self._bsq.up_table.c["upgrade"], self._bsq._up_completed_status_col, safunc.count().label("count")]
+            *[up_col, self._bsq._up_completed_status_col, safunc.count().label("count")]
         )
+        # Exclude baseline rows from the up alias — they're "the baseline" not
+        # "an upgrade success", so they don't belong in the per-upgrade report.
+        up_query = up_query.where(up_col != typed_literal(up_col, "0"))
         if trim_missing_bs:
             up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             up_query = up_query.where(self._bsq._bs_successful_condition)
@@ -374,12 +378,15 @@ class BuildStockReport:
             applied_agg = safunc.array_agg(up_key_cols[0])
         else:
             applied_agg = safunc.array_agg(sa.func.row(*up_key_cols))
+        up_col = self._bsq.up_table.c["upgrade"]
         query = sa.select(
-            *[self._bsq.up_table.c["upgrade"],
+            *[up_col,
               *opt_name_cols,
               safunc.count().label("success"),
               applied_agg]
         )
+        # Exclude baseline rows — option names only make sense for actual upgrades.
+        query = query.where(up_col != typed_literal(up_col, "0"))
         if trim_missing_bs:
             query = query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             query = query.where(self._bsq._bs_successful_condition)

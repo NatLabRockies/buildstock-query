@@ -358,12 +358,13 @@ class QueryCore:
         (one row per (bldg_id, upgrade) carrying both characteristics and
         annual results) and a `timeseries` parquet. We expose the unified
         table as `self.md_table` and provide two SQLAlchemy aliases over it
-        — `bs_table` (alias "baseline") and `up_table` (alias "upgrade") —
-        so the rest of the codebase can keep the baseline/upgrade distinction
-        for join construction and identity-based dispatch. The aliases produce
-        clean `FROM md AS baseline JOIN md AS upgrade ...` SQL; the
-        `baseline.upgrade = 0` predicate rides the join ON clause via
-        `_baseline_*_join_condition`.
+        — `bs_table` (alias "bs") and `up_table` (alias "up") — so the rest
+        of the codebase can keep the baseline/upgrade distinction for join
+        construction and identity-based dispatch. The aliases produce
+        `FROM md AS bs JOIN md AS up ...` SQL — the alias names indicate
+        which side of the join each reference participates in, not that
+        the table itself is baseline-only. The `bs.upgrade = 0` predicate
+        rides the join ON clause via `_baseline_*_join_condition`.
 
         For tuple `table_name`, the entries are `(annual_and_metadata, timeseries)`.
         """
@@ -383,8 +384,8 @@ class QueryCore:
         ts_table = self._get_table(ts_table_name, missing_ok=True) if ts_table_name else None
 
         md_table = self._get_table(md_table_name)
-        baseline_table = md_table.alias("baseline")
-        upgrade_table = md_table.alias("upgrade")
+        baseline_table = md_table.alias("bs")
+        upgrade_table = md_table.alias("up")
 
         return baseline_table, ts_table, upgrade_table, md_table
 

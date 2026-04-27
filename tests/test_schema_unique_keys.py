@@ -76,8 +76,8 @@ def _custom_join_key_bsq(
         sa.Column("upgrade", sa.String),
         sa.Column("out.electricity.total.energy_consumption", sa.Float),
     )
-    baseline = md.alias("baseline")
-    upgrades = md.alias("upgrade")
+    baseline = md.alias("bs")
+    upgrades = md.alias("up")
 
     def _get_local_tables(self, requested_table_name):
         assert requested_table_name == "custom_run"
@@ -152,9 +152,9 @@ def test_annual_query_uses_metadata_unique_keys(monkeypatch: pytest.MonkeyPatch)
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    assert "baseline.bldg_id = upgrade.bldg_id" in query
-    assert "baseline.county = upgrade.county" in query
-    assert "baseline.state = upgrade.state" in query
+    assert "bs.bldg_id = up.bldg_id" in query
+    assert "bs.county = up.county" in query
+    assert "bs.state = up.state" in query
 
 
 def test_timeseries_query_uses_timeseries_unique_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,8 +164,8 @@ def test_timeseries_query_uses_timeseries_unique_keys(monkeypatch: pytest.Monkey
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    assert "baseline.bldg_id = custom_run_by_state.bldg_id" in query
-    assert "baseline.state = custom_run_by_state.state" in query
+    assert "bs.bldg_id = custom_run_by_state.bldg_id" in query
+    assert "bs.state = custom_run_by_state.state" in query
 
 
 def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -182,7 +182,7 @@ def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.M
     assert "ts_b.bldg_id = ts_u.bldg_id" in query
     assert "ts_b.state = ts_u.state" in query
     assert "ts_b.timestamp = ts_u.timestamp" in query
-    assert "baseline.state = ts_b.state" in query
+    assert "bs.state = ts_b.state" in query
 
 
 def test_timeseries_pair_join_defaults_to_building_id_when_unconfigured(
@@ -230,11 +230,8 @@ def test_key_attributes_default_to_building_id(monkeypatch: pytest.MonkeyPatch) 
 def test_get_building_ids_returns_all_metadata_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     bsq = _custom_join_key_bsq(monkeypatch)
     query = bsq.get_building_ids(get_query_only=True)
-    # bs_table is aliased as "baseline" over the unified metadata table.
-    assert (
-        "SELECT baseline.bldg_id, baseline.county, baseline.state"
-        in query
-    )
+    # bs_table is aliased as "bs" over the unified metadata table.
+    assert "SELECT bs.bldg_id, bs.county, bs.state" in query
 
 
 # ---------------------------------------------------------------------------
@@ -250,9 +247,9 @@ def test_applied_in_uses_tuple_filter_for_multi_metadata_keys(monkeypatch: pytes
         get_query_only=True,
     )
     # Outer side: bs alias on the unified metadata table.
-    assert "(baseline.bldg_id, baseline.county, baseline.state) IN" in query
+    assert "(bs.bldg_id, bs.county, bs.state) IN" in query
     # Inner side: up alias on the same unified metadata table.
-    assert "SELECT upgrade.bldg_id, upgrade.county, upgrade.state" in query
+    assert "SELECT up.bldg_id, up.county, up.state" in query
 
 
 def test_applied_in_single_key_preserves_scalar_in_clause(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -266,8 +263,8 @@ def test_applied_in_single_key_preserves_scalar_in_clause(monkeypatch: pytest.Mo
         applied_in=["1"],
         get_query_only=True,
     )
-    assert "baseline.bldg_id IN (SELECT upgrade.bldg_id" in query
-    assert "(baseline.bldg_id," not in query
+    assert "bs.bldg_id IN (SELECT up.bldg_id" in query
+    assert "(bs.bldg_id," not in query
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +284,7 @@ def test_aggregate_uses_multi_column_count_distinct(monkeypatch: pytest.MonkeyPa
         timestamp_grouping_func="month",
         get_query_only=True,
     )
-    assert "count(DISTINCT (baseline.bldg_id, baseline.county, baseline.state))" in query
+    assert "count(DISTINCT (bs.bldg_id, bs.county, bs.state))" in query
 
 
 def test_aggregate_single_key_preserves_scalar_count_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -304,10 +301,10 @@ def test_aggregate_single_key_preserves_scalar_count_distinct(monkeypatch: pytes
         timestamp_grouping_func="month",
         get_query_only=True,
     )
-    assert "count(distinct(baseline.bldg_id))" in query
+    assert "count(distinct(bs.bldg_id))" in query
     # Negative: must NOT be a tuple form
-    assert "count(distinct(baseline.bldg_id," not in query
-    assert "count(DISTINCT (baseline.bldg_id" not in query
+    assert "count(distinct(bs.bldg_id," not in query
+    assert "count(DISTINCT (bs.bldg_id" not in query
 
 
 # ---------------------------------------------------------------------------
@@ -367,11 +364,13 @@ def test_get_tables_aliases_unified_metadata_table(
     table_name: str | tuple[str, None, None],
 ) -> None:
     """The 2-table schema shape (`annual_and_metadata` + `timeseries`) wraps the
-    single physical table in two SQLAlchemy aliases — one labelled "baseline",
-    one "upgrade". This produces clean `FROM md AS baseline JOIN md AS upgrade`
-    SQL with no synthesized `(SELECT * FROM md WHERE upgrade=0)` subquery
-    wrapper. The `md_table` attribute exposes the underlying table; `bs_table`
-    and `up_table` are the aliases."""
+    single physical table in two SQLAlchemy aliases — one labelled "bs",
+    one "up". This produces clean `FROM md AS bs JOIN md AS up` SQL with no
+    synthesized `(SELECT * FROM md WHERE upgrade=0)` subquery wrapper. The
+    `md_table` attribute exposes the underlying table; `bs_table` and
+    `up_table` are the aliases. The aliases name which side of the join
+    a column reference belongs to, not that the table itself is baseline-
+    or upgrade-only."""
     # Build a minimal 2-table schema dict (no Athena needed).
     db_schema_dict = toml.load(_RESSTOCK_OEDI_SCHEMA_PATH)
     db_schema_dict["table_suffix"] = {
@@ -420,8 +419,8 @@ def test_get_tables_aliases_unified_metadata_table(
     compiled_upgrade = " ".join(bsq._compile(sa.select(upgrade_table.c["building_id"])).split())
     assert "SELECT *" not in compiled_baseline
     assert "SELECT *" not in compiled_upgrade
-    assert f"FROM {source_table.name} AS baseline" in compiled_baseline
-    assert f"FROM {source_table.name} AS upgrade" in compiled_upgrade
+    assert f"FROM {source_table.name} AS bs" in compiled_baseline
+    assert f"FROM {source_table.name} AS up" in compiled_upgrade
 
     compiled_available_upgrades = []
 
@@ -432,8 +431,8 @@ def test_get_tables_aliases_unified_metadata_table(
     bsq.up_table = upgrade_table
     bsq.execute = execute
     assert bsq.get_available_upgrades() == ["0", "1", "2", "3"]
-    assert "SELECT DISTINCT upgrade.upgrade" in compiled_available_upgrades[0]
-    assert "ORDER BY upgrade.upgrade" not in compiled_available_upgrades[0]
+    assert "SELECT DISTINCT up.upgrade" in compiled_available_upgrades[0]
+    assert "ORDER BY up.upgrade" not in compiled_available_upgrades[0]
     assert "ORDER BY 1" in compiled_available_upgrades[0]
 
 

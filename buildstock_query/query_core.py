@@ -216,22 +216,31 @@ class QueryCore:
         baseline_table: AnyTableType | None = None,
         timeseries_table: AnyTableType | None = None,
     ) -> sa.ColumnElement:
-        return self._join_condition(
-            baseline_table if baseline_table is not None else self.bs_table,
-            timeseries_table if timeseries_table is not None else self.ts_table,
-            "timeseries",
-        )
+        bs = baseline_table if baseline_table is not None else self.bs_table
+        ts = timeseries_table if timeseries_table is not None else self.ts_table
+        return sa.and_(self._join_condition(bs, ts, "timeseries"), self._bs_upgrade_filter(bs))
 
     def _baseline_upgrade_join_condition(
         self,
         baseline_table: AnyTableType | None = None,
         upgrade_table: AnyTableType | None = None,
     ) -> sa.ColumnElement:
-        return self._join_condition(
-            baseline_table if baseline_table is not None else self.bs_table,
-            upgrade_table if upgrade_table is not None else self.up_table,
-            "metadata",
-        )
+        bs = baseline_table if baseline_table is not None else self.bs_table
+        up = upgrade_table if upgrade_table is not None else self.up_table
+        return sa.and_(self._join_condition(bs, up, "metadata"), self._bs_upgrade_filter(bs))
+
+    def _bs_upgrade_filter(self, baseline_table: AnyTableType | None = None) -> sa.ColumnElement:
+        """Return `baseline_table.upgrade = 0`.
+
+        `bs_table` is an alias over the unified annual_and_metadata table,
+        which holds rows for every upgrade. Anywhere code selects through
+        the baseline alias and depends on it being baseline-only, this
+        predicate must ride the WHERE or join ON clause. Centralized so
+        every site uses the same expression.
+        """
+        tbl = baseline_table if baseline_table is not None else self.bs_table
+        upgrade_col = tbl.c["upgrade"]
+        return upgrade_col == typed_literal(upgrade_col, "0")
 
     def _timeseries_pair_join_condition(
         self,
@@ -338,66 +347,40 @@ class QueryCore:
         raw_subquery = sa.select("*").select_from(source_table).where(where_clause)
         return sa.text(self._compile(raw_subquery)).columns(*source_table.c).subquery(alias_name)
 
-    def _get_tables(self, table_name: Union[str, tuple[str, Optional[str], Optional[str]]]):
-        """Resolve the underlying physical tables for this run.
+    def _get_tables(self, table_name: Union[str, tuple[str, Optional[str]]]):
+        """Resolve the two underlying physical tables for this run.
 
-        Two schema shapes are supported (see `TableSuffix` docstring):
+        The schema is two tables: a unified `annual_and_metadata` parquet
+        (one row per (bldg_id, upgrade) carrying both characteristics and
+        annual results) and a `timeseries` parquet. We expose the unified
+        table as `self.md_table` and provide two SQLAlchemy aliases over it
+        — `bs_table` (alias "baseline") and `up_table` (alias "upgrade") —
+        so the rest of the codebase can keep the baseline/upgrade distinction
+        for join construction and identity-based dispatch. The aliases produce
+        clean `FROM md AS baseline JOIN md AS upgrade ...` SQL; the
+        `baseline.upgrade = 0` predicate rides the join ON clause via
+        `_baseline_*_join_condition`.
 
-        * 2-table (OEDI): a single `annual_and_metadata` parquet holds rows for
-          every upgrade. We expose it as `self.md_table`, plus two aliases
-          `bs_table` / `up_table` so existing join-site code keeps the
-          baseline/upgrade distinction. The aliases produce
-          `FROM md AS baseline JOIN md AS upgrade ...` SQL — no synthesized
-          `(SELECT * FROM md WHERE upgrade=0)` subquery wrapper. The actual
-          `upgrade=0` filter rides the join's ON clause instead.
-
-        * 3-table (legacy): baseline and upgrades are physically separate
-          parquets. `md_table` is None; `bs_table` and `up_table` are the
-          loaded tables themselves. No subquery synthesis is needed because
-          the tables really are distinct.
-
-        For tuple `table_name`, the entries are `(baseline, timeseries, upgrades)`
-        for the 3-table shape, or `(annual_and_metadata, timeseries, None)` for
-        the 2-table shape.
+        For tuple `table_name`, the entries are `(annual_and_metadata, timeseries)`.
         """
         self._engine = self._create_athena_engine(
             region_name=self.region_name, database=self.db_name, workgroup=self.workgroup
         )
 
         suffix = self.db_schema.table_suffix
-        unified_shape = suffix.annual_and_metadata is not None
 
         if isinstance(table_name, str):
+            md_table_name = f"{table_name}{suffix.annual_and_metadata}"
             ts_table_name = f"{table_name}{suffix.timeseries}"
-            if unified_shape:
-                md_table_name = f"{table_name}{suffix.annual_and_metadata}"
-                baseline_table_name = md_table_name
-                upgrade_table_name = md_table_name
-            else:
-                baseline_table_name = f"{table_name}{suffix.baseline}"
-                upgrade_table_name = f"{table_name}{suffix.upgrades}"
-                md_table_name = None
         else:
-            baseline_table_name = table_name[0]
-            ts_table_name = table_name[1]
-            upgrade_table_name = table_name[2] if len(table_name) > 2 else None
-            md_table_name = baseline_table_name if unified_shape else None
-            if unified_shape:
-                upgrade_table_name = baseline_table_name
+            md_table_name = table_name[0]
+            ts_table_name = table_name[1] if len(table_name) > 1 else None
 
         ts_table = self._get_table(ts_table_name, missing_ok=True) if ts_table_name else None
 
-        if unified_shape:
-            md_table = self._get_table(md_table_name)
-            # Lightweight aliases — same physical table, distinct SA handles so
-            # the rest of the codebase can keep treating bs_table and up_table
-            # as separate entities for identity checks and join construction.
-            baseline_table = md_table.alias("baseline")
-            upgrade_table = md_table.alias("upgrade")
-        else:
-            md_table = None
-            baseline_table = self._get_table(baseline_table_name)
-            upgrade_table = self._get_table(upgrade_table_name, missing_ok=True) if upgrade_table_name else None
+        md_table = self._get_table(md_table_name)
+        baseline_table = md_table.alias("baseline")
+        upgrade_table = md_table.alias("upgrade")
 
         return baseline_table, ts_table, upgrade_table, md_table
 

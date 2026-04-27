@@ -339,7 +339,7 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         restrict = list(restrict) if restrict else []
-        query = sa.select("*").select_from(self.bs_table)
+        query = sa.select("*").select_from(self.bs_table).where(self._bs_upgrade_filter())
         query = self._add_restrict(query, restrict, annual_only=True)
         compiled_query = self._compile(query)
         if get_query_only:
@@ -1051,11 +1051,21 @@ class BuildStockQuery(QueryCore):
 
     @property
     def _bs_successful_condition(self):
+        """`bs.applicability=true AND bs.upgrade=0` — bs_table is an alias over
+        the unified metadata table that holds every upgrade, so a bare
+        applicability filter would also match successful upgrade rows. The
+        upgrade-id pin keeps "successful baseline rows" the right set."""
         col = self._bs_completed_status_col
-        return col == typed_literal(col, self.db_schema.completion_values.success)
+        return sa.and_(
+            col == typed_literal(col, self.db_schema.completion_values.success),
+            self._bs_upgrade_filter(),
+        )
 
     @property
     def _up_successful_condition(self):
+        """`up.applicability=true`. Callers always pin `up.upgrade=upgrade_id`
+        explicitly, which is strictly stronger than `upgrade!=0`, so we don't
+        bake an upgrade filter in here."""
         col = self._up_completed_status_col
         return col == typed_literal(col, self.db_schema.completion_values.success)
 

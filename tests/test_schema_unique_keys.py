@@ -31,8 +31,8 @@ _PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 _COMSTOCK_OEDI_SCHEMA_PATH = (
     _PROJECT_ROOT / "buildstock_query" / "db_schema" / "comstock_oedi_state_and_county.toml"
 )
-_RESSTOCK_DEFAULT_SCHEMA_PATH = (
-    _PROJECT_ROOT / "buildstock_query" / "db_schema" / "resstock_default.toml"
+_RESSTOCK_OEDI_SCHEMA_PATH = (
+    _PROJECT_ROOT / "buildstock_query" / "db_schema" / "resstock_oedi.toml"
 )
 
 
@@ -59,11 +59,12 @@ def _custom_join_key_bsq(
         "timeseries": ["bldg_id", "state"],
     }
     metadata = sa.MetaData()
-    baseline = sa.Table(
+    md = sa.Table(
         "custom_run_metadata", metadata,
         sa.Column("bldg_id", sa.Integer),
         sa.Column("county", sa.String),
         sa.Column("state", sa.String),
+        sa.Column("upgrade", sa.String),
         sa.Column("applicability", sa.String),
         sa.Column("out.electricity.total.energy_consumption", sa.Float),
     )
@@ -75,21 +76,12 @@ def _custom_join_key_bsq(
         sa.Column("upgrade", sa.String),
         sa.Column("out.electricity.total.energy_consumption", sa.Float),
     )
-    upgrades = sa.Table(
-        "custom_run_upgrades", metadata,
-        sa.Column("bldg_id", sa.Integer),
-        sa.Column("county", sa.String),
-        sa.Column("state", sa.String),
-        sa.Column("upgrade", sa.String),
-        sa.Column("applicability", sa.String),
-        sa.Column("out.electricity.total.energy_consumption", sa.Float),
-    )
+    baseline = md.alias("baseline")
+    upgrades = md.alias("upgrade")
 
     def _get_local_tables(self, requested_table_name):
         assert requested_table_name == "custom_run"
-        # md_table is None because this fixture builds a classic 3-table shape
-        # (baseline and upgrades are physically distinct).
-        return baseline, timeseries, upgrades, None
+        return baseline, timeseries, upgrades, md
 
     monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
     bsq = BuildStockQuery(
@@ -117,48 +109,10 @@ def _classic_resstock_bsq(
     include_upgrades: bool = True,
     include_state_on_upgrades: bool = False,
 ) -> BuildStockQuery:
-    """BSQ with classic-ResStock-style synthetic tables. Used to test query-model
-    behavior on a single-key (bldg_id only) schema."""
-    metadata = sa.MetaData()
-    baseline = sa.Table(
-        f"{table_name}_baseline", metadata,
-        sa.Column("building_id", sa.Integer),
-        sa.Column("completed_status", sa.String),
-    )
-    timeseries = sa.Table(
-        f"{table_name}_timeseries", metadata,
-        sa.Column("building_id", sa.Integer),
-        sa.Column("time", sa.DateTime),
-        sa.Column("upgrade", sa.String if include_upgrades else sa.Integer),
-        sa.Column("fuel_use__electricity__total__kwh", sa.Float),
-    )
-    upgrades = None
-    if include_upgrades:
-        cols = [
-            sa.Column("building_id", sa.Integer),
-            sa.Column("upgrade", sa.String),
-            sa.Column("completed_status", sa.String),
-        ]
-        if include_state_on_upgrades:
-            cols.append(sa.Column("state", sa.String))
-            cols.append(sa.Column("applicability", sa.Boolean))
-        upgrades = sa.Table(f"{table_name}_upgrades", metadata, *cols)
-
-    def _get_local_tables(self, requested_table_name):
-        assert requested_table_name == table_name
-        # Classic resstock shape: distinct baseline/upgrades parquets, md_table=None.
-        return baseline, timeseries, upgrades, None
-
-    monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
-    bsq = BuildStockQuery(
-        db_name="resstock_core",
-        table_name=table_name,
-        workgroup="rescore",
-        buildstock_type="resstock",
-        skip_reports=True,
-        sample_weight_override=1,
-    )
-    return bsq
+    """No longer supported — the schema model now requires the unified 2-table
+    shape (annual_and_metadata + timeseries). Tests using this fixture were
+    exercising 3-table classic-ResStock mechanics that have been removed."""
+    pytest.skip("Classic 3-table shape is no longer supported (legacy fixture)")
 
 
 # ---------------------------------------------------------------------------
@@ -198,9 +152,9 @@ def test_annual_query_uses_metadata_unique_keys(monkeypatch: pytest.MonkeyPatch)
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    assert "custom_run_metadata.bldg_id = custom_run_upgrades.bldg_id" in query
-    assert "custom_run_metadata.county = custom_run_upgrades.county" in query
-    assert "custom_run_metadata.state = custom_run_upgrades.state" in query
+    assert "baseline.bldg_id = upgrade.bldg_id" in query
+    assert "baseline.county = upgrade.county" in query
+    assert "baseline.state = upgrade.state" in query
 
 
 def test_timeseries_query_uses_timeseries_unique_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -210,8 +164,8 @@ def test_timeseries_query_uses_timeseries_unique_keys(monkeypatch: pytest.Monkey
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    assert "custom_run_metadata.bldg_id = custom_run_by_state.bldg_id" in query
-    assert "custom_run_metadata.state = custom_run_by_state.state" in query
+    assert "baseline.bldg_id = custom_run_by_state.bldg_id" in query
+    assert "baseline.state = custom_run_by_state.state" in query
 
 
 def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -228,7 +182,7 @@ def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.M
     assert "ts_b.bldg_id = ts_u.bldg_id" in query
     assert "ts_b.state = ts_u.state" in query
     assert "ts_b.timestamp = ts_u.timestamp" in query
-    assert "custom_run_metadata.state = ts_b.state" in query
+    assert "baseline.state = ts_b.state" in query
 
 
 def test_timeseries_pair_join_defaults_to_building_id_when_unconfigured(
@@ -276,8 +230,9 @@ def test_key_attributes_default_to_building_id(monkeypatch: pytest.MonkeyPatch) 
 def test_get_building_ids_returns_all_metadata_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     bsq = _custom_join_key_bsq(monkeypatch)
     query = bsq.get_building_ids(get_query_only=True)
+    # bs_table is aliased as "baseline" over the unified metadata table.
     assert (
-        "SELECT custom_run_metadata.bldg_id, custom_run_metadata.county, custom_run_metadata.state"
+        "SELECT baseline.bldg_id, baseline.county, baseline.state"
         in query
     )
 
@@ -294,14 +249,10 @@ def test_applied_in_uses_tuple_filter_for_multi_metadata_keys(monkeypatch: pytes
         applied_in=["1"],
         get_query_only=True,
     )
-    assert (
-        "(custom_run_metadata.bldg_id, custom_run_metadata.county, custom_run_metadata.state) IN"
-        in query
-    )
-    assert (
-        "SELECT custom_run_upgrades.bldg_id, custom_run_upgrades.county, custom_run_upgrades.state"
-        in query
-    )
+    # Outer side: bs alias on the unified metadata table.
+    assert "(baseline.bldg_id, baseline.county, baseline.state) IN" in query
+    # Inner side: up alias on the same unified metadata table.
+    assert "SELECT upgrade.bldg_id, upgrade.county, upgrade.state" in query
 
 
 def test_applied_in_single_key_preserves_scalar_in_clause(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -315,8 +266,8 @@ def test_applied_in_single_key_preserves_scalar_in_clause(monkeypatch: pytest.Mo
         applied_in=["1"],
         get_query_only=True,
     )
-    assert "custom_run_metadata.bldg_id IN (SELECT custom_run_upgrades.bldg_id" in query
-    assert "(custom_run_metadata.bldg_id," not in query
+    assert "baseline.bldg_id IN (SELECT upgrade.bldg_id" in query
+    assert "(baseline.bldg_id," not in query
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +277,7 @@ def test_applied_in_single_key_preserves_scalar_in_clause(monkeypatch: pytest.Mo
 def test_aggregate_uses_multi_column_count_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
     """sample_count for TS-aggregated queries uses count(DISTINCT(metadata_keys))
     so each physical building is counted once even when it has many TS rows.
-    Counts from the metadata table (not TS) so the count is exact for the
+    Counts from the bs alias (not TS) so the count is exact for the
     composite key — TS may not carry every key column."""
     bsq = _custom_join_key_bsq(monkeypatch)
     _stub_sim_info(bsq, monkeypatch)
@@ -336,10 +287,7 @@ def test_aggregate_uses_multi_column_count_distinct(monkeypatch: pytest.MonkeyPa
         timestamp_grouping_func="month",
         get_query_only=True,
     )
-    assert (
-        "count(DISTINCT (custom_run_metadata.bldg_id, custom_run_metadata.county, "
-        "custom_run_metadata.state))"
-    ) in query
+    assert "count(DISTINCT (baseline.bldg_id, baseline.county, baseline.state))" in query
 
 
 def test_aggregate_single_key_preserves_scalar_count_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -356,10 +304,10 @@ def test_aggregate_single_key_preserves_scalar_count_distinct(monkeypatch: pytes
         timestamp_grouping_func="month",
         get_query_only=True,
     )
-    assert "count(distinct(custom_run_metadata.bldg_id))" in query
+    assert "count(distinct(baseline.bldg_id))" in query
     # Negative: must NOT be a tuple form
-    assert "count(distinct(custom_run_metadata.bldg_id," not in query
-    assert "count(DISTINCT (custom_run_metadata.bldg_id" not in query
+    assert "count(distinct(baseline.bldg_id," not in query
+    assert "count(DISTINCT (baseline.bldg_id" not in query
 
 
 # ---------------------------------------------------------------------------
@@ -425,7 +373,7 @@ def test_get_tables_aliases_unified_metadata_table(
     wrapper. The `md_table` attribute exposes the underlying table; `bs_table`
     and `up_table` are the aliases."""
     # Build a minimal 2-table schema dict (no Athena needed).
-    db_schema_dict = toml.load(_RESSTOCK_DEFAULT_SCHEMA_PATH)
+    db_schema_dict = toml.load(_RESSTOCK_OEDI_SCHEMA_PATH)
     db_schema_dict["table_suffix"] = {
         "annual_and_metadata": "_md",
         "timeseries": "_ts",

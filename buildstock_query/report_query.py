@@ -56,6 +56,7 @@ class BuildStockReport:
 
     def _get_bs_success_report(self, get_query_only: bool = False):
         bs_query = sa.select(*[self._bsq._bs_completed_status_col, safunc.count().label("count")])
+        bs_query = bs_query.where(self._bsq._bs_upgrade_filter())
         bs_query = bs_query.group_by(sa.text("1"))
         if get_query_only:
             return self._bsq._compile(bs_query)
@@ -700,32 +701,34 @@ class BuildStockReport:
         bs_ts_key_cols = [bsq.bs_table.c[c] for c in bsq.ts_key]
         distinct_expr = bsq._count_distinct(bs_ts_key_cols)
 
-        include_inapplicable = bsq.db_schema.structure.inapplicables_have_ts
+        # The unified annual_and_metadata table carries TS-eligible rows for
+        # both successful and inapplicable buildings (inapplicables_have_ts is
+        # assumed True for every supported schema). We count both.
         inapplicable_val = bsq.db_schema.completion_values.inapplicable
         bs_status_col = bsq._bs_completed_status_col
-        if include_inapplicable:
-            bs_where = sa.or_(
-                bsq._bs_successful_condition,
+        bs_where = sa.and_(
+            bsq._bs_upgrade_filter(),
+            sa.or_(
+                bs_status_col == typed_literal(bs_status_col, bsq.db_schema.completion_values.success),
                 bs_status_col == typed_literal(bs_status_col, inapplicable_val),
-            )
-        else:
-            bs_where = bsq._bs_successful_condition
+            ),
+        )
         baseline_query = sa.select(sa.literal("0").label("upgrade"), distinct_expr.label("count")).where(bs_where)
         counts: dict[str, int] = {"0": int(bsq.execute(baseline_query)["count"].iloc[0])}
-
-        if bsq.up_table is None:
-            return counts
 
         up_ts_key_cols = [bsq.up_table.c[c] for c in bsq.ts_key]
         up_distinct_expr = bsq._count_distinct(up_ts_key_cols)
         up_status_col = bsq._up_completed_status_col
-        if include_inapplicable:
-            up_where = sa.or_(
-                bsq._up_successful_condition,
+        # Up side: exclude upgrade=0 (those are baseline rows on the unified
+        # table, already counted above) and include both successful and
+        # inapplicable rows for each upgrade.
+        up_where = sa.and_(
+            bsq.up_table.c["upgrade"] != typed_literal(bsq.up_table.c["upgrade"], "0"),
+            sa.or_(
+                up_status_col == typed_literal(up_status_col, bsq.db_schema.completion_values.success),
                 up_status_col == typed_literal(up_status_col, inapplicable_val),
-            )
-        else:
-            up_where = bsq._up_successful_condition
+            ),
+        )
         up_query = (
             sa.select(bsq.up_table.c["upgrade"].label("upgrade"), up_distinct_expr.label("count"))
             .where(up_where)
@@ -736,7 +739,7 @@ class BuildStockReport:
             counts[str(row["upgrade"])] = int(row["count"])
         return counts
 
-    def _find_duplicate_rows(self, table, key_columns: Sequence[sa.Column], limit: int = 5):
+    def _find_duplicate_rows(self, table, key_columns: Sequence[sa.Column], where=None, limit: int = 5):
         """Return up to `limit` rows of key-tuples that appear more than once in `table`."""
         query = (
             sa.select(*key_columns, safunc.count().label("n"))
@@ -745,6 +748,8 @@ class BuildStockReport:
             .having(safunc.count() > 1)
             .limit(limit)
         )
+        if where is not None:
+            query = query.where(where)
         return self._bsq.execute(query)
 
     def check_ts_bs_integrity(self) -> bool:
@@ -778,17 +783,17 @@ class BuildStockReport:
         if check_pass:
             print_g("Baseline/upgrade and timeseries tables have matching distinct building counts.")
 
-        # duplicate checks on baseline/upgrade (small enough for the exact GROUP BY)
-        small_dup_specs: list[tuple[str, sa.Table, list[sa.Column]]] = [
-            ("baseline", bsq.bs_table, bsq.bs_key_cols),
+        # duplicate checks on the unified annual_and_metadata table. Baseline-side
+        # check filters to upgrade=0 since bs_table is just an alias over md_table.
+        # Upgrade-side check uses (key + upgrade) as the unique key so each
+        # upgrade's rows are validated separately against duplicates.
+        small_dup_specs: list[tuple[str, sa.Table, list[sa.Column], sa.ColumnElement | None]] = [
+            ("baseline", bsq.bs_table, bsq.bs_key_cols, bsq._bs_upgrade_filter()),
+            ("upgrade", bsq.up_table, bsq.up_key_cols + [bsq.up_table.c["upgrade"]], None),
         ]
-        if bsq.up_table is not None:
-            small_dup_specs.append(
-                ("upgrade", bsq.up_table, bsq.up_key_cols + [bsq.up_table.c["upgrade"]])
-            )
 
-        for label, tbl, key_cols in small_dup_specs:
-            dup_df = self._find_duplicate_rows(tbl, key_cols)
+        for label, tbl, key_cols, where in small_dup_specs:
+            dup_df = self._find_duplicate_rows(tbl, key_cols, where=where)
             if len(dup_df) > 0:
                 key_names = [c.name for c in key_cols]
                 print_r(f"Duplicate rows detected in {label} table on keys {key_names}:")

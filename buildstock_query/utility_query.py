@@ -256,7 +256,7 @@ class BuildStockUtility:
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         eiaid_map_table_name, map_baseline_column, map_eiaid_column = self.get_eiaid_map()
-        query = sa.select("*").select_from(self._bsq.bs_table)
+        query = sa.select("*").select_from(self._bsq.bs_table).where(self._bsq._bs_upgrade_filter())
         query = self._bsq._add_join(query, [(eiaid_map_table_name, map_baseline_column, map_eiaid_column)])
         query = self._bsq._add_restrict(query, [(self._bsq._get_column("eiaid", [eiaid_map_table_name]), eiaids)])
         query = query.where(self._bsq._get_column("weight", [eiaid_map_table_name]) > 0)

@@ -101,6 +101,32 @@
     }
   },
   {
+    "name": "baseline_with_applied_in_upgrade1",
+    "sql_hash": {
+      "resstock_oedi": "b9ea238d87d94c4a82fb693628177584c31f50121c8b645ee74b4cb4250ec546",
+      "comstock_oedi": "3c9a5ef9dd6ee7021ef2acd6d87dfcb95923d1db2f7329cd02cb4d3335199132"
+    },
+    "description": "Annual baseline (upgrade_id=0) restricted via applied_in=[1] — buildings where upgrade 1 applied successfully. Validator was relaxed in 2026-04-26 commit (e85e741) to allow applied_in on baseline queries; before that, the validator rejected this combination as 'applied_in cannot be set when applied_only is False'. Pins the SQL shape that test_savings_equals_independent_baseline_minus_upgrade depends on.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "0",
+      "applied_in": [1],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
     "name": "include_baseline_upgrade1_applied_only_annual",
     "sql_hash": {
       "resstock_oedi": "cbf9daf253b6b3bbdc6f2bb2a7543679230cfefcfc78ca7002fc3b062297d96b",

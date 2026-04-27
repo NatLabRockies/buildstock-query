@@ -47,6 +47,30 @@
     }
   },
   {
+    "name": "utility_buildings_by_eiaids",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "4beaa48e61b955ebe3e36bae288255d2658ca58c06b8eeceaefe8b0ba2eaf2ce"
+    },
+    "description": "utility.get_buildings_by_eiaids for one utility. Pins the SELECT DISTINCT bldg_id JOIN eiaid_weights shape — used as a building-set lookup before downstream queries. Schema-restricted: comstock TOMLs don't define map_eiaid_column.",
+    "args": {
+      "_method": "utility.get_buildings_by_eiaids",
+      "eiaids": ["4110"]
+    }
+  },
+  {
+    "name": "utility_locations_by_eiaids",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "49d7eca9ba4be243f373a49bc436559c8bb5dd503fe886cc649a738feec2f24d"
+    },
+    "description": "utility.get_locations_by_eiaids for one utility. Pins the SELECT DISTINCT gisjoin FROM eiaid_weights shape — the simplest of the eiaid lookup family, returns a list of geographies served by the listed utilities.",
+    "args": {
+      "_method": "utility.get_locations_by_eiaids",
+      "eiaids": ["4110"]
+    }
+  },
+  {
     "name": "utility_calculate_tou_bill_flat_rate_monthly_co",
     "schemas": ["resstock_oedi"],
     "sql_hash": {

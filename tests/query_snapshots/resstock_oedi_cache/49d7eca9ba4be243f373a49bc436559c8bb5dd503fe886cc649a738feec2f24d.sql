@@ -1,0 +1,1 @@
+SELECT DISTINCT eiaid_weights.gisjoin FROM eiaid_weights WHERE eiaid_weights.eiaid = '4110' AND eiaid_weights.weight > 0

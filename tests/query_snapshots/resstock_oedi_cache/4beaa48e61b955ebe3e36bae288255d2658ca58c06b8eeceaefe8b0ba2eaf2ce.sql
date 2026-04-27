@@ -1,0 +1,1 @@
+SELECT DISTINCT baseline.bldg_id FROM (SELECT * FROM resstock_2024_amy2018_release_2_metadata WHERE resstock_2024_amy2018_release_2_metadata.upgrade = 0) AS baseline JOIN eiaid_weights ON baseline."in.county" = eiaid_weights.gisjoin WHERE eiaid_weights.eiaid = '4110' AND eiaid_weights.weight > 0

@@ -44,6 +44,9 @@ class BuildStockAggregate:
         total_weight=None,
         extra_bs_cols: Optional[Sequence[sa.Column]] = None,
         skip_bs_per_bldg: bool = False,
+        join_list: Optional[Sequence[tuple]] = None,
+        join_list_restrict: Optional[Sequence[RestrictTuple]] = None,
+        join_list_group_by_cols: Optional[Sequence[sa.Column]] = None,
     ):
         if self._bsq.ts_table is None:
             raise ValueError("No timeseries table found in database.")
@@ -79,26 +82,6 @@ class BuildStockAggregate:
         # at the same scale.
         single_upgrade = upgrade_id == "0" or upgrade_only
         ts_upgrade_ids = [upgrade_id] if single_upgrade else ["0", upgrade_id]
-
-        # Skip bs_per_bldg pre-aggregation when the caller has join_list or
-        # weights bound to non-bs tables. The bs_per_bldg subquery can't
-        # cleanly project SUM(bs.weight × non_bs_table.weight) without
-        # cross-joining the non-bs table, and the outer JOIN to the
-        # join_list table needs the canonical bs alias to be in scope.
-        # Falls back to the pre-refactor direct ts ⋈ bs join shape, which
-        # accepts tract fan-out — utility queries are typically eiaid-
-        # restricted and small enough for that to not matter.
-        if skip_bs_per_bldg and single_upgrade:
-            tbljoin = ts.join(
-                base,
-                sa.and_(
-                    self._bsq._baseline_timeseries_join_condition(base, ts),
-                    ucol == typed_literal(ucol, upgrade_id),
-                    *self._bsq._get_restrict_clauses(restrict, annual_only=True),
-                    *bs_restrict_clauses,
-                ),
-            )
-            return ts, ts, tbljoin, list(group_by), base
 
         ts_group_by = [g for g in group_by if g.name in ts.columns]
         bs_group_by = [g for g in group_by if g.name not in ts.columns]
@@ -298,12 +281,39 @@ class BuildStockAggregate:
                 continue
             bs_per_bldg_cols.append(safunc.arbitrary(ec).label(ec.name))
 
+        # Fold any join_list joins (e.g. utility eiaid_weights) INTO bs_per_bldg's
+        # FROM. They're metadata-side extensions of bs (eiaid is a
+        # per-county-per-bldg attribute), so absorbing them here keeps the
+        # outer query a clean ts_aggr ⋈ bs_per_bldg shape with no extra
+        # outer JOINs. Restricts and group-bys targeting these tables are
+        # routed via `extra_bs_cols` (per-bldg via arbitrary()) and
+        # `join_list_restrict` (added to bs_per_bldg's WHERE).
+        bs_per_bldg_from = base
+        for new_table_name, baseline_col, new_col in (join_list or ()):
+            jl_table = self._bsq._get_table(new_table_name)
+            # Resolve baseline_col on the canonical bs alias (so ON's left
+            # side binds to base, which is in bs_per_bldg's FROM).
+            if isinstance(baseline_col, str):
+                bs_side = base.c[baseline_col]
+            elif isinstance(baseline_col, sa.Column) and baseline_col.name in base.c:
+                bs_side = base.c[baseline_col.name]
+            else:
+                bs_side = baseline_col
+            new_side = self._bsq._get_column(new_col, candidate_tables=[jl_table])
+            bs_per_bldg_from = bs_per_bldg_from.join(jl_table, bs_side == new_side)
+
+        join_list_restrict_clauses = (
+            self._bsq._get_restrict_clauses(join_list_restrict, annual_only=True)
+            if join_list_restrict else []
+        )
+
         bs_per_bldg = (
             sa.select(*bs_per_bldg_cols)
-            .select_from(base)
+            .select_from(bs_per_bldg_from)
             .where(
                 self._bsq._upgrade_zero_filter(base),
                 *bs_restrict_clauses,
+                *join_list_restrict_clauses,
             )
             .group_by(*(base.c[k] for k in ts_unique_keys))
             .subquery("bs_per_bldg")
@@ -654,33 +664,38 @@ class BuildStockAggregate:
                 and not params.include_savings
                 and not params.include_baseline
             )
-            # Collect bs-side baseline columns referenced by join_list so
-            # bs_per_bldg projects them. Without this, _add_join's
-            # `bs.<col> = new_tbl.<col>` reference would be unbound at the
-            # outer level (bs is no longer in the outer FROM).
-            # jl[1] can be either a column-name string or an SA Column
-            # object (utility code passes bs_table.c["in.county"] directly).
+            # Folding (below) puts join_list joins INSIDE bs_per_bldg, so
+            # we don't need to expose the bs-side join columns at the outer
+            # level via arbitrary(). Leaving as empty.
             join_bs_cols = []
-            for jl in params.join_list:
-                bs_ref = jl[1]
-                bs_col = None
-                if isinstance(bs_ref, str) and bs_ref in self._bsq.bs_table.c:
-                    bs_col = self._bsq.bs_table.c[bs_ref]
-                elif isinstance(bs_ref, sa.Column) and getattr(bs_ref, "table", None) is self._bsq.bs_table:
-                    bs_col = bs_ref
-                elif isinstance(bs_ref, sa.Column) and bs_ref.name in self._bsq.bs_table.c:
-                    # Fallback: bound to md_table or some other alias —
-                    # rebind to bs_table for consistent projection naming.
-                    bs_col = self._bsq.bs_table.c[bs_ref.name]
-                if bs_col is not None:
-                    join_bs_cols.append(bs_col)
-            # Utility queries with join_list have weights/group_by bound to
-            # the join_list table (e.g. eiaid_weights.weight). bs_per_bldg
-            # can't cleanly absorb those without cross-joining the
-            # join_list table. Fall back to direct ts ⋈ bs JOIN for these
-            # queries — they're typically eiaid-restricted, so tract fan-
-            # out doesn't blow up.
-            skip_bs_per_bldg = bool(params.join_list)
+            # Utility queries with join_list bring in additional metadata-
+            # side tables (e.g. eiaid_weights mapping bldg→eiaid). Fold
+            # those joins INTO bs_per_bldg so the outer query stays a
+            # clean ts_aggr ⋈ bs_per_bldg shape. Detect:
+            # - join_list_restrict: extra_restrict clauses targeting any
+            #   of the join_list tables (e.g. eiaid_weights.eiaid IN [...]).
+            # - extra_restrict_remaining: restricts that don't target any
+            #   join_list table (e.g. utility join_list table extras with
+            #   no relevant clauses) — kept at outer.
+            # join_list entries: jl[0] can be a string table name or an SA
+            # Table object. Build a set of name-strings for matching.
+            jl_name_set = set()
+            for jl in (params.join_list or ()):
+                t0 = jl[0]
+                jl_name_set.add(t0 if isinstance(t0, str) else getattr(t0, "name", None))
+            join_list_restrict, extra_restrict = [], extra_restrict
+            if params.join_list and extra_restrict:
+                kept = []
+                for col_ref, vals in extra_restrict:
+                    targets_jl = False
+                    if isinstance(col_ref, sa.Column):
+                        t = getattr(col_ref, "table", None)
+                        targets_jl = t is not None and getattr(t, "name", None) in jl_name_set
+                    if targets_jl:
+                        join_list_restrict.append([col_ref, vals])
+                    else:
+                        kept.append([col_ref, vals])
+                extra_restrict = kept
             bs_tbl, up_tbl, tbljoin, group_by_selection, md_alias = self.__get_timeseries_bs_up_table(
                 enduse_cols, upgrade_id, params.applied_only, ts_restrict,
                 bs_restrict=bs_restrict, group_by=group_by_selection,
@@ -688,7 +703,8 @@ class BuildStockAggregate:
                 timestamp_grouping_func=params.timestamp_grouping_func,
                 total_weight=total_weight,
                 extra_bs_cols=join_bs_cols,
-                skip_bs_per_bldg=skip_bs_per_bldg,
+                join_list=params.join_list,
+                join_list_restrict=join_list_restrict,
             )
             # md_alias is now the bs_per_bldg subquery (per-(bldg, state) row
             # with sum(weight) AS bldg_weight, count(*) AS tract_count, and
@@ -934,14 +950,15 @@ class BuildStockAggregate:
 
         query_cols = list(group_by_selection) + grouping_metrics_selection + query_cols
         query = sa.select(*query_cols).select_from(tbljoin)
-        # For TS queries, `md_alias` is the bs_per_bldg subquery — pass it
-        # as the `bs_alias` so _add_join's bs-side reference resolves to
-        # bs_per_bldg's projected columns instead of the canonical bs alias
-        # (which isn't in the outer FROM after the bs_per_bldg refactor).
-        # For annual queries `md_alias is bs_tbl is self.bs_table`, so
-        # passing it is a no-op.
-        join_bs_alias = md_alias if not params.annual_only else None
-        query = self._bsq._add_join(query, params.join_list, bs_alias=join_bs_alias)
+        # For TS queries with bs_per_bldg, join_list joins are folded INTO
+        # bs_per_bldg's FROM (not added at outer). For annual queries, _add_join
+        # at outer is the only place. Pass an empty list to skip outer
+        # _add_join when folding happened.
+        if not params.annual_only and "bldg_weight" in getattr(md_alias, "c", {}):
+            outer_join_list = []  # already folded into bs_per_bldg
+        else:
+            outer_join_list = params.join_list
+        query = self._bsq._add_join(query, outer_join_list, bs_alias=md_alias)
         if params.annual_only:
             # Successful baseline rows on the bs alias that's in the FROM. For
             # upgrade-pair queries the join's ON already enforces bs.upgrade=0

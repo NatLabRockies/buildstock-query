@@ -942,7 +942,18 @@ class BuildStockQuery(QueryCore):
         # both — restrict columns may be bound to either depending on call site.
         md_handles = (self.md_table, self.bs_table)
         if isinstance(col, str):
-            return col in self.bs_table.columns
+            # Try both bare name and prefixed form. Char/output columns on
+            # md often carry a prefix (e.g. `in.<name>`, `out.<name>`); a
+            # user-supplied bare `<name>` should still classify as md so
+            # _split_restrict can route the clause into the inner JOIN /
+            # bs_per_bldg WHERE rather than the outer WHERE (which would
+            # produce a comma-join against the canonical bs alias).
+            if col in self.bs_table.columns:
+                return True
+            for prefix in (self._char_prefix, self._out_prefix):
+                if f"{prefix}{col}" in self.bs_table.columns:
+                    return True
+            return False
         if isinstance(col, SACol):
             return getattr(col, "table", None) in md_handles
         if isinstance(col, SALabel):

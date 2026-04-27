@@ -9,7 +9,7 @@ from ast import literal_eval
 from functools import reduce
 from buildstock_query import main
 import typing
-from typing import Optional, Union, Literal
+from typing import Any, Optional, Union, Literal
 from collections.abc import Hashable, Sequence
 from buildstock_query.schema.utilities import AnyColType, typed_literal, validate_arguments
 from pydantic import Field
@@ -702,10 +702,16 @@ class BuildStockReport:
         on md_key would over-count. ts_key ⊆ md_key is enforced by the schema model.
         """
         bsq = self._bsq
-        md = bsq.md_table
-        ts_key_cols = [md.c[c] for c in bsq.ts_key]
+        # Bind every column reference to the canonical bs_table alias so the
+        # WHERE-side filters (which use bs_table) and the SELECT/GROUP BY (which
+        # need columns from the *same* table that's in the FROM) all share one
+        # handle. Mixing md_table column refs with bs_table predicates causes
+        # SA to comma-join md_table and bs_table — a Cartesian that Athena
+        # rejects with "mismatched input 'GROUP'".
+        bs = bsq.bs_table
+        ts_key_cols = [bs.c[c] for c in bsq.ts_key]
         distinct_expr = bsq._count_distinct(ts_key_cols)
-        upgrade_col = md.c["upgrade"]
+        upgrade_col = bs.c["upgrade"]
 
         # The unified annual_and_metadata table carries TS-eligible rows for
         # both successful and inapplicable buildings (inapplicables_have_ts is
@@ -718,11 +724,12 @@ class BuildStockReport:
 
         baseline_query = sa.select(
             sa.literal("0").label("upgrade"), distinct_expr.label("count"),
-        ).where(sa.and_(bsq._md_baseline_filter(), success_or_inapplicable))
+        ).select_from(bs).where(sa.and_(bsq._md_baseline_filter(), success_or_inapplicable))
         counts: dict[str, int] = {"0": int(bsq.execute(baseline_query)["count"].iloc[0])}
 
         up_query = (
             sa.select(upgrade_col.label("upgrade"), distinct_expr.label("count"))
+            .select_from(bs)
             .where(sa.and_(
                 upgrade_col != typed_literal(upgrade_col, "0"),
                 success_or_inapplicable,
@@ -781,10 +788,13 @@ class BuildStockReport:
         # duplicate checks on the unified annual_and_metadata table. Baseline-side
         # check filters to upgrade=0. Upgrade-side check adds the upgrade column
         # to the unique key so each upgrade's rows are validated separately.
-        md = bsq.md_table
-        small_dup_specs: list[tuple[str, sa.Table, list[sa.Column], sa.ColumnElement | None]] = [
-            ("baseline", md, bsq.md_key_cols, bsq._md_baseline_filter()),
-            ("upgrade", md, bsq.md_key_cols + [md.c["upgrade"]], None),
+        # Use the bs_table alias for everything: md_key_cols and
+        # _md_baseline_filter() are both bs-bound, so passing md_table here
+        # would force a comma-join with bs in the FROM.
+        bs = bsq.bs_table
+        small_dup_specs: list[tuple[str, Any, list[Any], Any]] = [
+            ("baseline", bs, list(bsq.md_key_cols), bsq._md_baseline_filter()),
+            ("upgrade", bs, list(bsq.md_key_cols) + [bs.c["upgrade"]], None),
         ]
 
         for label, tbl, key_cols, where in small_dup_specs:

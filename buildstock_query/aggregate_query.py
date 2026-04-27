@@ -41,6 +41,7 @@ class BuildStockAggregate:
         group_by: Sequence[DBColType] = Field(default_factory=list),
         upgrade_only: bool = False,
         timestamp_grouping_func: Optional[str] = None,
+        total_weight=None,
     ):
         if self._bsq.ts_table is None:
             raise ValueError("No timeseries table found in database.")
@@ -76,21 +77,6 @@ class BuildStockAggregate:
         # at the same scale.
         single_upgrade = upgrade_id == "0" or upgrade_only
         ts_upgrade_ids = [upgrade_id] if single_upgrade else ["0", upgrade_id]
-
-        # If we're producing raw 15-min output AND only one upgrade is in
-        # play, the inner ts_aggr layer is pure overhead (one row in, one
-        # row out per group). Fall back to direct ts ⋈ md.
-        if single_upgrade and not timestamp_grouping_func:
-            tbljoin = ts.join(
-                base,
-                sa.and_(
-                    self._bsq._baseline_timeseries_join_condition(base, ts),
-                    ucol == typed_literal(ucol, upgrade_id),
-                    *self._bsq._get_restrict_clauses(restrict, annual_only=True),
-                    *bs_restrict_clauses,
-                ),
-            )
-            return ts, ts, tbljoin, list(group_by), base
 
         ts_group_by = [g for g in group_by if g.name in ts.columns]
         bs_group_by = [g for g in group_by if g.name not in ts.columns]
@@ -232,63 +218,122 @@ class BuildStockAggregate:
             .subquery("ts_aggr")
         )
 
-        # SideView adapter exposes ts_aggr columns indexed by enduse name.
-        # Only flat_enduses (ts-only + mixed) live in ts_aggr; pure-bs
-        # enduses are projected directly from `base` (the md alias) at the
-        # outer SELECT and don't appear here. The outer-code `get_col(...)`
-        # path falls through to the original column for unknown names,
-        # which is correct for pure-bs columns since they're already bound
-        # to `base`.
-        # Single-upgrade has only `bs__<name>` columns; ts_b and ts_u both
-        # point at the same SideView so `bs_tbl is up_tbl` short-circuits
-        # correctly. Pair has bs__/up__ columns and two distinct SideView
-        # instances.
+        # Pre-aggregate bs to BUILDING grain (collapse tract fan-out).
+        #
+        # ComStock's `*_md_by_state_and_county_parquet` has multiple tract rows
+        # per (bldg_id, state) pair. A direct `ts ⋈ bs` JOIN fans out each
+        # ts/ts_aggr row by N_tracts-per-bldg, blowing up the post-join shuffle
+        # for the outer aggregate (Stage 5 of a national hourly query
+        # processed 6.28 B rows / 499 GB and aborted at 17h33m before this fix).
+        #
+        # All current outer aggregations are linear in `weight`, so we can
+        # collapse the tract dimension upfront:
+        #   bldg_weight        = SUM(weight)        per (bldg, state)
+        #   tract_count        = COUNT(*)           per (bldg, state)
+        #   bldg_<col>_weighted = SUM(<bs_col>*weight) per (bldg, state)
+        # Outer aggregates that used `bs.weight` / `bs.<col> * bs.weight` /
+        # `count_distinct(md_keys)` translate to references on this
+        # subquery's pre-summed columns. ResStock's md is one row per bldg,
+        # so the GROUP BY is a no-op there (sum of one term).
+        #
+        # `total_weight` was constructed above as `bs.weight × user_weights`
+        # bound to bs_table; we pass it in here so its multipliers are
+        # baked into bldg_weight before the outer SELECT references it.
+        bs_per_bldg_cols = [base.c[k].label(k) for k in ts_unique_keys]
+        # Pass through bs-side group-by columns (per-bldg constants).
+        # `bs_group_by` items are labeled SA expressions from _get_gcol; the
+        # label name is the simple form (no `in.` prefix), but the underlying
+        # column reference is on `base`. Project them by the underlying
+        # expression (via `arbitrary()` since they're per-bldg constants
+        # being collapsed across tract rows) labeled with the simple name
+        # so the outer code's `g.name` lookups on bs_per_bldg resolve.
+        bs_group_by_extras = []
+        for g in bs_group_by:
+            if g.name in ts_unique_keys:
+                continue
+            underlying = g.element if isinstance(g, SALabel) else g
+            bs_per_bldg_cols.append(safunc.arbitrary(underlying).label(g.name))
+            bs_group_by_extras.append(g)
+        weight_expr = total_weight if total_weight is not None else base.c["weight"]
+        bs_per_bldg_cols.append(safunc.sum(weight_expr).label("bldg_weight"))
+        bs_per_bldg_cols.append(safunc.count(sa.text("*")).label("tract_count"))
+        # Pure-bs enduses (e.g. sqft, vintage) are per-bldg constants — pick
+        # one value per bldg via `arbitrary()` (Trino's any-value aggregate).
+        # The outer SELECT can then multiply by bldg_weight uniformly with
+        # everything else, no special path needed.
+        for e in bs_only_enduses:
+            value_expr = e.element if isinstance(e, SALabel) else e
+            bs_per_bldg_cols.append(
+                safunc.arbitrary(value_expr).label(e.name)
+            )
+
+        bs_per_bldg = (
+            sa.select(*bs_per_bldg_cols)
+            .select_from(base)
+            .where(
+                self._bsq._upgrade_zero_filter(base),
+                *bs_restrict_clauses,
+            )
+            .group_by(*(base.c[k] for k in ts_unique_keys))
+            .subquery("bs_per_bldg")
+        )
+
+        # Outer JOIN: ts_aggr ⋈ bs_per_bldg (one row per bldg) on the ts
+        # unique keys. No tract fan-out post-join.
+        bs_join_cond = sa.and_(
+            *(bs_per_bldg.c[k] == ts_aggr_subq.c[k] for k in ts_unique_keys),
+        )
+        # applied_only=True for the upgrade_only path is enforced upstream via
+        # _add_applied_in_restrict (synthesizes applied_in=[upgrade_id] →
+        # routes into ts_restrict at ts_flat WHERE).
+
+        tbljoin = ts_aggr_subq.join(bs_per_bldg, bs_join_cond)
+
+        # SideView adapter: indexes columns by enduse name across BOTH
+        # ts_aggr (ts-side and mixed enduses, prefixed `bs__` / `up__`) and
+        # bs_per_bldg (pure-bs enduses, projected by their original name).
+        # This way `get_col(bs_tbl, e)` resolves uniformly regardless of
+        # which side the enduse came from.
         class _SideView:
-            """Adapter exposing ts_aggr columns indexed by original enduse name."""
-            def __init__(self, subq, prefix, enduses, group_cols):
-                self._subq = subq
+            """Adapter exposing aggregate-subquery columns indexed by enduse name."""
+            def __init__(self, ts_subq, prefix, ts_enduses, group_cols, bs_subq, bs_enduses):
                 self._cols_by_name = {}
-                for e in enduses:
-                    self._cols_by_name[e.name] = subq.c[f"{prefix}__{e.name}"]
+                for e in ts_enduses:
+                    self._cols_by_name[e.name] = ts_subq.c[f"{prefix}__{e.name}"]
+                for e in bs_enduses:
+                    if e.name in bs_subq.c:
+                        self._cols_by_name[e.name] = bs_subq.c[e.name]
                 for c in group_cols:
                     if c.name not in self._cols_by_name:
-                        self._cols_by_name[c.name] = subq.c[c.name]
-                if "_inner_rows" in subq.c:
-                    self._cols_by_name["_inner_rows"] = subq.c["_inner_rows"]
+                        self._cols_by_name[c.name] = ts_subq.c[c.name]
+                if "_inner_rows" in ts_subq.c:
+                    self._cols_by_name["_inner_rows"] = ts_subq.c["_inner_rows"]
 
             @property
             def c(self):
                 return self._cols_by_name
 
         passthrough_cols = flat_group_keys + flat_extra_group_cols
-        ts_b = _SideView(ts_aggr_subq, "bs", flat_enduses, passthrough_cols)
-        ts_u = ts_b if single_upgrade else _SideView(ts_aggr_subq, "up", flat_enduses, passthrough_cols)
-
-        # Outer JOIN: ts_aggr ⋈ md (once) for metadata / weights. md is
-        # always the upgrade=0 row (carries weight + characteristics).
-        bs_join_cond = sa.and_(
-            *(base.c[k] == ts_aggr_subq.c[k] for k in ts_unique_keys),
-            self._bsq._upgrade_zero_filter(base),
-            *bs_restrict_clauses,
+        ts_b = _SideView(ts_aggr_subq, "bs", flat_enduses, passthrough_cols, bs_per_bldg, bs_only_enduses)
+        # Pure-bs enduses are upgrade-invariant (sqft is sqft regardless of
+        # upgrade), so up-side resolves to the same bs_per_bldg column.
+        ts_u = ts_b if single_upgrade else _SideView(
+            ts_aggr_subq, "up", flat_enduses, passthrough_cols, bs_per_bldg, bs_only_enduses,
         )
-        # applied_only=True for non-pivot upgrade_only path is enforced
-        # upstream via _add_applied_in_restrict synthesizing
-        # applied_in=[upgrade_id], which routes into ts_restrict (the TS
-        # table has no `applicability` column).
-
-        tbljoin = ts_aggr_subq.join(base, bs_join_cond)
 
         # Remap user's group_by:
         #   ts-side group_bys → ts_aggr_subq column
-        #   bs-side group_bys → md alias (base) column
+        #   bs-side group_bys → bs_per_bldg column (passed through above)
         remapped_group_by = []
         for g in group_by:
             if g.name in ts.columns:
                 remapped_group_by.append(ts_aggr_subq.c[g.name])
+            elif g.name in bs_per_bldg.c:
+                remapped_group_by.append(bs_per_bldg.c[g.name])
             else:
-                remapped_group_by.append(base.c[g.name] if g.name in base.c else g)
+                remapped_group_by.append(g)
 
-        return ts_b, ts_u, tbljoin, remapped_group_by, base
+        return ts_b, ts_u, tbljoin, remapped_group_by, bs_per_bldg
 
     @validate_arguments
     def __get_annual_bs_up_table(self, upgrade_id: str, applied_only: bool | None):
@@ -583,7 +628,22 @@ class BuildStockAggregate:
                 bs_restrict=bs_restrict, group_by=group_by_selection,
                 upgrade_only=upgrade_only,
                 timestamp_grouping_func=params.timestamp_grouping_func,
+                total_weight=total_weight,
             )
+            # md_alias is now the bs_per_bldg subquery (per-(bldg, state) row
+            # with sum(weight) AS bldg_weight, count(*) AS tract_count, and
+            # SUM(<col>*weight) AS _w__<name> for any pure-bs enduses). The
+            # outer SELECT below references these pre-summed columns instead
+            # of bs.weight / count_distinct(md_keys) / etc. directly. This
+            # eliminates ComStock's tract fan-out at the post-join shuffle.
+            #
+            # The outer per-row weight becomes md_alias.c["bldg_weight"] —
+            # already includes sample_wt × user_weights from total_weight,
+            # pre-summed at building grain.
+            ts_total_weight = md_alias.c["bldg_weight"]
+            total_weight = ts_total_weight
+            if agg_weight is not None:
+                agg_weight = ts_total_weight
             # Inner ts_aggr always pre-buckets time when grouping_func is
             # set — true for both single-upgrade (upgrade_id=="0" or
             # upgrade_only) and upgrade-pair branches. The outer SELECT
@@ -732,42 +792,35 @@ class BuildStockAggregate:
                 safunc.sum(total_weight).label("units_count"),
             ]
         elif params.timestamp_grouping_func == "year":  # Use timeseries tables but collapse timeseries
-            # Equivalent to dividing sum(1)/rows_per_building, but computed inline
-            # from the data instead of pre-fetching rows_per_building via a heavy
-            # `count(*) GROUP BY upgrade, bldg_id` over the full TS table. The
-            # integrity check in report.check_ts_bs_integrity is the appropriate
-            # place to spend that scan; here we trust the cadence and let Athena
-            # compute counts in one pass.
-            #
-            # `units_count` is self-correcting under pivot pre-bucketing: both
-            # `sum(weight)` and `sum(1)` scale by the same factor whether the
-            # inner pivot keeps raw 15-min rows or pre-buckets to the user's
-            # time granularity, so `(N * sum(weight)) / sum(1) = N * per_bldg_w`
-            # in both cases. `rows_per_sample` is NOT self-correcting — it
-            # specifically measures underlying 15-min cadence — so when the
-            # pivot pre-bucketed, we use `_inner_rows` (count of 15-min rows
-            # carried forward per pivot bucket) instead of raw `sum(1)`.
-            md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
-            distinct_md_keys = self._bsq._count_distinct(md_key_cols)
-            ts_row_count_for_cadence = (
-                safunc.sum(bs_tbl.c["_inner_rows"]) if pivot_bucketed_time else safunc.sum(1)
+            # md_alias is bs_per_bldg (one row per (bldg, state)). With
+            # ts_aggr also pre-aggregating to per-(bldg, bucket, state),
+            # the outer JOIN gives one row per (bldg, bucket, state). Per
+            # outer (state, year) group:
+            #   sample_count = sum(tract_count)  # collapses tract fan-out
+            #                                       to original distinct count
+            #   units_count  = sum(bldg_weight)
+            #   rows_per_sample = sum(_inner_rows) / count(distinct bldgs)
+            sample_count_expr = safunc.sum(md_alias.c["tract_count"])
+            ts_row_count_for_cadence = safunc.sum(bs_tbl.c["_inner_rows"])
+            distinct_bldgs = self._bsq._count_distinct(
+                [bs_tbl.c[k] for k in self._bsq._get_unique_keys("timeseries")]
             )
             grouping_metrics_selection = [
-                distinct_md_keys.label("sample_count"),
-                (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
-                (ts_row_count_for_cadence / distinct_md_keys).label("rows_per_sample"),
+                sample_count_expr.label("sample_count"),
+                safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
+                (ts_row_count_for_cadence / distinct_bldgs).label("rows_per_sample"),
             ]
         elif params.timestamp_grouping_func:
             colname = self._bsq.timestamp_column_name
-            md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
-            distinct_md_keys = self._bsq._count_distinct(md_key_cols)
-            ts_row_count_for_cadence = (
-                safunc.sum(bs_tbl.c["_inner_rows"]) if pivot_bucketed_time else safunc.sum(1)
+            sample_count_expr = safunc.sum(md_alias.c["tract_count"])
+            ts_row_count_for_cadence = safunc.sum(bs_tbl.c["_inner_rows"])
+            distinct_bldgs = self._bsq._count_distinct(
+                [bs_tbl.c[k] for k in self._bsq._get_unique_keys("timeseries")]
             )
             grouping_metrics_selection = [
-                distinct_md_keys.label("sample_count"),
-                (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
-                (ts_row_count_for_cadence / distinct_md_keys).label("rows_per_sample"),
+                sample_count_expr.label("sample_count"),
+                safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
+                (ts_row_count_for_cadence / distinct_bldgs).label("rows_per_sample"),
             ]
             time_col = bs_tbl.c[self._bsq.timestamp_column_name]
             if pivot_bucketed_time:
@@ -786,10 +839,14 @@ class BuildStockAggregate:
                     new_col = sa.func.date_trunc(params.timestamp_grouping_func, time_col).label(colname)
             group_by_selection.insert(time_indx, new_col)
         else:
+            # Raw 15-min TS output (no timestamp_grouping_func). The outer
+            # SELECT references the ts_aggr (or pivot subquery) timestamp
+            # column directly. units_count uses bs_per_bldg's pre-summed
+            # weight; sample_count counts tract rows via tract_count.
             time_col = bs_tbl.c[self._bsq.timestamp_column_name].label(self._bsq.timestamp_column_name)
             grouping_metrics_selection = [
-                safunc.sum(1).label("sample_count"),
-                safunc.sum(total_weight).label("units_count"),
+                safunc.sum(md_alias.c["tract_count"]).label("sample_count"),
+                safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
             ]
             group_by_selection.insert(time_indx, time_col)
 

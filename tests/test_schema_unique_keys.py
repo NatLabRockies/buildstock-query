@@ -143,14 +143,21 @@ def test_annual_query_uses_metadata_unique_keys(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_timeseries_query_uses_timeseries_unique_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The TS aggregation joins ts_aggr (per-(bldg,bucket,state)) to a
+    `bs_per_bldg` subquery (one row per (bldg,state)) on the ts unique
+    keys. ts_unique_keys for the custom_join_key fixture is (bldg_id, state)."""
     bsq = _custom_join_key_bsq(monkeypatch)
     query = bsq.query(
         annual_only=False,
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    assert "bs.bldg_id = custom_run_by_state.bldg_id" in query
-    assert "bs.state = custom_run_by_state.state" in query
+    # Outer JOIN ts_aggr ⋈ bs_per_bldg uses the ts unique keys.
+    assert "bs_per_bldg.bldg_id = ts_aggr.bldg_id" in query
+    assert "bs_per_bldg.state = ts_aggr.state" in query
+    # bs_per_bldg's inner SELECT references the underlying bs columns.
+    assert "FROM custom_run_metadata AS bs" in query
+    assert "GROUP BY bs.bldg_id, bs.state" in query
 
 
 def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -175,8 +182,9 @@ def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.M
     # for partition-aligned hashing). Custom join schema has unique_keys
     # = (bldg_id, state) on ts.
     assert "GROUP BY ts_flat.state, ts_flat.timestamp, ts_flat.bldg_id" in query
-    # Metadata join uses the ts unique keys against ts_aggr
-    assert "bs.bldg_id = ts_aggr.bldg_id AND bs.state = ts_aggr.state" in query
+    # Outer JOIN now goes to bs_per_bldg (per-bldg pre-aggregation),
+    # not raw bs. Joins on ts unique keys.
+    assert "bs_per_bldg.bldg_id = ts_aggr.bldg_id AND bs_per_bldg.state = ts_aggr.state" in query
     # No self-join on the TS table
     assert "ts_b.bldg_id = ts_u.bldg_id" not in query
 
@@ -274,10 +282,13 @@ def test_applied_in_single_key_preserves_scalar_in_clause(monkeypatch: pytest.Mo
 
 
 def test_aggregate_uses_multi_column_count_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
-    """sample_count for TS-aggregated queries uses count(DISTINCT(metadata_keys))
-    so each physical building is counted once even when it has many TS rows.
-    Counts from the bs alias (not TS) so the count is exact for the
-    composite key — TS may not carry every key column."""
+    """sample_count for TS-aggregated queries collapses tract fan-out via
+    `bs_per_bldg`: GROUP BY ts_unique_keys, count(*) AS tract_count. Outer
+    sample_count = sum(bs_per_bldg.tract_count). For the custom_join_key
+    fixture, ts_unique_keys = (bldg_id, state), and tract_count = number of
+    metadata rows (i.e., distinct counties) per (bldg, state). Outer
+    sum(tract_count) per (state, hour) bucket equals the prior
+    count(DISTINCT (bldg_id, county, state)) value."""
     bsq = _custom_join_key_bsq(monkeypatch)
     _stub_sim_info(bsq, monkeypatch)
     query = bsq.query(
@@ -286,12 +297,17 @@ def test_aggregate_uses_multi_column_count_distinct(monkeypatch: pytest.MonkeyPa
         timestamp_grouping_func="month",
         get_query_only=True,
     )
-    assert "count(DISTINCT (bs.bldg_id, bs.county, bs.state))" in query
+    # bs_per_bldg subquery groups by ts unique keys (bldg, state) with count(*).
+    assert "GROUP BY bs.bldg_id, bs.state" in query
+    assert "count(*) AS tract_count" in query
+    # Outer sample_count sums the per-bldg tract counts.
+    assert "sum(bs_per_bldg.tract_count) AS sample_count" in query
 
 
 def test_aggregate_single_key_preserves_scalar_count_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Single-key schema falls back to the scalar count(distinct(bldg_id)) form
-    rather than count(DISTINCT (bldg_id,)) which would be a degenerate tuple."""
+    """Single-key schema: bs_per_bldg GROUPs BY bldg_id alone (no tuple).
+    Outer sample_count = sum(tract_count) follows the same pattern as the
+    multi-column case."""
     bsq = _custom_join_key_bsq(monkeypatch)
     bsq.db_schema.unique_keys.metadata = None
     bsq.db_schema.unique_keys.timeseries = None
@@ -303,10 +319,11 @@ def test_aggregate_single_key_preserves_scalar_count_distinct(monkeypatch: pytes
         timestamp_grouping_func="month",
         get_query_only=True,
     )
-    assert "count(distinct(bs.bldg_id))" in query
-    # Negative: must NOT be a tuple form
-    assert "count(distinct(bs.bldg_id," not in query
-    assert "count(DISTINCT (bs.bldg_id" not in query
+    # Single-key bs_per_bldg.
+    assert "GROUP BY bs.bldg_id" in query
+    assert "GROUP BY bs.bldg_id, bs.state" not in query  # not the multi-key form
+    assert "count(*) AS tract_count" in query
+    assert "sum(bs_per_bldg.tract_count) AS sample_count" in query
 
 
 # ---------------------------------------------------------------------------

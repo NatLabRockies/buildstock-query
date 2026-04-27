@@ -15,5 +15,48 @@
         ["state", ["CO"]]
       ]
     }
+  },
+  {
+    "name": "calculated_column_ts_pivot_upgrade_pair",
+    "sql_hash": {
+      "resstock_oedi": "779276a6591503658a13796ef7f69a09dffbfbaa5d680447540c01f54e73e11a",
+      "comstock_oedi": "8b6952a578ca84a87b1deb75136a03a01471ec583397d7f422343fa7b7172ba5"
+    },
+    "description": "TS calculated column on the pivot path: table='timeseries' + annual_only=False + upgrade_id != 0 + applied_only=False forces the upgrade-pair pivot subquery (NOT the upgrade_only short-circuit). The Label produced by get_calculated_column wraps an arithmetic expression of raw ts columns; the pivot must wrap that whole expression in a per-side CASE, not look up Label.name on ts.c. Without this entry, the pivot path's calculated-column handling is uncovered.",
+    "args": {
+      "column_name": "elec_minus_gas",
+      "column_expr": "$ELECTRICITY_TOTAL - $NATURAL_GAS_TOTAL",
+      "table": "timeseries",
+      "annual_only": false,
+      "upgrade_id": "1",
+      "applied_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": ["state", "time"],
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
+  },
+  {
+    "name": "calculated_column_ts_pivot_with_baseline",
+    "sql_hash": {
+      "resstock_oedi": "421a5f92676887e23f1725d46049a570f4daa266337a51e0301b2b1676cc83b6",
+      "comstock_oedi": "e9d8b11a14ebc33b52e40642837ba70bb4ede27115867863408c65a419417389"
+    },
+    "description": "TS calculated column on the pivot path with include_baseline=True + applied_only=True. This combination forces the pivot subquery (upgrade_only short-circuit only fires when both include_baseline and include_savings are False) AND exercises the applied_in synthesis path that filters to applicable buildings. Together with the upgrade_pair entry above, these two pin both branches of the TS pivot's calculated-column handling.",
+    "args": {
+      "column_name": "elec_minus_gas",
+      "column_expr": "$ELECTRICITY_TOTAL - $NATURAL_GAS_TOTAL",
+      "table": "timeseries",
+      "annual_only": false,
+      "upgrade_id": "1",
+      "applied_only": true,
+      "include_baseline": true,
+      "timestamp_grouping_func": "month",
+      "group_by": ["state", "time"],
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
   }
 ]

@@ -92,9 +92,12 @@ def test_calculated_column(request, schema, fixture_name):
             column_name = variant_args.pop("column_name")
             column_expr = variant_args.pop("column_expr")
             table = variant_args.pop("table", "baseline")
-            # Substitute every $PLACEHOLDER token in the expression string.
-            def _sub(match):
-                return resolve_placeholder(schema, match.group(0), annual=True)
+            # `annual=False` strips the `..kwh` suffix on comstock TS columns
+            # — needed when `table='timeseries'` so the placeholder resolves
+            # to the actual TS column name.
+            placeholder_annual = table != "timeseries"
+            def _sub(match, placeholder_annual=placeholder_annual):
+                return resolve_placeholder(schema, match.group(0), annual=placeholder_annual)
             resolved_expr = placeholder_re.sub(_sub, column_expr)
             calculated_col = bsq.get_calculated_column(column_name, resolved_expr, table=table)
             rewritten_variants.append({**variant_args, "enduses": [calculated_col]})

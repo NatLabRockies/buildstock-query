@@ -9,7 +9,7 @@ import pandas as pd
 from buildstock_query.schema.helpers import gather_params
 from typing import Union
 from collections.abc import Sequence
-from buildstock_query.schema.utilities import DBColType, RestrictTuple, typed_literal, validate_arguments
+from buildstock_query.schema.utilities import DBColType, RestrictTuple, SALabel, typed_literal, validate_arguments
 from pydantic import Field
 
 logging.basicConfig(level=logging.INFO)
@@ -108,10 +108,15 @@ class BuildStockAggregate:
         )
 
         # Project, per row of the inner pivot, one column per enduse on each side.
+        # `e` may be a bare ts column or a Label wrapping an arithmetic expression
+        # (from get_calculated_column). Wrap the underlying expression in CASE; for
+        # a Label we use `.element` so the CASE sees the raw arithmetic. The result
+        # is relabeled `bs__<name>` / `up__<name>` so the _SideView lookup works.
         enduse_pivot_cols = []
         for e in enduses:
-            enduse_pivot_cols.append(bs_case(ts.c[e.name]).label(f"bs__{e.name}"))
-            enduse_pivot_cols.append(up_case(ts.c[e.name]).label(f"up__{e.name}"))
+            value_expr = e.element if isinstance(e, SALabel) else e
+            enduse_pivot_cols.append(bs_case(value_expr).label(f"bs__{e.name}"))
+            enduse_pivot_cols.append(up_case(value_expr).label(f"up__{e.name}"))
 
         ts_pivot_subq = (
             sa.select(*ts_key_cols, *ts_extra_group_cols, *enduse_pivot_cols)

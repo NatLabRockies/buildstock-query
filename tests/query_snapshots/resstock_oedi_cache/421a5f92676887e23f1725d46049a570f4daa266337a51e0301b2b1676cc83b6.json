@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "78b48d0f-ec2e-48a2-8d28-78d71f07dc74",
+  "Query": "UNLOAD (SELECT ts_pivot.state, date_trunc('month', date_add('second', -900, ts_pivot.timestamp)) AS timestamp, count(distinct(bs.bldg_id)) AS sample_count, (count(distinct(bs.bldg_id)) * sum(bs.weight)) / CAST(sum(1) AS DECIMAL) AS units_count, sum(1) / CAST(count(distinct(bs.bldg_id)) AS DECIMAL) AS rows_per_sample, sum(ts_pivot.bs__elec_minus_gas * bs.weight) AS elec_minus_gas__baseline, sum(ts_pivot.up__elec_minus_gas * bs.weight) AS elec_minus_gas__upgrade FROM (SELECT resstock_2024_amy2018_release_2_by_state_vu.bldg_id AS bldg_id, resstock_2024_amy2018_release_2_by_state_vu.timestamp AS timestamp, resstock_2024_amy2018_release_2_by_state_vu.state AS state, sum(CASE WHEN (resstock_2024_amy2018_release_2_by_state_vu.upgrade = 0) THEN resstock_2024_amy2018_release_2_by_state_vu.\"out.electricity.total.energy_consumption\" - resstock_2024_amy2018_release_2_by_state_vu.\"out.natural_gas.total.energy_consumption\" ELSE NULL END) AS bs__elec_minus_gas, sum(CASE WHEN (resstock_2024_amy2018_release_2_by_state_vu.upgrade = 1) THEN resstock_2024_amy2018_release_2_by_state_vu.\"out.electricity.total.energy_consumption\" - resstock_2024_amy2018_release_2_by_state_vu.\"out.natural_gas.total.energy_consumption\" ELSE NULL END) AS up__elec_minus_gas FROM resstock_2024_amy2018_release_2_by_state_vu WHERE resstock_2024_amy2018_release_2_by_state_vu.upgrade IN (0, 1) AND resstock_2024_amy2018_release_2_by_state_vu.state = 'CO' AND resstock_2024_amy2018_release_2_by_state_vu.bldg_id IN (SELECT bs.bldg_id FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.upgrade IN (1) AND bs.applicability = true GROUP BY bs.bldg_id HAVING count(distinct(bs.upgrade)) = 1) GROUP BY resstock_2024_amy2018_release_2_by_state_vu.bldg_id, resstock_2024_amy2018_release_2_by_state_vu.timestamp, resstock_2024_amy2018_release_2_by_state_vu.state) AS ts_pivot JOIN resstock_2024_amy2018_release_2_metadata AS bs ON bs.bldg_id = ts_pivot.bldg_id AND bs.upgrade = 0 GROUP BY 1, 2 ORDER BY 1, 2) \n TO 's3://resstock-core/bsq_athena_unload_results/421a5f92676887e23f1725d46049a570f4daa266337a51e0301b2b1676cc83b6/8fd71d68-0b4d-4c38-a410-0570163c3900/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/78b48d0f-ec2e-48a2-8d28-78d71f07dc74"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-27 11:30:13.807000-05:00",
+    "CompletionDateTime": "2026-04-27 11:30:22.760000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 8766,
+    "DataScannedInBytes": 8176554347,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/78b48d0f-ec2e-48a2-8d28-78d71f07dc74-manifest.csv",
+    "TotalExecutionTimeInMillis": 8953,
+    "QueryQueueTimeInMillis": 49,
+    "ServicePreProcessingTimeInMillis": 97,
+    "QueryPlanningTimeInMillis": 592,
+    "ServiceProcessingTimeInMillis": 41,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

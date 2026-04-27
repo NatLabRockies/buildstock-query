@@ -154,8 +154,17 @@ class QueryCore:
 
     def _initialize_tables(self):
         self.md_table, self.ts_table = self._get_tables(self.table_name)
+        # `bs_table` is a stable alias of md_table that callers use as the
+        # canonical metadata-side handle in outer queries. Keeping a single
+        # named alias (not constructing fresh `md.alias(...)` per call) lets
+        # things like `self.sample_wt = bs_table.c["weight"]` and
+        # `self.md_key_cols = [bs_table.c[k] for k in md_key]` bind once at
+        # init time and remain valid in any query that selects through the
+        # bs alias. Self-join sites construct an additional `md.alias("up")`
+        # locally for the upgrade-side row set.
+        self.bs_table = self.md_table.alias("bs")
 
-        self.md_bldgid_column = self.md_table.c[self.building_id_column_name]
+        self.md_bldgid_column = self.bs_table.c[self.building_id_column_name]
         if self.ts_table is not None:
             self.timestamp_column = self.ts_table.c[self.timestamp_column_name]
             self.ts_bldgid_column = self.ts_table.c[self.building_id_column_name]
@@ -167,7 +176,7 @@ class QueryCore:
 
     @property
     def md_key_cols(self) -> list[sa.Column]:
-        return [self.md_table.c[k] for k in self.md_key]
+        return [self.bs_table.c[k] for k in self.md_key]
 
     @property
     def ts_key_cols(self) -> list[sa.Column]:
@@ -229,9 +238,9 @@ class QueryCore:
         return upgrade_col == typed_literal(upgrade_col, "0")
 
     def _md_baseline_filter(self) -> sa.ColumnElement:
-        """`md.upgrade = 0` — convenience for callers that select directly from
-        `self.md_table` and want only baseline rows."""
-        return self._upgrade_zero_filter(self.md_table)
+        """`bs.upgrade = 0` — convenience for callers that select through the
+        canonical `bs_table` alias and want only baseline rows."""
+        return self._upgrade_zero_filter(self.bs_table)
 
     def _timeseries_pair_join_condition(
         self,
@@ -260,7 +269,7 @@ class QueryCore:
             return sa.literal(1)
         elif isinstance(sample_weight, str):
             try:
-                return self.md_table.c[sample_weight]
+                return self.bs_table.c[sample_weight]
             except ValueError:
                 logger.error("Sample weight column not found. Using weight of 1.")
                 return sa.literal(1)
@@ -306,13 +315,15 @@ class QueryCore:
 
         if not candidate_tables:
             # bs_table and up_table are aliases over the same md_table — searching
-            # md_table holds annual + characteristics columns; ts_table holds
-            # timeseries values. Annual-only column resolution looks at md
-            # alone; otherwise both.
+            # bs_table (alias of md_table) holds annual + characteristics
+            # columns; ts_table holds timeseries values. Annual-only column
+            # resolution looks at bs alone; otherwise both. Using bs_table
+            # rather than md_table makes the resolved column references bind
+            # to the alias that's in the FROM of any aggregate query.
             if annual_only:
-                candidate_tables = (self.md_table,)
+                candidate_tables = (self.bs_table,)
             else:
-                candidate_tables = (self.md_table, self.ts_table)
+                candidate_tables = (self.bs_table, self.ts_table)
 
         search_tables = [self._get_table(table) for table in candidate_tables if table is not None]
         char_prefix = self.db_schema.column_prefix.characteristics
@@ -1320,7 +1331,7 @@ class QueryCore:
     def _add_join(self, query, join_list):
         for new_table_name, baseline_column_name, new_column_name in join_list:
             new_tbl = self._get_table(new_table_name)
-            baseline_column = self._get_column(baseline_column_name, candidate_tables=[self.md_table])
+            baseline_column = self._get_column(baseline_column_name, candidate_tables=[self.bs_table])
             new_column = self._get_column(new_column_name, candidate_tables=[new_tbl])
             query = query.join(new_tbl, baseline_column == new_column)
         return query
@@ -1346,7 +1357,7 @@ class QueryCore:
                 tbl = self._get_table(weight_col[1])
                 total_weight *= tbl.c[weight_col[0]]
             else:
-                total_weight *= self._get_column(weight_col, [self.md_table])
+                total_weight *= self._get_column(weight_col, [self.bs_table])
         return total_weight
 
     def _get_agg_func_and_weight(self, weights, agg_func=None):

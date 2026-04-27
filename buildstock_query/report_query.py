@@ -82,7 +82,7 @@ class BuildStockReport:
         """
         queries: list[str] = []
         chng_types = ["no-chng", "bad-chng", "ok-chng", "true-bad-chng", "true-ok-chng", "null", "any"]
-        bs = self._bsq.md_table.alias("bs")
+        bs = self._bsq.bs_table
         up = self._bsq.md_table.alias("up")
         up_col = up.c["upgrade"]
         up_not_baseline = up_col != typed_literal(up_col, "0")
@@ -157,7 +157,7 @@ class BuildStockReport:
         up_id = typed_literal(up_col, upgrade_id)
         up_query = sa.select(*up_key_cols)
         if trim_missing_bs:
-            bs = self._bsq.md_table.alias("bs")
+            bs = self._bsq.bs_table
             up_query = up_query.join(bs, self._bsq._baseline_upgrade_join_condition(bs, up))
             up_query = up_query.where(
                 sa.and_(
@@ -279,7 +279,7 @@ class BuildStockReport:
         ] = "no-chng",
         get_query_only: bool = False,
     ):
-        bs = self._bsq.md_table.alias("bs")
+        bs = self._bsq.bs_table
         up = self._bsq.md_table.alias("up")
         bs_key_cols = [bs.c[k] for k in self._bsq.md_key]
         completed_status = self._bsq.db_schema.column_names.completed_status
@@ -339,7 +339,7 @@ class BuildStockReport:
         # success", so they don't belong in the per-upgrade report.
         up_query = up_query.select_from(up).where(up_col != typed_literal(up_col, "0"))
         if trim_missing_bs:
-            bs = self._bsq.md_table.alias("bs")
+            bs = self._bsq.bs_table
             up_query = up_query.join(bs, self._bsq._baseline_upgrade_join_condition(bs, up))
             up_query = up_query.where(self._bsq._get_success_condition(bs))
 
@@ -395,7 +395,7 @@ class BuildStockReport:
         # Exclude baseline rows — option names only make sense for actual upgrades.
         query = query.select_from(up).where(up_col != typed_literal(up_col, "0"))
         if trim_missing_bs:
-            bs = self._bsq.md_table.alias("bs")
+            bs = self._bsq.bs_table
             query = query.join(bs, self._bsq._baseline_upgrade_join_condition(bs, up))
             query = query.where(self._bsq._get_success_condition(bs))
         grouping_texts = [sa.text(str(i + 1)) for i in range(1 + len(opt_name_cols))]

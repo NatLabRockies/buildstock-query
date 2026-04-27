@@ -45,7 +45,7 @@ class BuildStockAggregate:
             raise ValueError("No timeseries table found in database.")
 
         ts = self._bsq.ts_table
-        base = self._bsq.md_table.alias("bs")
+        base = self._bsq.bs_table  # canonical alias of md_table
         ucol = self._bsq._ts_upgrade_col
 
         # Push any user-supplied bs_restrict (e.g. comstock `state='CO'`) into the
@@ -59,12 +59,7 @@ class BuildStockAggregate:
 
         if upgrade_id == "0" or upgrade_only:
             # Single-upgrade path: aggregate only the requested upgrade's ts rows.
-            # Used for the baseline (upgrade_id="0") and for upgrade-only queries
-            # that need neither savings nor baseline values, so no ts_b/ts_u
-            # pairing is required. Both bs_tbl and up_tbl resolve to ts because
-            # there's no separate upgrade source — but the metadata alias `base`
-            # is in the FROM, so callers that need the metadata key columns
-            # (e.g. count(distinct(md_key))) can reference base.c[k] directly.
+            # No pivot, no self-join — single ts ⋈ md scan.
             tbljoin = ts.join(
                 base,
                 sa.and_(
@@ -76,81 +71,113 @@ class BuildStockAggregate:
             )
             return ts, ts, tbljoin, list(group_by), base
 
-        if self._bsq.buildstock_type == "comstock":
-            raise UnsupportedQueryShape(
-                "Timeseries upgrade-pair queries (annual_only=False, upgrade_id != '0', "
-                "with baseline/savings comparison) are not yet supported on comstock — the "
-                "ts-self-join shape times out on the current cluster."
-            )
-
-        # For upgrades, create subqueries with proper joins
-        # Split group_by into columns from timeseries vs baseline tables
+        # Upgrade-pair path: PIVOT over ts in a single scan instead of joining
+        # ts to itself. The inner subquery groups by (ts_keys + timestamp +
+        # ts_group_cols) and projects per-upgrade conditional aggregates:
+        #   bs_<enduse> = SUM(CASE WHEN ts.upgrade=0 THEN ts.<enduse> END)
+        #   up_<enduse> = SUM(CASE WHEN ts.upgrade=N THEN ts.<enduse> END)
+        # Each (bldg_id, timestamp) has at most one row per upgrade in TS, so
+        # SUM acts as MAX (NULL-aware) and the per-row baseline/upgrade values
+        # land side-by-side. The outer query joins to md (once) for metadata
+        # characteristics and aggregates the per-row pivot values further.
+        #
+        # The self-join shape this replaces did TWO full ts scans (ts_b and
+        # ts_u) plus a self-join — for comstock TS that timed out, hence the
+        # legacy UnsupportedQueryShape. The pivot is one scan + GROUP BY.
         ts_group_by = [g for g in group_by if g.name in ts.columns]
         bs_group_by = [g for g in group_by if g.name not in ts.columns]
 
-        # Build column list for subquery
-        must_have_col_names = list(
-            dict.fromkeys(
-                [
-                    *self._bsq._get_unique_keys("timeseries"),
-                    self._bsq.timestamp_column_name,
-                ]
+        ts_key_names = list(dict.fromkeys([
+            *self._bsq._get_unique_keys("timeseries"),
+            self._bsq.timestamp_column_name,
+        ]))
+        ts_key_cols = [ts.c[k] for k in ts_key_names]
+        ts_extra_group_cols = [ts.c[g.name] for g in ts_group_by if g.name not in ts_key_names]
+
+        ts_restrict_clauses = self._bsq._get_restrict_clauses(restrict, annual_only=False)
+
+        ts_upgrade_ids = ["0", upgrade_id]
+        bs_case = lambda c: safunc.sum(  # noqa: E731
+            sa.case((ts.c["upgrade"] == typed_literal(ts.c["upgrade"], "0"), c), else_=sa.null())
+        )
+        up_case = lambda c: safunc.sum(  # noqa: E731
+            sa.case(
+                (ts.c["upgrade"] == typed_literal(ts.c["upgrade"], upgrade_id), c),
+                else_=sa.null(),
             )
         )
-        must_have_cols = [ts.c[col_name] for col_name in must_have_col_names]
-        ts_group_cols = [g for g in ts_group_by if g.name not in must_have_col_names]
-        group_col_names = [g.name for g in ts_group_cols]
-        enduse_cols = [e for e in enduses if e.name not in must_have_col_names + group_col_names]
 
-        # Include all necessary columns in the subquery
-        subquery_cols = self._bsq._unique_columns_by_name(must_have_cols + ts_group_cols + bs_group_by + enduse_cols)
+        # Project, per row of the inner pivot, one column per enduse on each side.
+        enduse_pivot_cols = []
+        for e in enduses:
+            enduse_pivot_cols.append(bs_case(ts.c[e.name]).label(f"bs__{e.name}"))
+            enduse_pivot_cols.append(up_case(ts.c[e.name]).label(f"up__{e.name}"))
 
-        # Create subquery with proper join to baseline table; bs_restrict clauses
-        # ride the JOIN ON so the metadata scan is pre-filtered.
-        subquery_base = sa.select(*subquery_cols).select_from(
-            ts.join(
-                base,
-                sa.and_(
-                    self._bsq._baseline_timeseries_join_condition(base, ts),
-                    *bs_restrict_clauses,
-                ),
+        ts_pivot_subq = (
+            sa.select(*ts_key_cols, *ts_extra_group_cols, *enduse_pivot_cols)
+            .select_from(ts)
+            .where(
+                ts.c["upgrade"].in_([typed_literal(ts.c["upgrade"], u) for u in ts_upgrade_ids]),
+                *ts_restrict_clauses,
             )
+            .group_by(*ts_key_cols, *ts_extra_group_cols)
+            .subquery("ts_pivot")
         )
-        ts_b = self._bsq._add_restrict(subquery_base, [[ucol, "0"], *restrict]).alias("ts_b")
-        ts_u = self._bsq._add_restrict(subquery_base, [[ucol, upgrade_id], *restrict]).alias("ts_u")
 
-        # Remap group_by columns to reference the subquery alias
-        remapped_group_by = [ts_b.c[g.name] for g in group_by]
+        # Build virtual `ts_b` and `ts_u` aliases over the pivot subquery so the
+        # outer code's `get_col(bs_tbl, enduse)` and `get_col(up_tbl, enduse)`
+        # resolve to the per-side pivot columns by enduse name.
+        class _SideView:
+            """Adapter exposing pivot-subquery columns indexed by original enduse name."""
+            def __init__(self, subq, prefix, enduses, group_cols):
+                self._subq = subq
+                self._cols_by_name = {}
+                for e in enduses:
+                    self._cols_by_name[e.name] = subq.c[f"{prefix}__{e.name}"]
+                # Group-by and key columns pass through unprefixed
+                for c in group_cols:
+                    if c.name not in self._cols_by_name:
+                        self._cols_by_name[c.name] = subq.c[c.name]
 
-        # Create the table join
+            @property
+            def c(self):
+                return self._cols_by_name
+
+        passthrough_cols = ts_key_cols + ts_extra_group_cols
+        ts_b = _SideView(ts_pivot_subq, "bs", enduses, passthrough_cols)
+        ts_u = _SideView(ts_pivot_subq, "up", enduses, passthrough_cols)
+
+        # Outer join: pivot subquery ⋈ md (once) for metadata characteristics
+        # and bs_group_by columns. The join is on the timeseries unique keys.
+        ts_join_keys = self._bsq._get_unique_keys("timeseries")
+        bs_join_cond = sa.and_(
+            *(base.c[k] == ts_pivot_subq.c[k] for k in ts_join_keys),
+            self._bsq._upgrade_zero_filter(base),
+            *bs_restrict_clauses,
+        )
         if applied_only:
-            tbljoin = ts_b.join(
-                ts_u,
-                self._bsq._timeseries_pair_join_condition(ts_b, ts_u),
-            ).join(
-                base,
-                sa.and_(
-                    self._bsq._baseline_timeseries_join_condition(base, ts_b),
-                    *bs_restrict_clauses,
-                ),
-            )
-        else:
-            tbljoin = ts_b.outerjoin(
-                ts_u,
-                self._bsq._timeseries_pair_join_condition(ts_b, ts_u),
-            ).join(
-                base,
-                sa.and_(
-                    self._bsq._baseline_timeseries_join_condition(base, ts_b),
-                    *bs_restrict_clauses,
-                ),
-            )
+            # applied_only restricts to buildings where the upgrade applied;
+            # `_add_applied_in_restrict` on the outer query enforces it via
+            # an md-side subquery filter, so no per-row filter needed here.
+            pass
+
+        tbljoin = ts_pivot_subq.join(base, bs_join_cond)
+
+        # Remap group_by columns to the appropriate handle:
+        # - ts-side group_bys → ts_pivot_subq column
+        # - bs-side group_bys → md alias (base) column
+        remapped_group_by = []
+        for g in group_by:
+            if g.name in ts.columns:
+                remapped_group_by.append(ts_pivot_subq.c[g.name])
+            else:
+                remapped_group_by.append(base.c[g.name] if g.name in base.c else g)
 
         return ts_b, ts_u, tbljoin, remapped_group_by, base
 
     @validate_arguments
     def __get_annual_bs_up_table(self, upgrade_id: str, applied_only: bool | None):
-        bs = self._bsq.md_table.alias("bs")
+        bs = self._bsq.bs_table  # canonical alias
         if upgrade_id == "0":
             # Baseline-only path: no join. The caller filters to baseline rows
             # via `_md_baseline_successful_condition` in the outer WHERE.
@@ -292,7 +319,7 @@ class BuildStockAggregate:
         bs_restrict_clauses = self._bsq._get_restrict_clauses(bs_restrict_split, annual_only=True)
         ts_restrict_clauses = self._bsq._get_restrict_clauses(ts_restrict_split, annual_only=False)
 
-        bs = self._bsq.md_table.alias("bs")
+        bs = self._bsq.bs_table  # canonical alias
         query = sa.select(*ts_key_cols + grouping_metrics_selection + enduse_selection)
         query = query.join(
             bs,

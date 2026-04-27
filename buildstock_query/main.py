@@ -807,8 +807,10 @@ class BuildStockQuery(QueryCore):
     def _get_enduse_cols(self, enduses: Sequence[AnyColType], table="baseline") -> Sequence[DBColType]:
         # "baseline" and "upgrade" both resolve to the unified metadata table —
         # the columns are the same; the per-upgrade selection happens via WHERE
-        # at the call site. "timeseries" stays distinct.
-        tbls_dict = {"baseline": self.md_table, "upgrade": self.md_table, "timeseries": self.ts_table}
+        # at the call site. "timeseries" stays distinct. We bind to bs_table
+        # (the canonical alias of md_table) so column references in outer
+        # aggregation queries pick up the alias that's actually in the FROM.
+        tbls_dict = {"baseline": self.bs_table, "upgrade": self.bs_table, "timeseries": self.ts_table}
         tbl = tbls_dict[table]
         enduse_cols: list[DBColType] = []
         for enduse in enduses:
@@ -910,16 +912,19 @@ class BuildStockQuery(QueryCore):
         return False
 
     def _restrict_targets_md(self, col: AnyColType) -> bool:
+        # md_table and bs_table share columns (bs is an alias of md), so check
+        # both — restrict columns may be bound to either depending on call site.
+        md_handles = (self.md_table, self.bs_table)
         if isinstance(col, str):
-            return col in self.md_table.columns
+            return col in self.bs_table.columns
         if isinstance(col, SACol):
-            return getattr(col, "table", None) is self.md_table
+            return getattr(col, "table", None) in md_handles
         if isinstance(col, SALabel):
             source_col = getattr(col, "element", None)
-            return isinstance(source_col, SACol) and getattr(source_col, "table", None) is self.md_table
+            return isinstance(source_col, SACol) and getattr(source_col, "table", None) in md_handles
         if isinstance(col, tuple) and col:
             return all(
-                isinstance(c, SACol) and getattr(c, "table", None) is self.md_table for c in col
+                isinstance(c, SACol) and getattr(c, "table", None) in md_handles for c in col
             )
         return False
 
@@ -1032,7 +1037,7 @@ class BuildStockQuery(QueryCore):
         # md_table holds every upgrade — restrict to baseline rows so each
         # (key) appears once, not once per upgrade.
         query = sa.select(*md_key_cols).where(self._md_baseline_filter())
-        query = query.where(self._get_column(location_col, [self.md_table]).in_(locations))
+        query = query.where(self._get_column(location_col, [self.bs_table]).in_(locations))
         query = self._add_order_by(query, md_key_cols)
         if get_query_only:
             return self._compile(query)
@@ -1041,7 +1046,7 @@ class BuildStockQuery(QueryCore):
 
     @property
     def _md_completed_status_col(self):
-        return self.md_table.c[self.db_schema.column_names.completed_status]
+        return self.bs_table.c[self.db_schema.column_names.completed_status]
 
     @property
     def _md_successful_condition(self):
@@ -1063,7 +1068,7 @@ class BuildStockQuery(QueryCore):
 
     @property
     def _md_upgrade_col(self):
-        return self.md_table.c["upgrade"]
+        return self.bs_table.c["upgrade"]
 
     def _get_completed_status_col(self, table: AnyTableType):
         return table.c[self.db_schema.column_names.completed_status]
@@ -1090,7 +1095,7 @@ class BuildStockQuery(QueryCore):
         up_col = self._md_upgrade_col
         typed_ids = [typed_literal(up_col, uid) for uid in upgrade_ids]
         key_names = self._get_unique_keys(key_kind)
-        md_key_cols = [self.md_table.c[name] for name in key_names]
+        md_key_cols = [self.bs_table.c[name] for name in key_names]
         return (
             sa.select(*md_key_cols)
             .where(

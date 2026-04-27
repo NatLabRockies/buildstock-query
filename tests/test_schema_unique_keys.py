@@ -167,9 +167,9 @@ def test_timeseries_query_uses_timeseries_unique_keys(monkeypatch: pytest.Monkey
 
 
 def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.MonkeyPatch) -> None:
-    # buildstock_type="resstock" — comstock blocks TS upgrade-pair savings via
-    # UnsupportedQueryShape; the unique_keys plumbing under test is identical
-    # across schemas, so we test it on the resstock variant.
+    """TS upgrade-pair savings now uses the pivot pattern: one scan of the
+    TS table with conditional SUM(CASE WHEN upgrade=N) per side, GROUP BY
+    (ts_keys + timestamp), then JOIN to the metadata table once."""
     bsq = _custom_join_key_bsq(monkeypatch, buildstock_type="resstock")
     query = bsq.query(
         upgrade_id="1", annual_only=False,
@@ -177,19 +177,25 @@ def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.M
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    assert "ts_b.bldg_id = ts_u.bldg_id" in query
-    assert "ts_b.state = ts_u.state" in query
-    assert "ts_b.timestamp = ts_u.timestamp" in query
-    assert "bs.state = ts_b.state" in query
+    # Pivot CASEs project per-side values
+    assert "CASE WHEN (custom_run_by_state.upgrade = '0') THEN" in query
+    assert "CASE WHEN (custom_run_by_state.upgrade = '1') THEN" in query
+    # GROUP BY uses the timeseries unique keys + timestamp
+    assert "GROUP BY custom_run_by_state.bldg_id, custom_run_by_state.state, custom_run_by_state.timestamp" in query
+    # Metadata join uses the ts unique keys
+    assert "bs.bldg_id = ts_pivot.bldg_id AND bs.state = ts_pivot.state" in query
+    # No self-join on the TS table
+    assert "ts_b.bldg_id = ts_u.bldg_id" not in query
 
 
 def test_timeseries_pair_join_defaults_to_building_id_when_unconfigured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """When unique_keys are unconfigured, the TS pivot's GROUP BY falls back
+    to (bldg_id, timestamp) — no extra key columns."""
     bsq = _custom_join_key_bsq(monkeypatch, buildstock_type="resstock")
     bsq.db_schema.unique_keys.metadata = None
     bsq.db_schema.unique_keys.timeseries = None
-    # Re-initialize so cached bs_key/ts_key tuples reflect the wiped config.
     bsq._initialize_tables()
     query = bsq.query(
         upgrade_id="1", annual_only=False,
@@ -197,9 +203,10 @@ def test_timeseries_pair_join_defaults_to_building_id_when_unconfigured(
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    assert "ts_b.bldg_id = ts_u.bldg_id" in query
-    assert "ts_b.state = ts_u.state" not in query
-    assert "ts_b.timestamp = ts_u.timestamp" in query
+    # Pivot GROUP BY on the default ts unique key (bldg_id) + timestamp
+    assert "GROUP BY custom_run_by_state.bldg_id, custom_run_by_state.timestamp" in query
+    # No state in the GROUP BY (since unique_keys was wiped)
+    assert "custom_run_by_state.state" not in query
 
 
 # ---------------------------------------------------------------------------
@@ -226,8 +233,9 @@ def test_key_attributes_default_to_building_id(monkeypatch: pytest.MonkeyPatch) 
 def test_get_building_ids_returns_all_metadata_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     bsq = _custom_join_key_bsq(monkeypatch)
     query = bsq.get_building_ids(get_query_only=True)
-    # Selects directly from md_table (no self-join needed).
-    assert "SELECT custom_run_metadata.bldg_id, custom_run_metadata.county, custom_run_metadata.state" in query
+    # Selects through the canonical bs alias of md_table.
+    assert "SELECT bs.bldg_id, bs.county, bs.state" in query
+    assert "FROM custom_run_metadata AS bs" in query
 
 
 # ---------------------------------------------------------------------------
@@ -242,10 +250,10 @@ def test_applied_in_uses_tuple_filter_for_multi_metadata_keys(monkeypatch: pytes
         applied_in=["1"],
         get_query_only=True,
     )
-    # Outer side: bs alias on the unified metadata table.
+    # Outer LHS uses the bs alias (canonical metadata-side handle).
     assert "(bs.bldg_id, bs.county, bs.state) IN" in query
-    # Inner side: up alias on the same unified metadata table.
-    assert "SELECT up.bldg_id, up.county, up.state" in query
+    # Inner subquery scans the same metadata table aliased "bs" in its own scope.
+    assert "SELECT bs.bldg_id, bs.county, bs.state" in query
 
 
 def test_applied_in_single_key_preserves_scalar_in_clause(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -259,7 +267,8 @@ def test_applied_in_single_key_preserves_scalar_in_clause(monkeypatch: pytest.Mo
         applied_in=["1"],
         get_query_only=True,
     )
-    assert "bs.bldg_id IN (SELECT up.bldg_id" in query
+    # Single-key form: no tuple-IN; scalar IN.
+    assert "bs.bldg_id IN (SELECT bs.bldg_id" in query
     assert "(bs.bldg_id," not in query
 
 

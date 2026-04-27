@@ -22,7 +22,7 @@ from collections import OrderedDict
 import types
 from buildstock_query.helpers import CachedFutureDf, AthenaFutureDf, DataExistsException, CustomCompiler
 from buildstock_query.helpers import read_csv
-from buildstock_query.sql_cache import SqlCache
+from buildstock_query.sql_cache import SqlCache, hash_sql, normalize_sql
 from typing import TypedDict, NewType
 from botocore.config import Config
 import urllib3
@@ -39,7 +39,7 @@ from buildstock_query.schema.utilities import (
     typed_literal,
     validate_arguments,
 )
-import hashlib
+import re
 import toml
 import uuid
 from sqlalchemy.sql.selectable import SelectBase, Subquery
@@ -548,7 +548,8 @@ class QueryCore:
             # Can't log cost for cached query
             return
         res = self._aws_athena.get_query_execution(QueryExecutionId=execution_id)
-        scanned_GB = res["QueryExecution"]["Statistics"]["DataScannedInBytes"] / 1e9
+        stats = res["QueryExecution"]["Statistics"]
+        scanned_GB = stats["DataScannedInBytes"] / 1e9
         cost = scanned_GB * 5 / 1e3  # 5$ per TB scanned
         if execution_id not in self.seen_execution_ids:
             self.execution_cost["Dollars"] += cost
@@ -560,9 +561,83 @@ class QueryCore:
             f" {self.execution_cost['GB']:.2f} GB (${self.execution_cost['Dollars']:.2f})"
         )
 
+    _UNLOAD_RE = re.compile(r"^\s*UNLOAD\s*\((.*)\)\s*TO\s*'", re.DOTALL | re.IGNORECASE)
+
+    def build_query_cost_index(self) -> dict[str, dict]:
+        """Walk this workgroup's Athena history once and return a
+        `{hash_sql(inner_select): cost_dict}` mapping. Use this when
+        backfilling cost metrics for many snapshots — the per-query
+        `get_query_cost_from_history` walks the same history, so calling
+        it 100 times is 100× more expensive than building the index once.
+
+        For each historical query that's an UNLOAD wrapping a SELECT, the
+        index records the EARLIEST non-cache-hit successful execution
+        (DataScannedInBytes > 0). Athena history is ~45 days; older
+        snapshots have no entry.
+
+        Each value: {data_scanned_mb, query_time_ms, execution_id, submitted_at}.
+        """
+        index: dict[str, tuple[float, dict]] = {}  # hash → (submitted_ts, cost_dict)
+        paginator = self._aws_athena.get_paginator("list_query_executions")
+        for page in paginator.paginate(WorkGroup=self.workgroup):
+            ids = page.get("QueryExecutionIds", [])
+            if not ids:
+                continue
+            for chunk_start in range(0, len(ids), 50):
+                chunk = ids[chunk_start:chunk_start + 50]
+                resp = self._aws_athena.batch_get_query_execution(QueryExecutionIds=chunk)
+                for qe in resp.get("QueryExecutions", []):
+                    query_text = qe.get("Query", "")
+                    if "bsq_athena_unload_results" not in query_text:
+                        continue
+                    m = self._UNLOAD_RE.match(query_text)
+                    if not m:
+                        continue
+                    status = qe.get("Status", {})
+                    if status.get("State") != "SUCCEEDED":
+                        continue
+                    stats = qe.get("Statistics", {})
+                    scanned_bytes = stats.get("DataScannedInBytes") or 0
+                    if scanned_bytes <= 0:
+                        continue
+                    submitted = status.get("SubmissionDateTime")
+                    if submitted is None:
+                        continue
+                    submitted_ts = submitted.timestamp()
+                    key = hash_sql(m.group(1))
+                    cost = {
+                        "data_scanned_mb": round(scanned_bytes / 1e6, 2),
+                        "query_time_ms": stats.get("EngineExecutionTimeInMillis"),
+                        "execution_id": qe["QueryExecutionId"],
+                        "submitted_at": datetime.datetime.fromtimestamp(submitted_ts).isoformat(),
+                    }
+                    existing = index.get(key)
+                    if existing is None or submitted_ts < existing[0]:
+                        index[key] = (submitted_ts, cost)
+        return {k: v[1] for k, v in index.items()}
+
+    def get_query_cost_from_history(self, sql: str) -> Optional[dict]:
+        """Look up cost metrics for a single SQL by walking Athena history.
+
+        This is the convenient one-shot form. For backfilling many snapshots,
+        prefer `build_query_cost_index()` (one history walk vs N).
+
+        Returns a dict {data_scanned_mb, query_time_ms, execution_id, submitted_at}
+        or None if no matching successful execution is found.
+        """
+        target_hash = hash_sql(sql)
+        index = self.build_query_cost_index()
+        return index.get(target_hash)
+
     def _compile(self, query) -> str:
         compiled_query = CustomCompiler(AthenaDialect(), query).process(query, literal_binds=True)
-        return compiled_query
+        # Normalize whitespace at compile time so every consumer sees the same
+        # canonical form: cache filename hash, S3 unload-path hash, snapshot
+        # `<hash>.sql` content, and Athena query history all match for the
+        # same logical SQL. Without this, cache lookups by literal SQL string
+        # would miss across whitespace variations, and history-search helpers
+        # would need to re-normalize on the way in.
+        return normalize_sql(compiled_query)
 
     def _get_unload_result(self, execution_id, result_location: str) -> pd.DataFrame:
         t = time.time()
@@ -699,7 +774,12 @@ class QueryCore:
                 return "CACHED", CachedFutureDf(cached)
             return cached
 
-        query_hash = hashlib.sha256(query.encode()).hexdigest()
+        # `query` here is already whitespace-normalized (see `_compile`), so
+        # `hash_sql` and `sha256(query.encode())` are equivalent. The S3 unload
+        # path embeds this hash, which is the same as the snapshot cache
+        # `<hash>.sql` filename — letting the cost-history helper find a query's
+        # past Athena execution by substring-searching history for `/<hash>/`.
+        query_hash = hash_sql(query)
         result_path = f"s3://{self.run_params.query_unload_s3_bucket}/bsq_athena_unload_results/{query_hash}"
         # check if result already exists in s3
         if (result_location := self._get_query_result_location(result_path)):

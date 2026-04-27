@@ -67,6 +67,13 @@ class Query(BaseQuery):
             raise ValueError("applied_in cannot be set when applied_only is False")
         if self.get_nonzero_count and not self.annual_only:
             raise ValueError("get_nonzero_count cannot be True when annual_only is False")
+        if self.get_quartiles and not self.annual_only:
+            raise ValueError(
+                "get_quartiles is not supported on timeseries queries (annual_only=False). "
+                "Quartiles over per-timestamp rows don't compose meaningfully with a "
+                "rollup, and quartiles over per-bucket sums are non-obvious; use "
+                "min/max-style aggregates instead, or run an annual query for quartiles."
+            )
         if self.applied_only is None:
             self.applied_only = effective_applied_only  # False for baseline, True otherwise
         return self

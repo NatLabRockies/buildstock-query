@@ -120,7 +120,7 @@
       "resstock_oedi": "77c6ec50e93303cd4b018f2302351613193bef04adf6af5ea5a50004fd36780b",
       "comstock_oedi": "6267e4f49ffb0b2d67e1bb537e58a7f40f38e7ff909eaaa607e595dd6bf2a46e"
     },
-    "description": "Annual savings for upgrade 1 covering both electricity and natural gas as enduses, grouped by building type, CO only. Pins the multi-fuel column-suffix shape across the baseline/upgrade/savings projection — every prior savings entry is electricity-only.",
+    "description": "Annual savings for upgrade 1 covering both electricity and natural gas as enduses, grouped by building type, CO only. Pins the multi-fuel column-suffix shape across the baseline/upgrade/savings projection \u2014 every prior savings entry is electricity-only.",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL",
@@ -149,7 +149,7 @@
       "resstock_oedi": "b361fe07d185741391fee6ef68c6a40a10ac2092fb3acd9b5b4bb620957373cc",
       "comstock_oedi": "99844cee329586e2953ff11e5ccc45af3d9466d2e75a5783d80167c1db418a21"
     },
-    "description": "Monthly TS savings for upgrade 1 covering both electricity and natural gas, grouped by time, CO only. Mirrors savings_annual_two_fuel on the TS path — pins the multi-fuel column-suffix shape across baseline/upgrade/savings projections in the TS upgrade-pair flow. Comstock skips per UnsupportedQueryShape (TS upgrade-pair queries on comstock).",
+    "description": "Monthly TS savings for upgrade 1 covering both electricity and natural gas, grouped by time, CO only. Mirrors savings_annual_two_fuel on the TS path \u2014 pins the multi-fuel column-suffix shape across baseline/upgrade/savings projections in the TS upgrade-pair flow. Comstock skips per UnsupportedQueryShape (TS upgrade-pair queries on comstock).",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL",
@@ -172,37 +172,6 @@
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true
-    }
-  },
-  {
-    "name": "savings_ts_monthly_upgrade1_quartiles",
-    "sql_hash": {
-      "resstock_oedi": "eb9453fffb7899cc52fa7934f1ba8d04bd6cebdd95a5daf5229acaadbd559fb1",
-      "comstock_oedi": "98ae876a28b0cc6ca70ae48c789f929018f2e4b98727da4ef7f081694cdf517b"
-    },
-    "description": "Monthly TS savings with quartiles, upgrade 1, CO only. Exercises the quartile branch in the TS upgrade-pair path; the existing TS savings entry has no quartiles.",
-    "args": {
-      "enduses": [
-        "$ELECTRICITY_TOTAL"
-      ],
-      "upgrade_id": "1",
-      "annual_only": false,
-      "timestamp_grouping_func": "month",
-      "group_by": [
-        "time"
-      ],
-      "restrict": [
-        [
-          "state",
-          [
-            "CO"
-          ]
-        ]
-      ],
-      "include_baseline": true,
-      "include_upgrade": true,
-      "include_savings": true,
-      "get_quartiles": true
     }
   }
 ]

@@ -1908,7 +1908,6 @@ def test_ts_time_buckets_monotonic_and_complete(
 QUARTILE_ENTRIES = [
     ("annual.json", "annual_baseline_quartiles"),
     ("savings.json", "savings_annual_upgrade1_quartiles"),
-    ("savings.json", "savings_ts_monthly_upgrade1_quartiles"),
 ]
 
 

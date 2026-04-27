@@ -521,14 +521,6 @@ class BuildStockAggregate:
             # didn't take the upgrade_only short-circuit, the pivot subquery
             # already date_trunc'd the time column at the inner GROUP BY. The
             # outer date_trunc insertion below would be redundant.
-            #
-            # NOTE: quartiles (`get_quartiles=True`) ALSO use this path. The
-            # quartile is taken over the per-(bldg, bucket) summed value —
-            # i.e. "what's the 50th percentile of MONTHLY building totals" —
-            # which is the meaningful interpretation when the surrounding
-            # query is monthly. The pre-pivot equivalent took quartiles over
-            # per-15-min instantaneous values, which doesn't compose with a
-            # monthly rollup.
             pivot_bucketed_time = (
                 upgrade_id != "0"
                 and not upgrade_only

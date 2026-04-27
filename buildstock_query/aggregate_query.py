@@ -43,6 +43,7 @@ class BuildStockAggregate:
         timestamp_grouping_func: Optional[str] = None,
         total_weight=None,
         extra_bs_cols: Optional[Sequence[sa.Column]] = None,
+        skip_bs_per_bldg: bool = False,
     ):
         if self._bsq.ts_table is None:
             raise ValueError("No timeseries table found in database.")
@@ -78,6 +79,26 @@ class BuildStockAggregate:
         # at the same scale.
         single_upgrade = upgrade_id == "0" or upgrade_only
         ts_upgrade_ids = [upgrade_id] if single_upgrade else ["0", upgrade_id]
+
+        # Skip bs_per_bldg pre-aggregation when the caller has join_list or
+        # weights bound to non-bs tables. The bs_per_bldg subquery can't
+        # cleanly project SUM(bs.weight × non_bs_table.weight) without
+        # cross-joining the non-bs table, and the outer JOIN to the
+        # join_list table needs the canonical bs alias to be in scope.
+        # Falls back to the pre-refactor direct ts ⋈ bs join shape, which
+        # accepts tract fan-out — utility queries are typically eiaid-
+        # restricted and small enough for that to not matter.
+        if skip_bs_per_bldg and single_upgrade:
+            tbljoin = ts.join(
+                base,
+                sa.and_(
+                    self._bsq._baseline_timeseries_join_condition(base, ts),
+                    ucol == typed_literal(ucol, upgrade_id),
+                    *self._bsq._get_restrict_clauses(restrict, annual_only=True),
+                    *bs_restrict_clauses,
+                ),
+            )
+            return ts, ts, tbljoin, list(group_by), base
 
         ts_group_by = [g for g in group_by if g.name in ts.columns]
         bs_group_by = [g for g in group_by if g.name not in ts.columns]
@@ -653,6 +674,13 @@ class BuildStockAggregate:
                     bs_col = self._bsq.bs_table.c[bs_ref.name]
                 if bs_col is not None:
                     join_bs_cols.append(bs_col)
+            # Utility queries with join_list have weights/group_by bound to
+            # the join_list table (e.g. eiaid_weights.weight). bs_per_bldg
+            # can't cleanly absorb those without cross-joining the
+            # join_list table. Fall back to direct ts ⋈ bs JOIN for these
+            # queries — they're typically eiaid-restricted, so tract fan-
+            # out doesn't blow up.
+            skip_bs_per_bldg = bool(params.join_list)
             bs_tbl, up_tbl, tbljoin, group_by_selection, md_alias = self.__get_timeseries_bs_up_table(
                 enduse_cols, upgrade_id, params.applied_only, ts_restrict,
                 bs_restrict=bs_restrict, group_by=group_by_selection,
@@ -660,6 +688,7 @@ class BuildStockAggregate:
                 timestamp_grouping_func=params.timestamp_grouping_func,
                 total_weight=total_weight,
                 extra_bs_cols=join_bs_cols,
+                skip_bs_per_bldg=skip_bs_per_bldg,
             )
             # md_alias is now the bs_per_bldg subquery (per-(bldg, state) row
             # with sum(weight) AS bldg_weight, count(*) AS tract_count, and
@@ -671,10 +700,17 @@ class BuildStockAggregate:
             # The outer per-row weight becomes md_alias.c["bldg_weight"] —
             # already includes sample_wt × user_weights from total_weight,
             # pre-summed at building grain.
-            ts_total_weight = md_alias.c["bldg_weight"]
-            total_weight = ts_total_weight
-            if agg_weight is not None:
-                agg_weight = ts_total_weight
+            #
+            # When skip_bs_per_bldg fired (e.g. utility join_list queries),
+            # md_alias IS just the canonical bs alias — no `bldg_weight`
+            # column. Outer SELECT keeps using bs.weight × user_weights
+            # directly (the pre-refactor shape).
+            uses_bs_per_bldg = "bldg_weight" in getattr(md_alias, "c", {})
+            if uses_bs_per_bldg:
+                ts_total_weight = md_alias.c["bldg_weight"]
+                total_weight = ts_total_weight
+                if agg_weight is not None:
+                    agg_weight = ts_total_weight
             # Inner ts_aggr always pre-buckets time when grouping_func is
             # set — true for both single-upgrade (upgrade_id=="0" or
             # upgrade_only) and upgrade-pair branches. The outer SELECT
@@ -823,36 +859,44 @@ class BuildStockAggregate:
                 safunc.sum(total_weight).label("units_count"),
             ]
         elif params.timestamp_grouping_func == "year":  # Use timeseries tables but collapse timeseries
-            # md_alias is bs_per_bldg (one row per (bldg, state)). With
-            # ts_aggr also pre-aggregating to per-(bldg, bucket, state),
-            # the outer JOIN gives one row per (bldg, bucket, state). Per
-            # outer (state, year) group:
-            #   sample_count = sum(tract_count)  # collapses tract fan-out
-            #                                       to original distinct count
-            #   units_count  = sum(bldg_weight)
-            #   rows_per_sample = sum(_inner_rows) / count(distinct bldgs)
-            sample_count_expr = safunc.sum(md_alias.c["tract_count"])
-            ts_row_count_for_cadence = safunc.sum(bs_tbl.c["_inner_rows"])
-            distinct_bldgs = self._bsq._count_distinct(
-                [bs_tbl.c[k] for k in self._bsq._get_unique_keys("timeseries")]
-            )
-            grouping_metrics_selection = [
-                sample_count_expr.label("sample_count"),
-                safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
-                (ts_row_count_for_cadence / distinct_bldgs).label("rows_per_sample"),
-            ]
+            uses_bs_per_bldg = "bldg_weight" in getattr(md_alias, "c", {})
+            if uses_bs_per_bldg:
+                # bs_per_bldg shape: pre-summed columns at building grain.
+                grouping_metrics_selection = [
+                    safunc.sum(md_alias.c["tract_count"]).label("sample_count"),
+                    safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
+                    (safunc.sum(bs_tbl.c["_inner_rows"]) / self._bsq._count_distinct(
+                        [bs_tbl.c[k] for k in self._bsq._get_unique_keys("timeseries")]
+                    )).label("rows_per_sample"),
+                ]
+            else:
+                # Direct ts ⋈ bs join shape (e.g. utility join_list queries).
+                md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
+                distinct_md_keys = self._bsq._count_distinct(md_key_cols)
+                grouping_metrics_selection = [
+                    distinct_md_keys.label("sample_count"),
+                    (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
+                    (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
+                ]
         elif params.timestamp_grouping_func:
             colname = self._bsq.timestamp_column_name
-            sample_count_expr = safunc.sum(md_alias.c["tract_count"])
-            ts_row_count_for_cadence = safunc.sum(bs_tbl.c["_inner_rows"])
-            distinct_bldgs = self._bsq._count_distinct(
-                [bs_tbl.c[k] for k in self._bsq._get_unique_keys("timeseries")]
-            )
-            grouping_metrics_selection = [
-                sample_count_expr.label("sample_count"),
-                safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
-                (ts_row_count_for_cadence / distinct_bldgs).label("rows_per_sample"),
-            ]
+            uses_bs_per_bldg = "bldg_weight" in getattr(md_alias, "c", {})
+            if uses_bs_per_bldg:
+                grouping_metrics_selection = [
+                    safunc.sum(md_alias.c["tract_count"]).label("sample_count"),
+                    safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
+                    (safunc.sum(bs_tbl.c["_inner_rows"]) / self._bsq._count_distinct(
+                        [bs_tbl.c[k] for k in self._bsq._get_unique_keys("timeseries")]
+                    )).label("rows_per_sample"),
+                ]
+            else:
+                md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
+                distinct_md_keys = self._bsq._count_distinct(md_key_cols)
+                grouping_metrics_selection = [
+                    distinct_md_keys.label("sample_count"),
+                    (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
+                    (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
+                ]
             time_col = bs_tbl.c[self._bsq.timestamp_column_name]
             if pivot_bucketed_time:
                 # Pivot subquery already date_trunc'd the time at the inner
@@ -875,10 +919,17 @@ class BuildStockAggregate:
             # column directly. units_count uses bs_per_bldg's pre-summed
             # weight; sample_count counts tract rows via tract_count.
             time_col = bs_tbl.c[self._bsq.timestamp_column_name].label(self._bsq.timestamp_column_name)
-            grouping_metrics_selection = [
-                safunc.sum(md_alias.c["tract_count"]).label("sample_count"),
-                safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
-            ]
+            uses_bs_per_bldg = "bldg_weight" in getattr(md_alias, "c", {})
+            if uses_bs_per_bldg:
+                grouping_metrics_selection = [
+                    safunc.sum(md_alias.c["tract_count"]).label("sample_count"),
+                    safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
+                ]
+            else:
+                grouping_metrics_selection = [
+                    safunc.sum(1).label("sample_count"),
+                    safunc.sum(total_weight).label("units_count"),
+                ]
             group_by_selection.insert(time_indx, time_col)
 
         query_cols = list(group_by_selection) + grouping_metrics_selection + query_cols

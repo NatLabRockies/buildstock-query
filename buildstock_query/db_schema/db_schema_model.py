@@ -3,9 +3,46 @@ from typing import Optional
 
 
 class TableSuffix(BaseModel):
-    baseline: str
+    """Suffixes for the underlying physical tables.
+
+    Two shapes are supported:
+
+    * 2-table (preferred, OEDI): set `annual_and_metadata` + `timeseries`. The
+      annual_and_metadata table holds rows for every upgrade (including the
+      baseline as `upgrade=0`); the upgrade selection happens as a WHERE
+      clause on that single table at query time.
+    * 3-table (legacy, classic schemas): set `baseline` + `upgrades` +
+      `timeseries`. The baseline parquet and upgrades parquet are physically
+      separate tables and joined explicitly.
+
+    Exactly one of `{annual_and_metadata}` or `{baseline, upgrades}` must be
+    provided.
+    """
+
     timeseries: str
-    upgrades: str
+    annual_and_metadata: Optional[str] = None
+    baseline: Optional[str] = None
+    upgrades: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _exactly_one_shape(self) -> "TableSuffix":
+        has_unified = self.annual_and_metadata is not None
+        has_split = self.baseline is not None or self.upgrades is not None
+        if has_unified and has_split:
+            raise ValueError(
+                "table_suffix may set EITHER `annual_and_metadata` (2-table shape) "
+                "OR both `baseline` and `upgrades` (3-table shape) — not both."
+            )
+        if not has_unified and not has_split:
+            raise ValueError(
+                "table_suffix must set either `annual_and_metadata` (2-table shape) "
+                "or both `baseline` and `upgrades` (3-table shape)."
+            )
+        if has_split and (self.baseline is None or self.upgrades is None):
+            raise ValueError(
+                "table_suffix 3-table shape requires BOTH `baseline` and `upgrades`."
+            )
+        return self
 
 
 class ColumnPrefix(BaseModel):
@@ -37,8 +74,9 @@ class CompletionValues(BaseModel):
 
 
 class Structure(BaseModel):
-    # whether the baseline timeseries is copied for unapplicable buildings in an upgrade
-    inapplicables_have_ts: bool
+    # Vestigial: the codebase now assumes inapplicables_have_ts=True universally.
+    # Kept here so existing TOMLs still validate; the value is ignored.
+    inapplicables_have_ts: bool = True
 
 
 class UniqueKeys(BaseModel):
@@ -62,5 +100,5 @@ class DBSchema(BaseModel):
     column_prefix: ColumnPrefix
     column_names: ColumnNames
     completion_values: CompletionValues
-    structure: Structure
+    structure: Structure = Field(default_factory=Structure)
     unique_keys: UniqueKeys = Field(default_factory=UniqueKeys)

@@ -87,7 +87,9 @@ def _custom_join_key_bsq(
 
     def _get_local_tables(self, requested_table_name):
         assert requested_table_name == "custom_run"
-        return baseline, timeseries, upgrades
+        # md_table is None because this fixture builds a classic 3-table shape
+        # (baseline and upgrades are physically distinct).
+        return baseline, timeseries, upgrades, None
 
     monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
     bsq = BuildStockQuery(
@@ -144,7 +146,8 @@ def _classic_resstock_bsq(
 
     def _get_local_tables(self, requested_table_name):
         assert requested_table_name == table_name
-        return baseline, timeseries, upgrades
+        # Classic resstock shape: distinct baseline/upgrades parquets, md_table=None.
+        return baseline, timeseries, upgrades, None
 
     monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
     bsq = BuildStockQuery(
@@ -410,17 +413,23 @@ def test_timeseries_query_keeps_ts_restrict_without_upgrades(
 
 @pytest.mark.parametrize(
     "table_name",
-    ["shared_run", ("shared_run_baseline", None, "shared_run_baseline")],
+    ["shared_run", ("shared_run_md", None, None)],
 )
-def test_get_tables_keeps_exported_columns_for_shared_baseline_table(
-    table_name: str | tuple[str, None, str],
+def test_get_tables_aliases_unified_metadata_table(
+    table_name: str | tuple[str, None, None],
 ) -> None:
-    """When baseline and upgrade tables are physically the same Athena table
-    (resolved via different `upgrade` filter clauses), _get_tables must wrap
-    each in a `SELECT * FROM <table>` subquery that preserves the column
-    list — otherwise downstream queries lose access to upgrade-side columns."""
+    """The 2-table schema shape (`annual_and_metadata` + `timeseries`) wraps the
+    single physical table in two SQLAlchemy aliases — one labelled "baseline",
+    one "upgrade". This produces clean `FROM md AS baseline JOIN md AS upgrade`
+    SQL with no synthesized `(SELECT * FROM md WHERE upgrade=0)` subquery
+    wrapper. The `md_table` attribute exposes the underlying table; `bs_table`
+    and `up_table` are the aliases."""
+    # Build a minimal 2-table schema dict (no Athena needed).
     db_schema_dict = toml.load(_RESSTOCK_DEFAULT_SCHEMA_PATH)
-    db_schema_dict["table_suffix"]["upgrades"] = db_schema_dict["table_suffix"]["baseline"]
+    db_schema_dict["table_suffix"] = {
+        "annual_and_metadata": "_md",
+        "timeseries": "_ts",
+    }
 
     bsq = BuildStockQuery.__new__(BuildStockQuery)
     bsq.region_name = "us-west-2"
@@ -430,7 +439,7 @@ def test_get_tables_keeps_exported_columns_for_shared_baseline_table(
 
     metadata = sa.MetaData()
     source_table = sa.Table(
-        "shared_run_baseline", metadata,
+        "shared_run_md", metadata,
         sa.Column("building_id", sa.Integer),
         sa.Column("upgrade", sa.String),
         sa.Column("completed_status", sa.String),
@@ -447,16 +456,24 @@ def test_get_tables_keeps_exported_columns_for_shared_baseline_table(
 
     bsq._get_table = _get_local_table
 
-    baseline_table, ts_table, upgrade_table = bsq._get_tables(table_name)
+    baseline_table, ts_table, upgrade_table, md_table = bsq._get_tables(table_name)
     assert ts_table is None
+    assert md_table is source_table
+    # Aliases preserve the underlying column list.
     assert baseline_table.c["building_id"].name == "building_id"
     assert upgrade_table.c["building_id"].name == "building_id"
+    # Aliases must be distinct SA handles so identity-based dispatch keeps
+    # discriminating bs vs up usage.
+    assert baseline_table is not upgrade_table
 
+    # SELECTing from each alias should produce `FROM <real_table> AS <alias>`,
+    # not a `(SELECT * FROM ...)` subquery wrapper.
     compiled_baseline = " ".join(bsq._compile(sa.select(baseline_table.c["building_id"])).split())
     compiled_upgrade = " ".join(bsq._compile(sa.select(upgrade_table.c["building_id"])).split())
-    assert f"SELECT * FROM {source_table.name}" in compiled_baseline
-    assert f"SELECT * FROM {source_table.name}" in compiled_upgrade
-    assert "AS upgrade" in compiled_upgrade
+    assert "SELECT *" not in compiled_baseline
+    assert "SELECT *" not in compiled_upgrade
+    assert f"FROM {source_table.name} AS baseline" in compiled_baseline
+    assert f"FROM {source_table.name} AS upgrade" in compiled_upgrade
 
     compiled_available_upgrades = []
 

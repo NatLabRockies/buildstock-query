@@ -153,7 +153,7 @@ class QueryCore:
         self._initialize_book_keeping(params.execution_history)
 
     def _initialize_tables(self):
-        self.bs_table, self.ts_table, self.up_table = self._get_tables(self.table_name)
+        self.bs_table, self.ts_table, self.up_table, self.md_table = self._get_tables(self.table_name)
 
         self.bs_bldgid_column = self.bs_table.c[self.building_id_column_name]
         if self.ts_table is not None:
@@ -339,28 +339,67 @@ class QueryCore:
         return sa.text(self._compile(raw_subquery)).columns(*source_table.c).subquery(alias_name)
 
     def _get_tables(self, table_name: Union[str, tuple[str, Optional[str], Optional[str]]]):
+        """Resolve the underlying physical tables for this run.
+
+        Two schema shapes are supported (see `TableSuffix` docstring):
+
+        * 2-table (OEDI): a single `annual_and_metadata` parquet holds rows for
+          every upgrade. We expose it as `self.md_table`, plus two aliases
+          `bs_table` / `up_table` so existing join-site code keeps the
+          baseline/upgrade distinction. The aliases produce
+          `FROM md AS baseline JOIN md AS upgrade ...` SQL — no synthesized
+          `(SELECT * FROM md WHERE upgrade=0)` subquery wrapper. The actual
+          `upgrade=0` filter rides the join's ON clause instead.
+
+        * 3-table (legacy): baseline and upgrades are physically separate
+          parquets. `md_table` is None; `bs_table` and `up_table` are the
+          loaded tables themselves. No subquery synthesis is needed because
+          the tables really are distinct.
+
+        For tuple `table_name`, the entries are `(baseline, timeseries, upgrades)`
+        for the 3-table shape, or `(annual_and_metadata, timeseries, None)` for
+        the 2-table shape.
+        """
         self._engine = self._create_athena_engine(
             region_name=self.region_name, database=self.db_name, workgroup=self.workgroup
         )
+
+        suffix = self.db_schema.table_suffix
+        unified_shape = suffix.annual_and_metadata is not None
+
         if isinstance(table_name, str):
-            baseline_table_name = f"{table_name}{self.db_schema.table_suffix.baseline}"
-            ts_table_name = f"{table_name}{self.db_schema.table_suffix.timeseries}"
-            upgrade_table_name = f"{table_name}{self.db_schema.table_suffix.upgrades}"
+            ts_table_name = f"{table_name}{suffix.timeseries}"
+            if unified_shape:
+                md_table_name = f"{table_name}{suffix.annual_and_metadata}"
+                baseline_table_name = md_table_name
+                upgrade_table_name = md_table_name
+            else:
+                baseline_table_name = f"{table_name}{suffix.baseline}"
+                upgrade_table_name = f"{table_name}{suffix.upgrades}"
+                md_table_name = None
         else:
             baseline_table_name = table_name[0]
             ts_table_name = table_name[1]
-            upgrade_table_name = table_name[2]
+            upgrade_table_name = table_name[2] if len(table_name) > 2 else None
+            md_table_name = baseline_table_name if unified_shape else None
+            if unified_shape:
+                upgrade_table_name = baseline_table_name
 
-        baseline_table = self._get_table(baseline_table_name)
         ts_table = self._get_table(ts_table_name, missing_ok=True) if ts_table_name else None
-        if baseline_table_name == upgrade_table_name:
-            upgrade_col = baseline_table.c["upgrade"]
-            zero = typed_literal(upgrade_col, "0")
-            upgrade_table = self._get_subquery_table(baseline_table, upgrade_col != zero, "upgrade")
-            baseline_table = self._get_subquery_table(baseline_table, upgrade_col == zero, "baseline")
+
+        if unified_shape:
+            md_table = self._get_table(md_table_name)
+            # Lightweight aliases — same physical table, distinct SA handles so
+            # the rest of the codebase can keep treating bs_table and up_table
+            # as separate entities for identity checks and join construction.
+            baseline_table = md_table.alias("baseline")
+            upgrade_table = md_table.alias("upgrade")
         else:
+            md_table = None
+            baseline_table = self._get_table(baseline_table_name)
             upgrade_table = self._get_table(upgrade_table_name, missing_ok=True) if upgrade_table_name else None
-        return baseline_table, ts_table, upgrade_table
+
+        return baseline_table, ts_table, upgrade_table, md_table
 
     def _initialize_book_keeping(self, execution_history):
         self._execution_history_file = execution_history or self.cache_folder / ".execution_history"

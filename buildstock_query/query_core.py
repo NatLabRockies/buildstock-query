@@ -314,10 +314,14 @@ class QueryCore:
             return sa.literal(column_name).label(self._simple_label(column_name.name))
 
         if not candidate_tables:
+            # bs_table and up_table are aliases over the same md_table — searching
+            # both would always report "found in multiple tables". Use bs_table
+            # alone for column resolution; consumers route to up_table explicitly
+            # when they want the upgrade-side reference.
             if annual_only:
-                candidate_tables = (self.bs_table, self.up_table)
+                candidate_tables = (self.bs_table,)
             else:
-                candidate_tables = (self.bs_table, self.up_table, self.ts_table)
+                candidate_tables = (self.bs_table, self.ts_table)
 
         search_tables = [self._get_table(table) for table in candidate_tables if table is not None]
         char_prefix = self.db_schema.column_prefix.characteristics

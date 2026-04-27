@@ -5,14 +5,16 @@ from pydantic import ConfigDict, BaseModel, validate_call
 import sqlalchemy as sa
 from sqlalchemy.sql import sqltypes
 from sqlalchemy.sql.elements import Label, ColumnElement
-from sqlalchemy.sql.selectable import SelectBase, Subquery
+from sqlalchemy.sql.selectable import SelectBase, Subquery, Alias
 # from buildstock_query import BuildStockQuery  # can't import due to circular import
 
 
 SACol = sa.Column | ColumnElement
 SALabel = Label
 DBColType = SALabel | SACol
-DBTableType = sa.Table | Subquery
+# Alias is included so `bs_table` / `up_table` (SA aliases over the unified
+# annual_and_metadata table) flow through the same type guards as real Tables.
+DBTableType = sa.Table | Subquery | Alias
 AnyTableType = Union[DBTableType, str]
 
 

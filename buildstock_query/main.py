@@ -680,7 +680,10 @@ class BuildStockQuery(QueryCore):
             DataFrame of building keys (`bs_key_cols`).
         """
         restrict = list(restrict) if restrict else []
-        query = sa.select(*self.bs_key_cols)
+        # bs_table is an alias over the unified annual_and_metadata table —
+        # filter to baseline rows so the result is one row per (building × keys),
+        # not one per (building × upgrade × keys).
+        query = sa.select(*self.bs_key_cols).where(self._bs_upgrade_filter())
         query = self._add_restrict(query, restrict, annual_only=True)
         applied_subquery = self._get_applied_in_subquery(applied_in, key_kind="metadata")
         if applied_subquery is not None:

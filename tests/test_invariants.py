@@ -1356,14 +1356,16 @@ def test_comstock_composite_key_mutation_breaks_invariants():
         include_baseline=True, include_upgrade=True, include_savings=True,
         get_query_only=True,
     )
-    join_on_match = "baseline.bldg_id = upgrade.bldg_id AND baseline.state = upgrade.state"
+    # bs/up are SA aliases over the unified annual_and_metadata table after
+    # the 2-table pivot (commit f6cfebd → fe8755b).
+    join_on_match = "bs.bldg_id = up.bldg_id AND bs.state = up.state"
     if join_on_match in sql_mutated:
         pytest.fail(
             "Mutation didn't take effect — mutated SQL still contains state/tract "
             "in the JOIN ON clause. Schema dict override may not be working."
         )
     # Sanity that the join IS bldg_id-only after mutation
-    if "ON baseline.bldg_id = upgrade.bldg_id AND upgrade.upgrade = 1" not in sql_mutated:
+    if "ON bs.bldg_id = up.bldg_id" not in sql_mutated or "up.upgrade = 1" not in sql_mutated:
         pytest.fail(
             f"Mutated SQL doesn't have expected bldg_id-only join shape. SQL:\n{sql_mutated}"
         )

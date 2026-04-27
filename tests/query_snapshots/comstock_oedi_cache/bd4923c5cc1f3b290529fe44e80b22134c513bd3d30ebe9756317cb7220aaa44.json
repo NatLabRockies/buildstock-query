@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "4d3c59b8-7396-4f02-b395-00f6f462265a",
+  "Query": "UNLOAD (SELECT bs.\"in.vintage\" AS vintage, sum(1) AS sample_count, sum(bs.weight) AS units_count, sum(bs.\"out.electricity.total.energy_consumption..kwh\" * bs.weight) AS \"electricity.total.energy_consumption..kwh\" \nFROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs \nWHERE bs.applicability = true AND bs.upgrade = 0 AND bs.state = 'CO' GROUP BY 1 ORDER BY 1 LIMIT 5) \n TO 's3://resstock-core/bsq_athena_unload_results/94d51ba5db3e06b148e15de51322fc99eeb38a3d1099ce5daa3658edd11c2d94/08bbf13a-127d-4240-a643-2d54a87d182b/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/4d3c59b8-7396-4f02-b395-00f6f462265a"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-26 23:47:50.816000-05:00",
+    "CompletionDateTime": "2026-04-26 23:47:55.086000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 4079,
+    "DataScannedInBytes": 1340655,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/4d3c59b8-7396-4f02-b395-00f6f462265a-manifest.csv",
+    "TotalExecutionTimeInMillis": 4270,
+    "QueryQueueTimeInMillis": 56,
+    "ServicePreProcessingTimeInMillis": 92,
+    "QueryPlanningTimeInMillis": 1185,
+    "ServiceProcessingTimeInMillis": 43,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

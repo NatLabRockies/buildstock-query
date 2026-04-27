@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "abdac42f-856b-4eef-bdff-8d062deea9e1",
+  "Query": "UNLOAD (SELECT baseline.state AS state, sum(1) AS sample_count, sum(baseline.weight) AS units_count, sum(baseline.\"out.electricity.total.energy_consumption..kwh\" * baseline.weight) AS \"electricity.total.energy_consumption..kwh\" \nFROM (SELECT * \nFROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet \nWHERE comstock_amy2018_r2_2025_md_by_state_and_county_parquet.upgrade = 0) AS baseline \nWHERE baseline.applicability = true AND baseline.bldg_id = 51037 GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/cf9a335b376358b9c3c809e9d201d67af2f0476f7dffc2731bc56c3a1882e135/79ebe21b-efe5-4812-980f-a73b61108eab/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/abdac42f-856b-4eef-bdff-8d062deea9e1"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-26 15:10:36.323000-05:00",
+    "CompletionDateTime": "2026-04-26 15:11:35.355000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 58780,
+    "DataScannedInBytes": 565030,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/abdac42f-856b-4eef-bdff-8d062deea9e1-manifest.csv",
+    "TotalExecutionTimeInMillis": 59032,
+    "QueryQueueTimeInMillis": 134,
+    "ServicePreProcessingTimeInMillis": 62,
+    "QueryPlanningTimeInMillis": 11796,
+    "ServiceProcessingTimeInMillis": 56,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

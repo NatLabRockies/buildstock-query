@@ -1,0 +1,1 @@
+SELECT up.upgrade, count(*) AS change FROM resstock_2024_amy2018_release_2_metadata AS up JOIN resstock_2024_amy2018_release_2_metadata AS bs ON bs.bldg_id = up.bldg_id AND bs.upgrade = 0 WHERE bs.applicability = true AND up.applicability = true AND up.upgrade != 0 AND true GROUP BY 1 ORDER BY 1

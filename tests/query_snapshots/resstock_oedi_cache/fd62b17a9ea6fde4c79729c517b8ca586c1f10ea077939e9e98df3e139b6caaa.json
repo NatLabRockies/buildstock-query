@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "422f5c54-5887-4120-8124-ae1adc6cdc2d",
+  "Query": "UNLOAD (SELECT baseline.bldg_id \nFROM (SELECT * \nFROM resstock_2024_amy2018_release_2_metadata \nWHERE resstock_2024_amy2018_release_2_metadata.upgrade = 0) AS baseline \nWHERE baseline.\"in.state\" IN ('CO', 'WY') AND baseline.bldg_id IN (SELECT upgrade.bldg_id \nFROM (SELECT * \nFROM resstock_2024_amy2018_release_2_metadata \nWHERE resstock_2024_amy2018_release_2_metadata.upgrade != 0) AS upgrade \nWHERE upgrade.upgrade IN (1, 2) AND upgrade.applicability = true GROUP BY upgrade.bldg_id \nHAVING count(distinct(upgrade.upgrade)) = 2)) \n TO 's3://resstock-core/bsq_athena_unload_results/56e210b180e6f0cadae55c940039f3ca40572f96cfacb4a2694ae520acaeeb42/fa2c7925-26e8-4407-8d9f-32753f6667b8/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/422f5c54-5887-4120-8124-ae1adc6cdc2d"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-26 18:43:36.781000-05:00",
+    "CompletionDateTime": "2026-04-26 18:43:39-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 1942,
+    "DataScannedInBytes": 7919588,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/422f5c54-5887-4120-8124-ae1adc6cdc2d-manifest.csv",
+    "TotalExecutionTimeInMillis": 2219,
+    "QueryQueueTimeInMillis": 49,
+    "ServicePreProcessingTimeInMillis": 124,
+    "QueryPlanningTimeInMillis": 618,
+    "ServiceProcessingTimeInMillis": 104,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

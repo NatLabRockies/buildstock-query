@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "de563c2a-7b4e-425e-a668-9b0b2531629f",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state \nFROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs \nWHERE bs.state IN ('CO', 'NM') AND (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) IN (SELECT up.bldg_id, up.\"in.nhgis_tract_gisjoin\", up.state \nFROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS up \nWHERE up.upgrade IN (1) AND up.applicability = true GROUP BY up.bldg_id, up.\"in.nhgis_tract_gisjoin\", up.state \nHAVING count(distinct(up.upgrade)) = 1)) \n TO 's3://resstock-core/bsq_athena_unload_results/70a95218dbed6350c57f54b9910067f78e7b49f498ab8f32e1aeb3d24375d60b/ebbf8cbf-f0de-430e-ad19-9609e754a8a0/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/de563c2a-7b4e-425e-a668-9b0b2531629f"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-26 23:40:54.597000-05:00",
+    "CompletionDateTime": "2026-04-26 23:42:02.491000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 67677,
+    "DataScannedInBytes": 32421088,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/de563c2a-7b4e-425e-a668-9b0b2531629f-manifest.csv",
+    "TotalExecutionTimeInMillis": 67894,
+    "QueryQueueTimeInMillis": 84,
+    "ServicePreProcessingTimeInMillis": 84,
+    "QueryPlanningTimeInMillis": 18264,
+    "ServiceProcessingTimeInMillis": 49,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

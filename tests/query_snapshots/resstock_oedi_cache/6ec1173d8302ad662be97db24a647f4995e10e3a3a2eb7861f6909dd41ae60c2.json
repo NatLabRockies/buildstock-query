@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "b43d43f8-94a4-4dea-ad6a-53f58c7b244f",
+  "Query": "UNLOAD (SELECT bs.\"in.geometry_building_type_recs\" AS geometry_building_type_recs, sum(1) AS sample_count, sum(bs.weight) AS units_count, sum(bs.\"out.electricity.total.energy_consumption\" * bs.weight) AS \"electricity.total.energy_consumption\", sum(bs.\"out.natural_gas.total.energy_consumption\" * bs.weight) AS \"natural_gas.total.energy_consumption\" \nFROM resstock_2024_amy2018_release_2_metadata AS bs \nWHERE bs.applicability = true AND bs.upgrade = 0 AND bs.\"in.state\" = 'CO' AND bs.bldg_id IN (SELECT bs.bldg_id \nFROM resstock_2024_amy2018_release_2_metadata AS bs \nWHERE bs.upgrade IN (1) AND bs.applicability = true GROUP BY bs.bldg_id \nHAVING count(distinct(bs.upgrade)) = 1) GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/67f08e2f8e77bebf68863800fbcf46001f5b7e3f19f2983f5c6ccf7dc2ddf397/fdd19bbc-b2ae-4bcf-8481-2564309cd391/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/b43d43f8-94a4-4dea-ad6a-53f58c7b244f"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-27 08:10:56.993000-05:00",
+    "CompletionDateTime": "2026-04-27 08:10:59.917000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 2646,
+    "DataScannedInBytes": 9990132,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/b43d43f8-94a4-4dea-ad6a-53f58c7b244f-manifest.csv",
+    "TotalExecutionTimeInMillis": 2924,
+    "QueryQueueTimeInMillis": 51,
+    "ServicePreProcessingTimeInMillis": 140,
+    "QueryPlanningTimeInMillis": 500,
+    "ServiceProcessingTimeInMillis": 87,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

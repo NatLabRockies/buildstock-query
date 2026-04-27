@@ -1,0 +1,1 @@
+SELECT * FROM resstock_2024_amy2018_release_2_metadata WHERE resstock_2024_amy2018_release_2_metadata.upgrade = 1 AND resstock_2024_amy2018_release_2_metadata.bldg_id IN (1, 2, 3)

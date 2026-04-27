@@ -2,8 +2,8 @@
   {
     "name": "report_buildings_by_change_ok",
     "sql_hash": {
-      "resstock_oedi": "f1cfd990d949b67f40171497658b82125dfb82553ff4706dfb39c57e1ffae65a",
-      "comstock_oedi": "13ecbe21eb44632285581f6efa54263d0001ad902d9628599c0ec96817d52b24"
+      "resstock_oedi": "b7e5084e3aead815e93797f6ac10bd18aa63b61047e561125a73837d1bf9344a",
+      "comstock_oedi": "057a20f88b6e71491e5ef830274953c10a05662445487a4e8666433921619041"
     },
     "description": "report.get_buildings_by_change for upgrade 1, change_type='ok-chng' — buildings whose upgrade succeeded with an acceptable energy change. Pins the change-condition SQL shape now that the OEDI applicability fix lets the report layer resolve.",
     "args": {
@@ -40,8 +40,8 @@
   {
     "name": "report_success_report",
     "sql_hash": {
-      "resstock_oedi": "4806af5a3d89280c346a9949f6f965efd5e60773a26e33139a79ad9eb4b77438",
-      "comstock_oedi": "98df7489cbf4f9b36f770d3c5b93e8d128f432c6d6102e0286095d928a0121ac"
+      "resstock_oedi": "aa1747ccef8c9e7e569a5c27fee688ad4cc0274468127640ce0b353d922f5509",
+      "comstock_oedi": "50036ff3b8a1430a84b2a21d530f7a4da577e5ccecb81beb6ec5b73838e059b7"
     },
     "description": "report.get_success_report — returns three SQL statements (baseline counts, per-upgrade counts, change-type breakdown). Joined into one snapshot via the harness's MULTI_SQL_SEPARATOR. Pins the most-used reporting entry point. Requires the OEDI applicability fix in _rename_completed_status_column (commit added a lowercase-string normalize so True/False booleans map correctly).",
     "args": {

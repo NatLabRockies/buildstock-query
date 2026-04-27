@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "a26cfdda-b602-4bb0-bfdb-34cf885faf1e",
+  "Query": "UNLOAD (SELECT bs.\"in.comstock_building_type\" AS comstock_building_type, date_trunc('month', date_add('second', -900, ts_pivot.timestamp)) AS timestamp, count(DISTINCT (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state)) AS sample_count, (count(DISTINCT (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state)) * sum(bs.weight)) / CAST(sum(1) AS DECIMAL) AS units_count, sum(1) / CAST(count(DISTINCT (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state)) AS DECIMAL) AS rows_per_sample, sum(coalesce(ts_pivot.\"up__out.electricity.total.energy_consumption\", ts_pivot.\"bs__out.electricity.total.energy_consumption\") * bs.weight) AS \"electricity.total.energy_consumption\", sum(coalesce(ts_pivot.\"up__out.natural_gas.total.energy_consumption\", ts_pivot.\"bs__out.natural_gas.total.energy_consumption\") * bs.weight) AS \"natural_gas.total.energy_consumption\" \nFROM (SELECT comstock_amy2018_r2_2025_ts_by_state.bldg_id AS bldg_id, comstock_amy2018_r2_2025_ts_by_state.state AS state, comstock_amy2018_r2_2025_ts_by_state.timestamp AS timestamp, sum(CASE WHEN (comstock_amy2018_r2_2025_ts_by_state.upgrade = 0) THEN comstock_amy2018_r2_2025_ts_by_state.\"out.electricity.total.energy_consumption\" ELSE NULL END) AS \"bs__out.electricity.total.energy_consumption\", sum(CASE WHEN (comstock_amy2018_r2_2025_ts_by_state.upgrade = 1) THEN comstock_amy2018_r2_2025_ts_by_state.\"out.electricity.total.energy_consumption\" ELSE NULL END) AS \"up__out.electricity.total.energy_consumption\", sum(CASE WHEN (comstock_amy2018_r2_2025_ts_by_state.upgrade = 0) THEN comstock_amy2018_r2_2025_ts_by_state.\"out.natural_gas.total.energy_consumption\" ELSE NULL END) AS \"bs__out.natural_gas.total.energy_consumption\", sum(CASE WHEN (comstock_amy2018_r2_2025_ts_by_state.upgrade = 1) THEN comstock_amy2018_r2_2025_ts_by_state.\"out.natural_gas.total.energy_consumption\" ELSE NULL END) AS \"up__out.natural_gas.total.energy_consumption\" \nFROM comstock_amy2018_r2_2025_ts_by_state \nWHERE comstock_amy2018_r2_2025_ts_by_state.upgrade IN (0, 1) AND comstock_amy2018_r2_2025_ts_by_state.state = 'CO' GROUP BY comstock_amy2018_r2_2025_ts_by_state.bldg_id, comstock_amy2018_r2_2025_ts_by_state.state, comstock_amy2018_r2_2025_ts_by_state.timestamp) AS ts_pivot JOIN comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs ON bs.bldg_id = ts_pivot.bldg_id AND bs.state = ts_pivot.state AND bs.upgrade = 0 AND bs.state = 'CO' GROUP BY 1, 2 ORDER BY 1, 2) \n TO 's3://resstock-core/bsq_athena_unload_results/c243788cb74f871ab74d7178fc0bc7da829f8712c18e43143f421a49962c0eb1/aee82238-fca5-4016-b84d-b8a8e167b3e1/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/a26cfdda-b602-4bb0-bfdb-34cf885faf1e"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-27 08:48:16.315000-05:00",
+    "CompletionDateTime": "2026-04-27 08:51:30.291000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 193777,
+    "DataScannedInBytes": 1117622168,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/a26cfdda-b602-4bb0-bfdb-34cf885faf1e-manifest.csv",
+    "TotalExecutionTimeInMillis": 193976,
+    "QueryQueueTimeInMillis": 59,
+    "ServicePreProcessingTimeInMillis": 106,
+    "QueryPlanningTimeInMillis": 1089,
+    "ServiceProcessingTimeInMillis": 34,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

@@ -1,1 +1,0 @@
-SELECT bs.bldg_id FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.upgrade = 0 AND bs."in.state" = 'CO' AND bs.bldg_id IN (SELECT up.bldg_id FROM resstock_2024_amy2018_release_2_metadata AS up WHERE up.upgrade IN (2) AND up.applicability = true GROUP BY up.bldg_id HAVING count(distinct(up.upgrade)) = 1)

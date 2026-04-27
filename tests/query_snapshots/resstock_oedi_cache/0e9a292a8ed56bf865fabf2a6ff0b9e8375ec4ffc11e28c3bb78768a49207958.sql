@@ -1,0 +1,1 @@
+SELECT DISTINCT resstock_2024_amy2018_release_2_metadata.upgrade FROM resstock_2024_amy2018_release_2_metadata ORDER BY 1

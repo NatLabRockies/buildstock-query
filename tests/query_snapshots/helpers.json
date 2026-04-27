@@ -2,8 +2,8 @@
   {
     "name": "upgrade_names_oedi",
     "sql_hash": {
-      "resstock_oedi": "244a056aa06260f4b97f88d46ad0dd3eb800f00876359bb87f36bf528c2e6b0d",
-      "comstock_oedi": "e78a5947281248687fc3d7d3a64763040273fc6d849edb1f1abade365c04c4de"
+      "resstock_oedi": "ea6b3cd5372bb7ecfe2a2cb85d0f91bf14bfd20ed156fd377298b64aed9b98a8",
+      "comstock_oedi": "048dfa1b4efb379a94417a6ddc772e32030960acefd9a3596aeb6aaadfb552fa"
     },
     "description": "get_upgrade_names — was broken before 2026-04-26 fix on two counts: (1) f-string interpolation of self.up_table (a Subquery) produced malformed `FROM SELECT * FROM ...` SQL with no enclosing parens; (2) the method assumed an `apply_upgrade.upgrade_name` column that doesn't exist on OEDI schemas. Fixed to use SA construction and gracefully degrade to `CAST(NULL AS VARCHAR) AS upgrade_name` when the name column is absent — so the dict shape stays consistent across schemas.",
     "args": {
@@ -13,8 +13,8 @@
   {
     "name": "upgrades_csv_three_buildings_upgrade1",
     "sql_hash": {
-      "resstock_oedi": "44008fe9c7c13af590bfbe27b63655ae652933ad306d77e6de4635c5f526f802",
-      "comstock_oedi": "f8ef8dfe9db736b6c7be1976a332d1bd42d77a14cd8d14fb8557bf715eab00d2"
+      "resstock_oedi": "37b7e3364712668f1f405f1916eed4b56dc282afcbd43a5747b3d47646034615",
+      "comstock_oedi": "898505c4939c1df5e87ed423479bf420bd396459d98d85c35ddb59a7cb3e5bf5"
     },
     "description": "get_upgrades_csv for upgrade=1 restricted to a tiny known building_id list. Mirrors results_csv_three_buildings on the upgrade-table side.",
     "args": {

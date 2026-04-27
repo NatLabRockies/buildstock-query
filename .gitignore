@@ -15,7 +15,9 @@ build/
 *.egg-info
 *.parquet
 # Track snapshot-cache parquets so the data-check survives a fresh clone.
-!tests/query_snapshots/*_cache/*.parquet
+!tests/query_snapshots/**/*.parquet
+!tests/query_snapshots/**/*.sql
+!tests/query_snapshots/**/*.json
 *.txt
 *.csv
 *.yml

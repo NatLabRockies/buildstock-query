@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "bd8b0212-8f01-43bc-8412-eca6e88f6220",
+  "Query": "UNLOAD (SELECT up.upgrade, count(*) AS change \nFROM resstock_2024_amy2018_release_2_metadata AS up JOIN resstock_2024_amy2018_release_2_metadata AS bs ON bs.bldg_id = up.bldg_id AND bs.upgrade = 0 \nWHERE bs.applicability = true AND up.applicability = true AND up.upgrade != 0 AND true GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/6dd0b2807a1e2ac3c5bb485e15d52996d8d848e3e9fdde432dac945d51b8588b/10cb93db-d5ea-44f5-808f-a890e291eb7d/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/bd8b0212-8f01-43bc-8412-eca6e88f6220"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-27 09:40:06.275000-05:00",
+    "CompletionDateTime": "2026-04-27 09:40:08.216000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 1812,
+    "DataScannedInBytes": 42937491,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/bd8b0212-8f01-43bc-8412-eca6e88f6220-manifest.csv",
+    "TotalExecutionTimeInMillis": 1941,
+    "QueryQueueTimeInMillis": 51,
+    "ServicePreProcessingTimeInMillis": 58,
+    "QueryPlanningTimeInMillis": 412,
+    "ServiceProcessingTimeInMillis": 20,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

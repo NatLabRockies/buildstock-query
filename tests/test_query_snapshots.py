@@ -77,7 +77,7 @@ def test_calculated_column(request, schema, fixture_name):
 
     entries = load_entries(json_path, schema=schema)
     if not entries:
-        pytest.skip(f"no entries in {json_path}")
+        pytest.skip(f"{json_path.name} has no entries for schema={schema} (all entries filtered out by their 'schemas' allowlist)")
 
     # The expression-side placeholder substitution happens here because the
     # generic loader resolves placeholders only for "$"-prefixed atomic
@@ -125,7 +125,7 @@ def _rewrite_utility_entries(json_path, bsq, config, *, schema):
 
     entries = load_entries(json_path, schema=schema)
     if not entries:
-        pytest.skip(f"no entries in {json_path}")
+        pytest.skip(f"{json_path.name} has no entries for schema={schema} (all entries filtered out by their 'schemas' allowlist — utility queries require map_eiaid_column, which only resstock TOMLs define)")
 
     for entry in entries:
         rewritten = []
@@ -169,7 +169,7 @@ def test_mapped_column(request, schema, fixture_name):
 
     entries = load_entries(json_path, schema=schema)
     if not entries:
-        pytest.skip(f"no entries in {json_path}")
+        pytest.skip(f"{json_path.name} has no entries for schema={schema} (all entries filtered out by their 'schemas' allowlist)")
 
     for entry in entries:
         rewritten_variants = []

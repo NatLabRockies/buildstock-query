@@ -1138,7 +1138,7 @@ def run_snapshot_file(json_path: Path, bsq, config, *, schema: str) -> None:
         pytest.skip(f"snapshot file not found: {json_path}")
     entries = load_entries(json_path, schema=schema)
     if not entries:
-        pytest.skip(f"no entries in {json_path}")
+        pytest.skip(f"{json_path.name} has no entries for schema={schema} (all entries filtered out by their 'schemas' allowlist)")
 
     check_data = config.getoption("--check-data")
     update_snapshot, overwrite_snapshot = resolve_update_flags(config)

@@ -238,10 +238,13 @@ class QueryCore:
         upgrade_col = table.c["upgrade"]
         return upgrade_col == typed_literal(upgrade_col, "0")
 
-    def _md_baseline_filter(self) -> sa.ColumnElement:
-        """`bs.upgrade = 0` — convenience for callers that select through the
-        canonical `bs_table` alias and want only baseline rows."""
-        return self._upgrade_zero_filter(self.bs_table)
+    def _md_baseline_filter(self, table: AnyTableType | None = None) -> sa.ColumnElement:
+        """`<table>.upgrade = 0` — convenience helper for callers that want
+        baseline rows on the metadata side. `table` defaults to `bs_table`
+        (the canonical alias used in joined queries); pass `md_table` when
+        the outer FROM is the raw md_table directly, so SQLAlchemy doesn't
+        auto-add bs_table to the FROM as a stray comma-join."""
+        return self._upgrade_zero_filter(table if table is not None else self.bs_table)
 
     def _timeseries_pair_join_condition(
         self,

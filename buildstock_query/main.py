@@ -288,14 +288,18 @@ class BuildStockQuery(QueryCore):
         Returns:
             pd.Series: The distinct counts.
         """
-        tbl = self.md_table if table_name is None else self._get_table(table_name)
+        # When table_name is None, use the canonical bs_table alias so column
+        # references in the SELECT (e.g. self.sample_wt → bs_table.weight) bind
+        # to the same table that's in the FROM. Selecting from md_table
+        # directly would cause SA to auto-add bs_table as a comma-join (and
+        # potentially produce a duplicate `upgrade` column on SELECT *).
+        tbl = self.bs_table if table_name is None else self._get_table(table_name)
         query = sa.select(
             tbl.c[column], safunc.sum(1).label("sample_count"), safunc.sum(self.sample_wt).label("weighted_count")
         )
         if table_name is None:
-            # Default-table case targets the unified metadata table — restrict
-            # to baseline rows so the count matches the legacy baseline-only
-            # contract.
+            # Default-table case: restrict to baseline rows so the count matches
+            # the legacy baseline-only contract.
             query = query.where(self._md_baseline_filter())
         query = query.group_by(tbl.c[column]).order_by(tbl.c[column])
         if get_query_only:
@@ -346,7 +350,11 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         restrict = list(restrict) if restrict else []
-        query = sa.select("*").select_from(self.md_table).where(self._md_baseline_filter())
+        # Select through the canonical bs_table alias so any restrict column
+        # references (resolved via _get_column → bs_table.c[...]) bind to the
+        # alias that's in the FROM. Selecting from md_table directly would
+        # produce a comma-join + duplicate `upgrade` column in `SELECT *`.
+        query = sa.select("*").select_from(self.bs_table).where(self._md_baseline_filter())
         query = self._add_restrict(query, restrict, annual_only=True)
         compiled_query = self._compile(query)
         if get_query_only:
@@ -575,15 +583,18 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         restrict = list(restrict) if restrict else []
-        up_col = self.md_table.c["upgrade"]
-        query = sa.select("*").select_from(self.md_table).where(
+        # Select through the canonical bs_table alias so restrict columns
+        # resolved via _get_column bind to the alias that's in the FROM (not
+        # md_table directly, which would produce a comma-join).
+        up_col = self.bs_table.c["upgrade"]
+        query = sa.select("*").select_from(self.bs_table).where(
             up_col == typed_literal(up_col, upgrade_id)
         )
 
         rewritten_restrict = []
         for col, vals in restrict:
-            if isinstance(col, str) and col in self.md_table.c:
-                rewritten_restrict.append((self.md_table.c[col], vals))
+            if isinstance(col, str) and col in self.bs_table.c:
+                rewritten_restrict.append((self.bs_table.c[col], vals))
             else:
                 rewritten_restrict.append((col, vals))
         query = self._add_restrict(query, rewritten_restrict, annual_only=True)

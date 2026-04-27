@@ -60,6 +60,33 @@ def pytest_addoption(parser):
             "does."
         ),
     )
+    parser.addoption(
+        "--include-local",
+        action="store_true",
+        default=False,
+        help=(
+            "Include local-only tests that download full metadata parquets from S3 "
+            "(~400 MB for resstock baseline+upgrade1) and run pure-pandas methods like "
+            "report.get_applied_options. Default: skipped (these tests are too heavy for CI). "
+            "Cache lives at tests/local_only/cache/ which is gitignored."
+        ),
+    )
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "local_only: test requires --include-local (downloads ~400 MB metadata parquets)",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--include-local"):
+        return
+    skip_local = pytest.mark.skip(reason="local-only test; pass --include-local to run")
+    for item in items:
+        if "local_only" in item.keywords:
+            item.add_marker(skip_local)
 
 
 @pytest.fixture(scope="session")
@@ -91,4 +118,27 @@ def bsq_resstock_oedi() -> Iterator[BuildStockQuery]:
         cache_folder=str(SNAPSHOTS_ROOT / "resstock_oedi_cache"),
     )
     print("[fixture] resstock_oedi ready.", flush=True)
+    yield bsq
+
+
+@pytest.fixture(scope="session")
+def bsq_resstock_oedi_local() -> Iterator[BuildStockQuery]:
+    """Resstock fixture with a SEPARATE local-only cache folder, for tests that
+    download full metadata parquets via download_metadata_and_annual_results.
+    The cache lives outside tests/query_snapshots so the downloaded files
+    (hundreds of MB) don't get staged by git. tests/local_only/cache/ is
+    listed in .gitignore."""
+    local_cache_root = Path(__file__).parent / "local_only" / "cache"
+    local_cache_root.mkdir(parents=True, exist_ok=True)
+    print(f"\n[fixture] constructing BuildStockQuery(resstock_oedi_local) at {local_cache_root}...", flush=True)
+    bsq = BuildStockQuery(
+        "rescore",
+        "buildstock_sdr",
+        "resstock_2024_amy2018_release_2",
+        buildstock_type="resstock",
+        db_schema="resstock_oedi_vu",
+        skip_reports=True,
+        cache_folder=str(local_cache_root / "resstock_oedi_cache"),
+    )
+    print("[fixture] resstock_oedi_local ready.", flush=True)
     yield bsq

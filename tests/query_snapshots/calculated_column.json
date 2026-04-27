@@ -10,27 +10,10 @@
       "column_name": "elec_minus_gas",
       "column_expr": "$ELECTRICITY_TOTAL - $NATURAL_GAS_TOTAL",
       "table": "baseline",
-      "group_by": [
-        "$BUILDING_TYPE_COL"
-      ],
+      "group_by": ["$BUILDING_TYPE_COL"],
       "restrict": [
-        [
-          "state",
-          [
-            "CO"
-          ]
-        ]
+        ["state", ["CO"]]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 5.0,
-        "query_time_ms": 1468
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.49,
-        "query_time_ms": 3312
-      }
     }
   }
 ]

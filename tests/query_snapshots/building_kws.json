@@ -5,37 +5,16 @@
       "resstock_oedi": "510315df84b4357292087fdff6adaf6363ef886082501f7cfd9759c8b4bc403e",
       "comstock_oedi": "629e7deff40027e306cff00fc6f933dd44b1c8ea659a87e0f4da03b232cae5e1"
     },
-    "description": "agg.get_building_average_kws_at at noon (12.0) for three days, restricted to CO. Hour aligns to the 15-min grid (12*3600 % 900 == 0) so the method returns a single-element SQL list \u2014 pins the 'exact_times' branch. The restrict + upgrade=0 filter on the TS join (added 2026-04-25) caps Athena scan to a single state's partition; without those, this query was a 3.2 TB landmine.",
+    "description": "agg.get_building_average_kws_at at noon (12.0) for three days, restricted to CO. Hour aligns to the 15-min grid (12*3600 % 900 == 0) so the method returns a single-element SQL list — pins the 'exact_times' branch. The restrict + upgrade=0 filter on the TS join (added 2026-04-25) caps Athena scan to a single state's partition; without those, this query was a 3.2 TB landmine.",
     "args": {
       "_method": "agg.get_building_average_kws_at",
       "_annual_resolve": false,
       "at_hour": 12.0,
-      "at_days": [
-        1,
-        100,
-        200
-      ],
-      "enduses": [
-        "$ELECTRICITY_TOTAL"
-      ],
+      "at_days": [1, 100, 200],
+      "enduses": ["$ELECTRICITY_TOTAL"],
       "restrict": [
-        [
-          "state",
-          [
-            "CO"
-          ]
-        ]
+        ["state", ["CO"]]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 3543.99,
-        "query_time_ms": 4345
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 369.81,
-        "query_time_ms": 7276
-      }
     }
   },
   {
@@ -49,26 +28,11 @@
       "_method": "agg.get_building_average_kws_at",
       "_annual_resolve": false,
       "at_hour": 12.1,
-      "at_days": [
-        1,
-        100,
-        200
-      ],
-      "enduses": [
-        "$ELECTRICITY_TOTAL"
-      ],
+      "at_days": [1, 100, 200],
+      "enduses": ["$ELECTRICITY_TOTAL"],
       "restrict": [
-        [
-          "state",
-          [
-            "CO"
-          ]
-        ]
+        ["state", ["CO"]]
       ]
-    },
-    "cost": {
-      "resstock_oedi": null,
-      "comstock_oedi": null
     }
   }
 ]

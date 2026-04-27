@@ -2,8 +2,8 @@
   {
     "name": "bldg_ids_applied_in_1",
     "sql_hash": {
-      "resstock_oedi": "3ad82492b9dd09beccd3a9eea32b8d9fc20a02e56191f0be12e6cc262fbf2fc8",
-      "comstock_oedi": "90dc0c9633bbe613fef08d96769c4df07ccd6d43d8d28f06ad8428e3bd7fc41f"
+      "resstock_oedi": "bf5e92c72ac45e238b46be09911c71bd5632cccb44f3a645c10daa5150559546",
+      "comstock_oedi": "738859cf7b426c5a7ae49f2fbe9a0f193381a544a8373cf182b0c4a1b3bedb7b"
     },
     "description": "Building keys that applied to upgrade 1, CO. Used for the applied_in intersection invariant.",
     "args": {
@@ -19,23 +19,13 @@
           ]
         ]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 5.41,
-        "query_time_ms": 1670
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 13.85,
-        "query_time_ms": 62266
-      }
     }
   },
   {
     "name": "bldg_ids_applied_in_2",
     "sql_hash": {
-      "resstock_oedi": "8afb4d9b252743367981d7d7cbce0721fe4c27c57a6cb33b0a1e1c8569ea7eb0",
-      "comstock_oedi": "592053ab53eccf025add6ba479efeffb1b81872f58fe062d38a299e99cd57494"
+      "resstock_oedi": "72ea0e05c6e206456194f83570a10b01746f051fafd7b949bdbbfb8e097501e6",
+      "comstock_oedi": "ffd7080bb43ffe9f63b5f4704a5121ba45157b5f3c974fe6c33538d52ac912ea"
     },
     "description": "Building keys that applied to upgrade 2, CO. Used for the applied_in intersection invariant.",
     "args": {
@@ -51,23 +41,13 @@
           ]
         ]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 5.41,
-        "query_time_ms": 1471
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 13.85,
-        "query_time_ms": 64027
-      }
     }
   },
   {
     "name": "bldg_ids_applied_in_1_and_2",
     "sql_hash": {
-      "resstock_oedi": "98f767f6918930f9f23337ab9b7cf40b168543cfad8d416cd64cb56d31c4b9eb",
-      "comstock_oedi": "62e5522df74a69a1c0e42ff4e0dd335d88ea718a431ca2255fb0aed6139843a9"
+      "resstock_oedi": "53fc68259078db8626045f08db2610c772f25d59e08c0c44f8a9e6bf2e375a3c",
+      "comstock_oedi": "095fd70ee5875d2eb322bef2b939cbe8c64b29a8a3fbed71c1e535354ae1abbf"
     },
     "description": "Building keys that applied to BOTH upgrade 1 and upgrade 2, CO. Equals the intersection of applied_in_1 and applied_in_2.",
     "args": {
@@ -84,16 +64,6 @@
           ]
         ]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 7.92,
-        "query_time_ms": 1578
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 27.47,
-        "query_time_ms": 62297
-      }
     }
   }
 ]

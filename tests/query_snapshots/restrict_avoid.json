@@ -37,17 +37,7 @@
           ]
         ]
       }
-    ],
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.67,
-        "query_time_ms": 1315
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.32,
-        "query_time_ms": 2951
-      }
-    }
+    ]
   },
   {
     "name": "restrict_two_states",
@@ -72,16 +62,6 @@
           ]
         ]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.46,
-        "query_time_ms": 1140
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.52,
-        "query_time_ms": 14457
-      }
     }
   },
   {
@@ -112,16 +92,6 @@
           ]
         ]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.74,
-        "query_time_ms": 1609
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.35,
-        "query_time_ms": 3464
-      }
     }
   },
   {
@@ -154,16 +124,6 @@
           ]
         ]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.67,
-        "query_time_ms": 2027
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.33,
-        "query_time_ms": 2586
-      }
     }
   },
   {
@@ -194,16 +154,6 @@
           "$AVOID_BUILDING_TYPES_MULTI"
         ]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.67,
-        "query_time_ms": 1715
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.33,
-        "query_time_ms": 2900
-      }
     }
   }
 ]

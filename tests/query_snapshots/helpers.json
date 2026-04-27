@@ -2,28 +2,18 @@
   {
     "name": "upgrade_names_oedi",
     "sql_hash": {
-      "resstock_oedi": "ea6b3cd5372bb7ecfe2a2cb85d0f91bf14bfd20ed156fd377298b64aed9b98a8",
+      "resstock_oedi": "244a056aa06260f4b97f88d46ad0dd3eb800f00876359bb87f36bf528c2e6b0d",
       "comstock_oedi": "e78a5947281248687fc3d7d3a64763040273fc6d849edb1f1abade365c04c4de"
     },
-    "description": "get_upgrade_names \u2014 was broken before 2026-04-26 fix on two counts: (1) f-string interpolation of self.up_table (a Subquery) produced malformed `FROM SELECT * FROM ...` SQL with no enclosing parens; (2) the method assumed an `apply_upgrade.upgrade_name` column that doesn't exist on OEDI schemas. Fixed to use SA construction and gracefully degrade to `CAST(NULL AS VARCHAR) AS upgrade_name` when the name column is absent \u2014 so the dict shape stays consistent across schemas.",
+    "description": "get_upgrade_names — was broken before 2026-04-26 fix on two counts: (1) f-string interpolation of self.up_table (a Subquery) produced malformed `FROM SELECT * FROM ...` SQL with no enclosing parens; (2) the method assumed an `apply_upgrade.upgrade_name` column that doesn't exist on OEDI schemas. Fixed to use SA construction and gracefully degrade to `CAST(NULL AS VARCHAR) AS upgrade_name` when the name column is absent — so the dict shape stays consistent across schemas.",
     "args": {
       "_method": "get_upgrade_names"
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 0.0,
-        "query_time_ms": 1448
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 62.46,
-        "query_time_ms": 60710
-      }
     }
   },
   {
     "name": "upgrades_csv_three_buildings_upgrade1",
     "sql_hash": {
-      "resstock_oedi": "e26340f9af51e7afbd6028bb4455b1b27ec0b57402f7477335a0b35f76f2ae10",
+      "resstock_oedi": "44008fe9c7c13af590bfbe27b63655ae652933ad306d77e6de4635c5f526f802",
       "comstock_oedi": "f8ef8dfe9db736b6c7be1976a332d1bd42d77a14cd8d14fb8557bf715eab00d2"
     },
     "description": "get_upgrades_csv for upgrade=1 restricted to a tiny known building_id list. Mirrors results_csv_three_buildings on the upgrade-table side.",
@@ -31,25 +21,8 @@
       "_method": "get_upgrades_csv",
       "upgrade_id": "1",
       "restrict": [
-        [
-          "bldg_id",
-          [
-            1,
-            2,
-            3
-          ]
-        ]
+        ["bldg_id", [1, 2, 3]]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 210.8,
-        "query_time_ms": 14917
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 516.6,
-        "query_time_ms": 65297
-      }
     }
   },
   {
@@ -58,23 +31,11 @@
       "resstock_oedi": "f9c1e5ac2f8c5d6ee9cbd883dd0d1924de647488c49fc48fe31308c9189fb7a7",
       "comstock_oedi": "015e514c4943b38948b4a59330bc9d5ac1f98abbd4a26489303a34f4ce60cfe3"
     },
-    "description": "get_buildings_by_locations: list bs-keys whose location_col=$STATE_COL_BASELINE is in ['CO']. Different code path from restrict \u2014 uses bs_key_cols projection and IN-list filter directly.",
+    "description": "get_buildings_by_locations: list bs-keys whose location_col=$STATE_COL_BASELINE is in ['CO']. Different code path from restrict — uses bs_key_cols projection and IN-list filter directly.",
     "args": {
       "_method": "get_buildings_by_locations",
       "location_col": "$STATE_COL_BASELINE",
-      "locations": [
-        "CO"
-      ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.89,
-        "query_time_ms": 2350
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 0.23,
-        "query_time_ms": 3426
-      }
+      "locations": ["CO"]
     }
   },
   {
@@ -87,25 +48,8 @@
     "args": {
       "_method": "get_results_csv",
       "restrict": [
-        [
-          "bldg_id",
-          [
-            1,
-            2,
-            3
-          ]
-        ]
+        ["bldg_id", [1, 2, 3]]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 218.18,
-        "query_time_ms": 7403
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 432.75,
-        "query_time_ms": 68938
-      }
     }
   },
   {
@@ -114,18 +58,11 @@
       "resstock_oedi": "d40dd40b407d8ba027f29792779f2e3898c5ee54a6ef39b2771dc787ec9e3102",
       "comstock_oedi": "f88b3e80ddb7ecff32c8b1c9d1ead1379a2c7f97fe50d571e96840168f7c339e"
     },
-    "description": "get_distinct_vals on the baseline-table state column. Pins the simple SELECT DISTINCT shape \u2014 used by notebooks to enumerate categorical values before building restricts. The column name differs by schema (resstock=`in.state`, comstock=`state`); resolved via $STATE_COL_BASELINE.",
+    "description": "get_distinct_vals on the baseline-table state column. Pins the simple SELECT DISTINCT shape — used by notebooks to enumerate categorical values before building restricts. The column name differs by schema (resstock=`in.state`, comstock=`state`); resolved via $STATE_COL_BASELINE.",
     "args": {
       "_method": "get_distinct_vals",
       "column": "$STATE_COL_BASELINE",
       "table_name": "$BS_TABLE_NAME"
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 7.03,
-        "query_time_ms": 1661
-      },
-      "comstock_oedi": null
     }
   },
   {
@@ -138,16 +75,6 @@
     "args": {
       "_method": "get_distinct_count",
       "column": "$STATE_COL_BASELINE"
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 0.41,
-        "query_time_ms": 1214
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 60.69,
-        "query_time_ms": 59468
-      }
     }
   }
 ]

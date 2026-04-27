@@ -5,21 +5,11 @@
       "resstock_oedi": "f1cfd990d949b67f40171497658b82125dfb82553ff4706dfb39c57e1ffae65a",
       "comstock_oedi": "13ecbe21eb44632285581f6efa54263d0001ad902d9628599c0ec96817d52b24"
     },
-    "description": "report.get_buildings_by_change for upgrade 1, change_type='ok-chng' \u2014 buildings whose upgrade succeeded with an acceptable energy change. Pins the change-condition SQL shape now that the OEDI applicability fix lets the report layer resolve.",
+    "description": "report.get_buildings_by_change for upgrade 1, change_type='ok-chng' — buildings whose upgrade succeeded with an acceptable energy change. Pins the change-condition SQL shape now that the OEDI applicability fix lets the report layer resolve.",
     "args": {
       "_method": "report.get_buildings_by_change",
       "upgrade_id": "1",
       "change_type": "ok-chng"
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 14.19,
-        "query_time_ms": 2478
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 67.94,
-        "query_time_ms": 102898
-      }
     }
   },
   {
@@ -32,23 +22,8 @@
     "args": {
       "_method": "report.get_successful_simulation_count",
       "restrict": [
-        [
-          "state",
-          [
-            "CO"
-          ]
-        ]
+        ["state", ["CO"]]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 0.42,
-        "query_time_ms": 1141
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 0.01,
-        "query_time_ms": 2847
-      }
     }
   },
   {
@@ -57,19 +32,9 @@
       "resstock_oedi": "0c86d27cd8a5b96bbbe4e4179cbae6cdff0c237cc20a782998bcd6a6b9fb37f2",
       "comstock_oedi": "62016fc4476e9a8e0ad2baa68b791b9d02ffa35e31a0545d9febe9514d2dedb5"
     },
-    "description": "report.get_successful_simulation_count with no restrict \u2014 pins the no-WHERE branch (only the implicit applicability=true filter). Pairs with report_successful_simulation_count_co to cover both restrict and no-restrict paths.",
+    "description": "report.get_successful_simulation_count with no restrict — pins the no-WHERE branch (only the implicit applicability=true filter). Pairs with report_successful_simulation_count_co to cover both restrict and no-restrict paths.",
     "args": {
       "_method": "report.get_successful_simulation_count"
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 0.0,
-        "query_time_ms": 941
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 0.54,
-        "query_time_ms": 59071
-      }
     }
   },
   {
@@ -78,14 +43,10 @@
       "resstock_oedi": "4806af5a3d89280c346a9949f6f965efd5e60773a26e33139a79ad9eb4b77438",
       "comstock_oedi": "98df7489cbf4f9b36f770d3c5b93e8d128f432c6d6102e0286095d928a0121ac"
     },
-    "description": "report.get_success_report \u2014 returns three SQL statements (baseline counts, per-upgrade counts, change-type breakdown). Joined into one snapshot via the harness's MULTI_SQL_SEPARATOR. Pins the most-used reporting entry point. Requires the OEDI applicability fix in _rename_completed_status_column (commit added a lowercase-string normalize so True/False booleans map correctly).",
+    "description": "report.get_success_report — returns three SQL statements (baseline counts, per-upgrade counts, change-type breakdown). Joined into one snapshot via the harness's MULTI_SQL_SEPARATOR. Pins the most-used reporting entry point. Requires the OEDI applicability fix in _rename_completed_status_column (commit added a lowercase-string normalize so True/False booleans map correctly).",
     "args": {
       "_method": "report.get_success_report",
       "trim_missing_bs": "auto"
-    },
-    "cost": {
-      "resstock_oedi": null,
-      "comstock_oedi": null
     }
   }
 ]

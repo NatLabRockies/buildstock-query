@@ -19,16 +19,6 @@
           ]
         ]
       ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 4.79,
-        "query_time_ms": 1483
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.47,
-        "query_time_ms": 3281
-      }
     }
   },
   {
@@ -74,17 +64,7 @@
         ],
         "annual_only": true
       }
-    ],
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 5.0,
-        "query_time_ms": 1239
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.49,
-        "query_time_ms": 3050
-      }
-    }
+    ]
   },
   {
     "name": "annual_electricity_by_vintage_sort",
@@ -110,16 +90,6 @@
       ],
       "sort": true,
       "limit": 5
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.74,
-        "query_time_ms": 1597
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.34,
-        "query_time_ms": 4079
-      }
     }
   },
   {
@@ -147,16 +117,6 @@
       ],
       "sort": false,
       "limit": 5
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.74,
-        "query_time_ms": 1275
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.34,
-        "query_time_ms": 4247
-      }
     }
   },
   {
@@ -182,16 +142,6 @@
         ]
       ],
       "get_nonzero_count": true
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.95,
-        "query_time_ms": 1527
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.29,
-        "query_time_ms": 3251
-      }
     }
   },
   {
@@ -217,16 +167,6 @@
         ]
       ],
       "get_quartiles": true
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.67,
-        "query_time_ms": 1327
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.32,
-        "query_time_ms": 2970
-      }
     }
   },
   {
@@ -252,16 +192,6 @@
         ]
       ],
       "agg_func": "mean"
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.67,
-        "query_time_ms": 1160
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.32,
-        "query_time_ms": 3150
-      }
     }
   },
   {
@@ -287,16 +217,6 @@
         ]
       ],
       "agg_func": "max"
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.67,
-        "query_time_ms": 1473
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.32,
-        "query_time_ms": 2985
-      }
     }
   },
   {
@@ -322,16 +242,6 @@
         ]
       ],
       "agg_func": "min"
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.67,
-        "query_time_ms": 1927
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.32,
-        "query_time_ms": 3685
-      }
     }
   },
   {
@@ -340,7 +250,7 @@
       "resstock_oedi": "d6d3584aafec0f7d09c041f38a247ec1c483ac384a265a4784257ac6c1377240",
       "comstock_oedi": "000f2fd3978e61988bf5918c4a4498ba88d3b45cac5f63927b83854b7405f3f6"
     },
-    "description": "Annual electricity with weights=[$SQFT_COL] \u2014 resstock 'in.sqft', comstock 'in.sqft..ft2'. Pins the SQL shape where the user supplies an explicit additional weight column on top of the default sample_weight; Athena gets `electricity * sample_weight * sqft`. Internally exercised by utility queries (eiaid_weights.weight); no other entry covers user-supplied weights directly.",
+    "description": "Annual electricity with weights=[$SQFT_COL] — resstock 'in.sqft', comstock 'in.sqft..ft2'. Pins the SQL shape where the user supplies an explicit additional weight column on top of the default sample_weight; Athena gets `electricity * sample_weight * sqft`. Internally exercised by utility queries (eiaid_weights.weight); no other entry covers user-supplied weights directly.",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL"
@@ -356,19 +266,7 @@
           ]
         ]
       ],
-      "weights": [
-        "$SQFT_COL"
-      ]
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 3.01,
-        "query_time_ms": 1122
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.36,
-        "query_time_ms": 3205
-      }
+      "weights": ["$SQFT_COL"]
     }
   },
   {
@@ -395,16 +293,6 @@
         ]
       ],
       "agg_func": "arbitrary"
-    },
-    "cost": {
-      "resstock_oedi": {
-        "data_scanned_mb": 2.67,
-        "query_time_ms": 1635
-      },
-      "comstock_oedi": {
-        "data_scanned_mb": 1.32,
-        "query_time_ms": 3073
-      }
     }
   }
 ]

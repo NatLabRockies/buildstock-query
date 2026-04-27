@@ -159,8 +159,7 @@ class QueryCore:
         if self.ts_table is not None:
             self.timestamp_column = self.ts_table.c[self.timestamp_column_name]
             self.ts_bldgid_column = self.ts_table.c[self.building_id_column_name]
-        if self.up_table is not None:
-            self.up_bldgid_column = self.up_table.c[self.building_id_column_name]
+        self.up_bldgid_column = self.up_table.c[self.building_id_column_name]
 
         metadata_keys = tuple(self._get_unique_keys("metadata"))
         timeseries_keys = tuple(self._get_unique_keys("timeseries"))
@@ -176,8 +175,6 @@ class QueryCore:
 
     @property
     def up_key_cols(self) -> list[sa.Column]:
-        if self.up_table is None:
-            raise ValueError("No upgrade table is available.")
         return [self.up_table.c[k] for k in self.up_key]
 
     @property
@@ -1396,13 +1393,13 @@ class QueryCore:
 
     def delete_everything(self):
         """Deletes the athena tables and data in s3 for the run."""
-        info = self._aws_glue.get_table(DatabaseName=self.db_name, Name=self.bs_table.name)
+        # bs_table/up_table are SA aliases over md_table — ".name" yields "bs"/"up",
+        # not the real Athena table name. Use md_table directly.
+        info = self._aws_glue.get_table(DatabaseName=self.db_name, Name=self.md_table.name)
         self.pth = pathlib.Path(info["Table"]["StorageDescriptor"]["Location"]).parent
-        tables_to_delete = [self.bs_table.name]
+        tables_to_delete = [self.md_table.name]
         if self.ts_table is not None:
             tables_to_delete.append(self.ts_table.name)
-        if self.up_table is not None:
-            tables_to_delete.append(self.up_table.name)
         print(f"Will delete the following tables {tables_to_delete} and the {self.pth} folder")
         while True:
             curtime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")

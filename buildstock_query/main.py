@@ -190,13 +190,6 @@ class BuildStockQuery(QueryCore):
         for every upgrade — the returned dict still has one entry per upgrade
         so downstream iteration keeps working regardless of schema.
         """
-        if self.up_table is None:
-            raise ValueError("This run has no upgrades")
-        # Build via SA rather than f-string interpolation: self.up_table is a
-        # Subquery (see _get_subquery_table), and str(Subquery) yields the inner
-        # SELECT without enclosing parens — embedding it in `FROM {table}`
-        # produces malformed `FROM SELECT * FROM ...`. SA's select() handles
-        # the subquery shape correctly.
         upgrade_col = self.up_table.c["upgrade"]
         upgrade_name_col_name = self.db_schema.column_names.upgrade_name
         has_name_col = upgrade_name_col_name in self.up_table.c
@@ -233,9 +226,7 @@ class BuildStockQuery(QueryCore):
         if self.ts_table is None:
             raise ValueError("No timeseries table is available.")
         ts_join_keys = self._get_unique_keys("timeseries")
-        group_cols: list = []
-        if self.up_table is not None:
-            group_cols.append(self.ts_table.c["upgrade"])
+        group_cols: list = [self.ts_table.c["upgrade"]]
         group_cols.extend(self.ts_table.c[key] for key in ts_join_keys)
         select_cols = [*group_cols, safunc.count().label("row_count")]
         ts_query = sa.select(*select_cols)
@@ -263,9 +254,17 @@ class BuildStockQuery(QueryCore):
         Returns:
             pd.Series: The distinct vals.
         """
-        table_name = self.bs_table.name if table_name is None else table_name
+        # bs_table is an alias ("bs") over md_table — _get_table("bs") would fail
+        # to autoload. Default to the real Athena table name when table_name is None.
+        defaulted = table_name is None
+        table_name = self.md_table.name if defaulted else table_name
         tbl = self._get_table(table_name)
         query = sa.select(tbl.c[column]).distinct()
+        if defaulted:
+            # Defaulted-table case targets the unified annual_and_metadata table —
+            # restrict to baseline rows so the result matches the legacy baseline-
+            # only contract.
+            query = query.where(tbl.c["upgrade"] == typed_literal(tbl.c["upgrade"], "0"))
         if get_query_only:
             return self._compile(query)
 
@@ -290,6 +289,11 @@ class BuildStockQuery(QueryCore):
         query = sa.select(
             tbl.c[column], safunc.sum(1).label("sample_count"), safunc.sum(self.sample_wt).label("weighted_count")
         )
+        if table_name is None:
+            # Default-table case targets the bs alias on the unified metadata
+            # table — restrict to baseline rows so the count matches the legacy
+            # baseline-only contract.
+            query = query.where(self._bs_upgrade_filter())
         query = query.group_by(tbl.c[column]).order_by(tbl.c[column])
         if get_query_only:
             return self._compile(query)
@@ -570,18 +574,21 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         restrict = list(restrict) if restrict else []
-        if self.up_table is None:
-            raise ValueError("This run has no upgrades")
         query = sa.select("*").select_from(self.up_table)
+        up_col = self.up_table.c["upgrade"]
         if upgrade_id:
-            up_col = self.up_table.c["upgrade"]
             query = query.where(up_col == typed_literal(up_col, upgrade_id))
+        else:
+            # No specific upgrade requested: exclude baseline rows (upgrade=0) so
+            # the result set is "upgrades only" — matches the legacy 3-table
+            # contract where up_table was a separate parquet that had no
+            # upgrade=0 rows.
+            query = query.where(up_col != typed_literal(up_col, "0"))
 
         # Resolve restrict columns to up_table-side references when the column
         # name exists on up_table; otherwise _add_restrict's default _get_column
-        # path returns the baseline-side column, which makes SA introduce the
-        # baseline subquery as an implicit FROM, cross-joining with up_table
-        # and producing duplicate-named columns under SELECT *.
+        # path returns the bs-side column, producing duplicate-named columns
+        # under SELECT *.
         rewritten_restrict = []
         for col, vals in restrict:
             if isinstance(col, str) and col in self.up_table.c:
@@ -597,9 +604,6 @@ class BuildStockQuery(QueryCore):
 
     def _download_upgrades_csv(self, upgrade_id: Union[int, str]) -> pathlib.Path:
         """Download the upgrade-N results parquet(s). See `download_metadata_and_annual_results`."""
-        if self.up_table is None:
-            raise ValueError("This run has no upgrades")
-
         if isinstance(upgrade_id, int):
             upgrade_id = f"{upgrade_id:02}"
         available_upgrades = list(self.get_available_upgrades())
@@ -701,13 +705,14 @@ class BuildStockQuery(QueryCore):
         bldg_df = self.execute(query0)
         bldg_id = bldg_df.values[0][0]
         upgrade_id = bldg_df.values[0][1]
-        query1 = sa.select(self.timestamp_column.distinct().label(self.timestamp_column_name)).where(
-            self.ts_bldgid_column == bldg_id
+        ucol = self._ts_upgrade_col
+        query1 = (
+            sa.select(self.timestamp_column.distinct().label(self.timestamp_column_name))
+            .where(self.ts_bldgid_column == bldg_id)
+            .where(ucol == typed_literal(ucol, upgrade_id))
+            .order_by(self.timestamp_column)
+            .limit(2)
         )
-        if self.up_table is not None:
-            ucol = self._ts_upgrade_col
-            query1 = query1.where(ucol == typed_literal(ucol, upgrade_id))
-        query1 = query1.order_by(self.timestamp_column).limit(2)
         if get_query_only:
             return self._compile(query1)
 
@@ -851,9 +856,6 @@ class BuildStockQuery(QueryCore):
         Returns:
             list: List of upgrades
         """
-        if self.up_table is None:
-            return ["0"]
-
         query = sa.select(self.up_table.c["upgrade"]).distinct().order_by(sa.text("1"))
         upgrades = self.execute(query)["upgrade"].dropna().map(str).to_list()
         return list(dict.fromkeys(["0", *upgrades]))
@@ -1045,8 +1047,6 @@ class BuildStockQuery(QueryCore):
 
     @property
     def _up_completed_status_col(self):
-        if self.up_table is None:
-            raise ValueError("No upgrades table")
         return self.up_table.c[self.db_schema.column_names.completed_status]
 
     @property
@@ -1075,8 +1075,6 @@ class BuildStockQuery(QueryCore):
 
     @property
     def _up_upgrade_col(self):
-        if self.up_table is None:
-            raise ValueError("No upgrades table")
         return self.up_table.c["upgrade"]
 
     def _get_completed_status_col(self, table: AnyTableType):
@@ -1099,8 +1097,6 @@ class BuildStockQuery(QueryCore):
         """
         if not applied_in:
             return None
-        if self.up_table is None:
-            raise ValueError("No upgrades table found.")
 
         upgrade_ids = list(dict.fromkeys(self._validate_upgrade(upgrade_id) for upgrade_id in applied_in))
         up_col = self._up_upgrade_col

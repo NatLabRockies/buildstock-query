@@ -59,28 +59,18 @@ class BuildStockAggregate:
 
         if upgrade_id == "0" or upgrade_only:
             # Single-upgrade path: aggregate only the requested upgrade's ts rows.
-            # Used for the baseline (upgrade_id="0") and for upgrade-only queries that need
-            # neither savings nor baseline values, so no ts_b/ts_u pairing is required.
-            # This path also supports runs whose timeseries table lacks upgrade=0 rows.
-            if self._bsq.up_table is None:
-                tbljoin = ts.join(
-                    base,
-                    sa.and_(
-                        self._bsq._baseline_timeseries_join_condition(base, ts),
-                        *self._bsq._get_restrict_clauses(restrict, annual_only=True),
-                        *bs_restrict_clauses,
-                    ),
-                )
-            else:
-                tbljoin = ts.join(
-                    base,
-                    sa.and_(
-                        self._bsq._baseline_timeseries_join_condition(base, ts),
-                        ucol == typed_literal(ucol, upgrade_id),
-                        *self._bsq._get_restrict_clauses(restrict, annual_only=True),
-                        *bs_restrict_clauses,
-                    ),
-                )
+            # Used for the baseline (upgrade_id="0") and for upgrade-only queries
+            # that need neither savings nor baseline values, so no ts_b/ts_u
+            # pairing is required.
+            tbljoin = ts.join(
+                base,
+                sa.and_(
+                    self._bsq._baseline_timeseries_join_condition(base, ts),
+                    ucol == typed_literal(ucol, upgrade_id),
+                    *self._bsq._get_restrict_clauses(restrict, annual_only=True),
+                    *bs_restrict_clauses,
+                ),
+            )
             return ts, ts, tbljoin, list(group_by)
 
         if self._bsq.buildstock_type == "comstock":
@@ -160,8 +150,6 @@ class BuildStockAggregate:
         if upgrade_id == "0":
             return self._bsq.bs_table, self._bsq.bs_table, self._bsq.bs_table
 
-        if self._bsq.up_table is None:
-            raise ValueError("No upgrades table found in database.")
         up_col = self._bsq._up_upgrade_col
         up_id = typed_literal(up_col, upgrade_id)
         if applied_only:

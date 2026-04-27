@@ -80,17 +80,23 @@ class BuildStockReport:
         Args:
             get_query_only (bool, optional): _description_. Defaults to False.
         """
-        if self._bsq.up_table is None:
-            raise ValueError("No upgrade table is available .")
-
         queries: list[str] = []
         chng_types = ["no-chng", "bad-chng", "ok-chng", "true-bad-chng", "true-ok-chng", "null", "any"]
+        # Exclude baseline rows from the up alias — they would self-compare with
+        # the bs side and inflate the no-change bucket.
+        up_col = self._bsq.up_table.c["upgrade"]
+        up_not_baseline = up_col != typed_literal(up_col, "0")
         for ch_type in chng_types:
             up_query = sa.select(*[self._bsq.up_table.c["upgrade"], safunc.count().label("change")])
             up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
             conditions = self._get_change_conditions(change_type=ch_type)
             up_query = up_query.where(
-                sa.and_(self._bsq._bs_successful_condition, self._bsq._up_successful_condition, conditions)
+                sa.and_(
+                    self._bsq._bs_successful_condition,
+                    self._bsq._up_successful_condition,
+                    up_not_baseline,
+                    conditions,
+                )
             )  # type: ignore
             up_query = up_query.group_by(sa.text("1"))
             up_query = up_query.order_by(sa.text("1"))
@@ -145,8 +151,6 @@ class BuildStockReport:
     def _get_upgrade_buildings(
         self, *, upgrade_id: Union[int, str], trim_missing_bs: bool = True, get_query_only: bool = False
     ):
-        if self._bsq.up_table is None:
-            raise ValueError("No upgrade table is available .")
         up_key_cols = self._bsq.up_key_cols
         up_query = sa.select(*up_key_cols)
         if trim_missing_bs:
@@ -172,9 +176,6 @@ class BuildStockReport:
         return self._rows_as_keys(df, self._bsq.up_key)
 
     def _get_change_conditions(self, change_type: str):
-        if self._bsq.up_table is None:
-            raise ValueError("No upgrade table is available .")
-
         threshold = 1e-3
         fuel_cols = list(
             c for c in self._bsq.db_schema.column_names.fuel_totals if c in self._bsq.up_table.columns
@@ -278,8 +279,6 @@ class BuildStockReport:
         ] = "no-chng",
         get_query_only: bool = False,
     ):
-        if self._bsq.up_table is None:
-            raise ValueError("No upgrade table is available .")
         bs_key_cols = self._bsq.bs_key_cols
         up_query = sa.select(
             *bs_key_cols,
@@ -327,8 +326,6 @@ class BuildStockReport:
         Returns:
             Union[str, pd.DataFrame]: If get_query_only then returns the query string. Otherwise returns the dataframe.
         """
-        if self._bsq.up_table is None:
-            raise ValueError("No upgrade table is available .")
         up_query = sa.select(
             *[self._bsq.up_table.c["upgrade"], self._bsq._up_completed_status_col, safunc.count().label("count")]
         )
@@ -367,8 +364,6 @@ class BuildStockReport:
     def _get_full_options_report(self, *, trim_missing_bs: bool, get_query_only: bool) -> Union[pd.DataFrame, str]: ...
 
     def _get_full_options_report(self, trim_missing_bs: bool = True, get_query_only: bool = False):
-        if self._bsq.up_table is None:
-            raise ValueError("No upgrade table is available .")
         opt_name_cols = [
             c
             for c in self._bsq.up_table.columns
@@ -411,9 +406,6 @@ class BuildStockReport:
         Returns:
             pd.DataFrame: The list of options the corresponding set of building ids the option applied to.
         """
-        if self._bsq.up_table is None:
-            raise ValueError("No upgrade table is available .")
-
         full_report = self._get_full_options_report(trim_missing_bs=trim_missing_bs)
         option_cols = [c for c in full_report.columns if c.startswith("option")]
         total_counts: Counter = Counter()
@@ -601,9 +593,6 @@ class BuildStockReport:
         """
 
         baseline_result = self._get_bs_success_report()
-
-        if self._bsq.up_table is None:
-            return baseline_result
 
         if trim_missing_bs == "auto":
             if "success" in baseline_result:

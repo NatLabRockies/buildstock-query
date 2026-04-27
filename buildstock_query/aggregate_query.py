@@ -58,9 +58,29 @@ class BuildStockAggregate:
         # table scan without enumerating all columns.
         bs_restrict_clauses = self._bsq._get_restrict_clauses(bs_restrict, annual_only=True)
 
-        if upgrade_id == "0" or upgrade_only:
-            # Single-upgrade path: aggregate only the requested upgrade's ts rows.
-            # No pivot, no self-join — single ts ⋈ md scan.
+        # Unified two-level shape used for both single-upgrade and
+        # upgrade-pair queries.
+        #
+        # ts_flat: per-row scalar projection. Each enduse expression
+        #   (whether bare ts column or calc-col Label) is materialized as
+        #   `_v__<name>`. This pushes arithmetic into the scan layer.
+        # ts_aggr: per-(bldg_id, bucketed_time, state, ...) aggregate.
+        #   Single-upgrade: SUM(_v__name) → bs__<name>. Upgrade-pair:
+        #   SUM(...) FILTER (WHERE upgrade=0/N) → bs__<name> / up__<name>.
+        # outer: JOIN to bs (once) for weights/metadata, then user's GROUP BY.
+        #
+        # Pre-bucketing time at ts_aggr cuts the per-bldg shuffle key
+        # cardinality by 4×/96×/720×/35000× for hourly/daily/monthly/yearly.
+        # The shuffle is what made the old upgrade-pair pivot time out on
+        # national hourly queries and what slows down baseline TS queries
+        # at the same scale.
+        single_upgrade = upgrade_id == "0" or upgrade_only
+        ts_upgrade_ids = [upgrade_id] if single_upgrade else ["0", upgrade_id]
+
+        # If we're producing raw 15-min output AND only one upgrade is in
+        # play, the inner ts_aggr layer is pure overhead (one row in, one
+        # row out per group). Fall back to direct ts ⋈ md.
+        if single_upgrade and not timestamp_grouping_func:
             tbljoin = ts.join(
                 base,
                 sa.and_(
@@ -72,39 +92,26 @@ class BuildStockAggregate:
             )
             return ts, ts, tbljoin, list(group_by), base
 
-        # Upgrade-pair path: TWO-LEVEL PIVOT over ts in a single scan.
-        #
-        # Inner-most flat subquery (`ts_flat`): one row per ts row, projects
-        # the precomputed enduse expression as a scalar column. This pushes
-        # arithmetic into the scan layer (Trino can apply the projection
-        # alongside column reads), avoiding evaluation inside SUM-CASE later.
-        #
-        # Outer pivot subquery (`ts_pivot`): GROUP BY (bldg_id, bucketed_time,
-        # state, ts_extra_group_cols) with FILTER aggregates per side:
-        #   bs_<enduse> = SUM(<enduse>) FILTER (WHERE upgrade = 0)
-        #   up_<enduse> = SUM(<enduse>) FILTER (WHERE upgrade = N)
-        #
-        # Critical perf knob: `bucketed_time` is `date_trunc(timestamp_grouping_func,
-        # ts.timestamp)` when the caller passed a grouping_func. This collapses
-        # the per-15-min ts cadence to per-hour / per-day / per-month / per-year
-        # at the inner GROUP BY level, reducing the per-bldg shuffle key
-        # cardinality by 4× / 96× / ~720× / ~35000× for hourly / daily / monthly /
-        # yearly queries respectively. Without this, the inner GROUP BY
-        # shuffles billions of (bldg, 15-min, state) tuples on national-scope
-        # hourly queries and times out at 30 minutes; with it, the same query
-        # finishes in ~7 minutes.
         ts_group_by = [g for g in group_by if g.name in ts.columns]
         bs_group_by = [g for g in group_by if g.name not in ts.columns]
 
         ts_unique_keys = self._bsq._get_unique_keys("timeseries")
         timestamp_col = self._bsq.timestamp_column_name
-        # Inner GROUP BY keys: ts unique keys + bucketed time + extra ts group_bys.
-        # We project these in the flat subquery's SELECT.
-        ts_key_names = list(dict.fromkeys([*ts_unique_keys, timestamp_col]))
+        # Order keys for hash distribution: partition columns (typically
+        # `state`) first, then timestamp, then bldg_id last. Trino hashes
+        # by leftmost columns when shuffling for GROUP BY; partition-aligned
+        # ordering lets it distribute work along the parquet's existing
+        # layout instead of fighting it.
+        partition_cols = [k for k in ts_unique_keys if k != self._bsq.building_id_column_name]
+        ts_key_names = list(dict.fromkeys([
+            *partition_cols,
+            timestamp_col,
+            self._bsq.building_id_column_name,
+        ]))
         ts_extra_group_names = [g.name for g in ts_group_by if g.name not in ts_key_names]
 
-        # Build the bucketed time expression on the raw ts.timestamp column.
-        # If timestamp_grouping_func is None we keep raw timestamp.
+        # Bucketed time expression — pushed into ts_flat so ts_aggr GROUPs BY
+        # coarse buckets, not raw 15-min timestamps.
         if timestamp_grouping_func:
             sim_info = self._bsq._get_simulation_info()
             raw_time = ts.c[timestamp_col]
@@ -119,25 +126,77 @@ class BuildStockAggregate:
             bucketed_time_expr = ts.c[timestamp_col]
 
         ts_restrict_clauses = self._bsq._get_restrict_clauses(restrict, annual_only=False)
-        ts_upgrade_ids = ["0", upgrade_id]
 
-        # Innermost flat subquery: project precomputed enduse scalars per row.
-        # For a Label enduse (calc col), use `e.element` so the arithmetic is
-        # the SELECT expression (not the Label). For bare ts columns use them
-        # directly. Each enduse becomes a column named `_v__<enduse_name>`.
+        # Classify each enduse by which table(s) its leaf columns reference:
+        # - ts-only: every leaf is on ts. Routed through ts_flat / ts_aggr.
+        # - pure-bs: every leaf is on bs (no ts refs). Skips ts_flat entirely;
+        #   projected at the outer SELECT directly. This is the right path
+        #   for characteristic columns (sqft, vintage, etc.) — constant per
+        #   bldg, no need to materialize per-15-min and re-aggregate.
+        # - mixed: at least one ts and one bs leaf. Routed through ts_flat
+        #   with bs joined in (preserves today's inner-join shape).
+        from sqlalchemy.sql import visitors
+
+        def _classify(expr):
+            target = expr.element if isinstance(expr, SALabel) else expr
+            ts_refs, bs_refs = [], []
+            def _visit(elem):
+                if isinstance(elem, sa.Column):
+                    t = getattr(elem, "table", None)
+                    if t is ts:
+                        ts_refs.append(elem)
+                    elif t is not None:
+                        bs_refs.append(elem)
+            visitors.traverse(target, {}, {"column": _visit})
+            if ts_refs and bs_refs:
+                return "mixed"
+            if bs_refs:
+                return "pure_bs"
+            return "ts_only"
+
+        ts_only_enduses, bs_only_enduses, mixed_enduses = [], [], []
+        for e in enduses:
+            kind = _classify(e)
+            if kind == "ts_only":
+                ts_only_enduses.append(e)
+            elif kind == "pure_bs":
+                bs_only_enduses.append(e)
+            else:
+                mixed_enduses.append(e)
+
+        flat_enduses = ts_only_enduses + mixed_enduses
+        needs_bs_in_flat = bool(mixed_enduses)
+
+        # Innermost flat subquery: precomputed scalars per ts row. Pure-bs
+        # enduses are NOT projected here — they go straight to the outer
+        # SELECT. `upgrade` is projected only for the upgrade-pair case
+        # (where ts_aggr uses FILTER per side); single-upgrade filters at
+        # ts_flat WHERE and skips the column.
         flat_select_cols = [
             ts.c[k].label(k) for k in ts_key_names if k != timestamp_col
         ]
         flat_select_cols.append(bucketed_time_expr.label(timestamp_col))
         flat_select_cols.extend([ts.c[name].label(name) for name in ts_extra_group_names])
-        flat_select_cols.append(ts.c["upgrade"].label("upgrade"))
-        for e in enduses:
+        if not single_upgrade:
+            flat_select_cols.append(ts.c["upgrade"].label("upgrade"))
+        for e in flat_enduses:
             value_expr = e.element if isinstance(e, SALabel) else e
             flat_select_cols.append(value_expr.label(f"_v__{e.name}"))
 
+        # FROM: ts alone unless we have a mixed enduse referencing bs from
+        # within an arithmetic expression. _baseline_timeseries_join_condition
+        # bakes in bs.upgrade=0.
+        if needs_bs_in_flat:
+            flat_from = ts.join(
+                base,
+                self._bsq._baseline_timeseries_join_condition(base, ts),
+            )
+        else:
+            flat_from = ts
+
         ts_flat_subq = (
             sa.select(*flat_select_cols)
-            .select_from(ts)
+            .select_from(flat_from)
             .where(
                 ts.c["upgrade"].in_([typed_literal(ts.c["upgrade"], u) for u in ts_upgrade_ids]),
                 *ts_restrict_clauses,
@@ -145,54 +204,55 @@ class BuildStockAggregate:
             .subquery("ts_flat")
         )
 
-        # Outer pivot: GROUP BY (ts_unique_keys + bucketed_time + extras) with
-        # per-side FILTER aggregates. Trino compiles `safunc.sum(...).filter(...)`
-        # to `SUM(...) FILTER (WHERE ...)` — equivalent to SUM-CASE but cleaner
-        # in plan output and unambiguous about per-aggregate filtering.
+        # ts_aggr: per-(bldg, bucket, state, ...) aggregate over flat_enduses.
+        # Pure-bs enduses are not in flat_enduses, so they don't appear in
+        # ts_aggr — they get projected directly at the outer SELECT.
         flat_group_keys = [ts_flat_subq.c[k] for k in ts_key_names]
         flat_extra_group_cols = [ts_flat_subq.c[name] for name in ts_extra_group_names]
 
-        bs_filter = ts_flat_subq.c["upgrade"] == typed_literal(ts.c["upgrade"], "0")
-        up_filter = ts_flat_subq.c["upgrade"] == typed_literal(ts.c["upgrade"], upgrade_id)
+        enduse_aggr_cols = []
+        if single_upgrade:
+            for e in flat_enduses:
+                v = ts_flat_subq.c[f"_v__{e.name}"]
+                enduse_aggr_cols.append(safunc.sum(v).label(f"bs__{e.name}"))
+            inner_rows = safunc.count(sa.text("*")).label("_inner_rows")
+        else:
+            bs_filter = ts_flat_subq.c["upgrade"] == typed_literal(ts.c["upgrade"], "0")
+            up_filter = ts_flat_subq.c["upgrade"] == typed_literal(ts.c["upgrade"], upgrade_id)
+            for e in flat_enduses:
+                v = ts_flat_subq.c[f"_v__{e.name}"]
+                enduse_aggr_cols.append(safunc.sum(v).filter(bs_filter).label(f"bs__{e.name}"))
+                enduse_aggr_cols.append(safunc.sum(v).filter(up_filter).label(f"up__{e.name}"))
+            inner_rows = safunc.count(sa.text("*")).filter(bs_filter).label("_inner_rows")
 
-        enduse_pivot_cols = []
-        for e in enduses:
-            v = ts_flat_subq.c[f"_v__{e.name}"]
-            enduse_pivot_cols.append(safunc.sum(v).filter(bs_filter).label(f"bs__{e.name}"))
-            enduse_pivot_cols.append(safunc.sum(v).filter(up_filter).label(f"up__{e.name}"))
-
-        # Carry forward the per-(bldg, bucket) row count from the bs side. The
-        # outer query uses this for `rows_per_sample` and the `units_count`
-        # denominator — both of which previously assumed `sum(1)` at the outer
-        # level counted underlying 15-min ts rows. With the pre-bucketing
-        # optimization, `sum(1)` at the outer level counts pivot rows (already
-        # reduced to one per bldg-per-bucket), so we need this explicit count
-        # to recover the original semantics.
-        bs_inner_rows = safunc.count(sa.text("*")).filter(bs_filter).label("_inner_rows")
-
-        ts_pivot_subq = (
-            sa.select(*flat_group_keys, *flat_extra_group_cols, *enduse_pivot_cols, bs_inner_rows)
+        ts_aggr_subq = (
+            sa.select(*flat_group_keys, *flat_extra_group_cols, *enduse_aggr_cols, inner_rows)
             .select_from(ts_flat_subq)
             .group_by(*flat_group_keys, *flat_extra_group_cols)
-            .subquery("ts_pivot")
+            .subquery("ts_aggr")
         )
 
-        # Build virtual `ts_b` and `ts_u` aliases over the pivot subquery so the
-        # outer code's `get_col(bs_tbl, enduse)` and `get_col(up_tbl, enduse)`
-        # resolve to the per-side pivot columns by enduse name.
+        # SideView adapter exposes ts_aggr columns indexed by enduse name.
+        # Only flat_enduses (ts-only + mixed) live in ts_aggr; pure-bs
+        # enduses are projected directly from `base` (the md alias) at the
+        # outer SELECT and don't appear here. The outer-code `get_col(...)`
+        # path falls through to the original column for unknown names,
+        # which is correct for pure-bs columns since they're already bound
+        # to `base`.
+        # Single-upgrade has only `bs__<name>` columns; ts_b and ts_u both
+        # point at the same SideView so `bs_tbl is up_tbl` short-circuits
+        # correctly. Pair has bs__/up__ columns and two distinct SideView
+        # instances.
         class _SideView:
-            """Adapter exposing pivot-subquery columns indexed by original enduse name."""
+            """Adapter exposing ts_aggr columns indexed by original enduse name."""
             def __init__(self, subq, prefix, enduses, group_cols):
                 self._subq = subq
                 self._cols_by_name = {}
                 for e in enduses:
                     self._cols_by_name[e.name] = subq.c[f"{prefix}__{e.name}"]
-                # Group-by and key columns pass through unprefixed
                 for c in group_cols:
                     if c.name not in self._cols_by_name:
                         self._cols_by_name[c.name] = subq.c[c.name]
-                # Outer SELECT references `_inner_rows` for rows_per_sample /
-                # units_count denominators when the pivot pre-bucketed time.
                 if "_inner_rows" in subq.c:
                     self._cols_by_name["_inner_rows"] = subq.c["_inner_rows"]
 
@@ -201,30 +261,30 @@ class BuildStockAggregate:
                 return self._cols_by_name
 
         passthrough_cols = flat_group_keys + flat_extra_group_cols
-        ts_b = _SideView(ts_pivot_subq, "bs", enduses, passthrough_cols)
-        ts_u = _SideView(ts_pivot_subq, "up", enduses, passthrough_cols)
+        ts_b = _SideView(ts_aggr_subq, "bs", flat_enduses, passthrough_cols)
+        ts_u = ts_b if single_upgrade else _SideView(ts_aggr_subq, "up", flat_enduses, passthrough_cols)
 
-        # Outer join: pivot subquery ⋈ md (once) for metadata characteristics
-        # and bs_group_by columns. The join is on the timeseries unique keys.
+        # Outer JOIN: ts_aggr ⋈ md (once) for metadata / weights. md is
+        # always the upgrade=0 row (carries weight + characteristics).
         bs_join_cond = sa.and_(
-            *(base.c[k] == ts_pivot_subq.c[k] for k in ts_unique_keys),
+            *(base.c[k] == ts_aggr_subq.c[k] for k in ts_unique_keys),
             self._bsq._upgrade_zero_filter(base),
             *bs_restrict_clauses,
         )
-        # applied_only=True is enforced upstream via _add_applied_in_restrict
-        # synthesizing applied_in=[upgrade_id] which routes into ts_restrict
-        # (the TS table has no `applicability` column to filter on directly,
-        # so the bldg_id IN-list is the correct mechanism).
+        # applied_only=True for non-pivot upgrade_only path is enforced
+        # upstream via _add_applied_in_restrict synthesizing
+        # applied_in=[upgrade_id], which routes into ts_restrict (the TS
+        # table has no `applicability` column).
 
-        tbljoin = ts_pivot_subq.join(base, bs_join_cond)
+        tbljoin = ts_aggr_subq.join(base, bs_join_cond)
 
-        # Remap group_by columns to the appropriate handle:
-        # - ts-side group_bys → ts_pivot_subq column
-        # - bs-side group_bys → md alias (base) column
+        # Remap user's group_by:
+        #   ts-side group_bys → ts_aggr_subq column
+        #   bs-side group_bys → md alias (base) column
         remapped_group_by = []
         for g in group_by:
             if g.name in ts.columns:
-                remapped_group_by.append(ts_pivot_subq.c[g.name])
+                remapped_group_by.append(ts_aggr_subq.c[g.name])
             else:
                 remapped_group_by.append(base.c[g.name] if g.name in base.c else g)
 
@@ -476,13 +536,20 @@ class BuildStockAggregate:
         partition_by = self.validate_partition_by(params.partition_by)
         total_weight = self._bsq._get_weight(params.weights)
         agg_func, agg_weight = self._bsq._get_agg_func_and_weight(params.weights, params.agg_func)
-        time_indx = 0
         # The library accepts both the canonical alias `"time"` and the schema's
         # actual timestamp column name (e.g. `"timestamp"` on OEDI) as a marker
         # for "insert the time column at this position". Strip whichever one the
         # user passed; the time-column expression is re-inserted later, so
         # leaving it in `group_by` would project the column twice (Athena
         # rejects with DUPLICATE_COLUMN_NAME).
+        #
+        # Default placement: AFTER the user's group_by columns (typically
+        # state/county). Trino hashes by leftmost GROUP BY columns when
+        # shuffling; leading with the partition column keeps the outer
+        # aggregate aligned with the parquet's existing layout instead of
+        # forcing a re-shuffle by timestamp. If the user explicitly
+        # positions `"time"` in their group_by list, their position wins.
+        time_indx = len(params.group_by)
         time_aliases = {"time", self._bsq.timestamp_column_name}
         for alias in time_aliases:
             if alias in params.group_by:
@@ -517,15 +584,16 @@ class BuildStockAggregate:
                 upgrade_only=upgrade_only,
                 timestamp_grouping_func=params.timestamp_grouping_func,
             )
-            # Detect pivot-bucketed-time path: when upgrade_id != "0" and we
-            # didn't take the upgrade_only short-circuit, the pivot subquery
-            # already date_trunc'd the time column at the inner GROUP BY. The
-            # outer date_trunc insertion below would be redundant.
-            pivot_bucketed_time = (
-                upgrade_id != "0"
-                and not upgrade_only
-                and params.timestamp_grouping_func is not None
-            )
+            # Inner ts_aggr always pre-buckets time when grouping_func is
+            # set — true for both single-upgrade (upgrade_id=="0" or
+            # upgrade_only) and upgrade-pair branches. The outer SELECT
+            # references `ts_aggr.<timestamp>` directly (already bucketed)
+            # and uses `_inner_rows` instead of raw sum(1) for the
+            # rows_per_sample / units_count denominator.
+            inner_bucketed_time = params.timestamp_grouping_func is not None
+            # Legacy alias kept for the rest of _query() which references
+            # the prior name. TODO: rename once the dust settles.
+            pivot_bucketed_time = inner_bucketed_time
 
         def get_col(tbl, col):  # column could be MappedColumn not available in tbl
             return tbl.c[col.name] if col.name in tbl.c else col

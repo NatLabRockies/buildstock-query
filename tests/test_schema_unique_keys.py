@@ -171,10 +171,12 @@ def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.M
     # Per-side FILTER aggregates over the precomputed `_v__<enduse>` columns
     assert "FILTER (WHERE ts_flat.upgrade = '0')" in query
     assert "FILTER (WHERE ts_flat.upgrade = '1')" in query
-    # Outer pivot GROUP BY uses the ts unique keys + timestamp (referenced via ts_flat)
-    assert "GROUP BY ts_flat.bldg_id, ts_flat.state, ts_flat.timestamp" in query
-    # Metadata join uses the ts unique keys against ts_pivot
-    assert "bs.bldg_id = ts_pivot.bldg_id AND bs.state = ts_pivot.state" in query
+    # Outer pivot GROUP BY uses the ts unique keys + timestamp (state-first
+    # for partition-aligned hashing). Custom join schema has unique_keys
+    # = (bldg_id, state) on ts.
+    assert "GROUP BY ts_flat.state, ts_flat.timestamp, ts_flat.bldg_id" in query
+    # Metadata join uses the ts unique keys against ts_aggr
+    assert "bs.bldg_id = ts_aggr.bldg_id AND bs.state = ts_aggr.state" in query
     # No self-join on the TS table
     assert "ts_b.bldg_id = ts_u.bldg_id" not in query
 
@@ -194,8 +196,10 @@ def test_timeseries_pair_join_defaults_to_building_id_when_unconfigured(
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    # Outer pivot GROUP BY on the default ts unique key (bldg_id) + timestamp
-    assert "GROUP BY ts_flat.bldg_id, ts_flat.timestamp" in query
+    # Outer pivot GROUP BY on the default ts unique key (bldg_id) + timestamp.
+    # No partition keys present (state was unconfigured), so only timestamp
+    # leads bldg_id.
+    assert "GROUP BY ts_flat.timestamp, ts_flat.bldg_id" in query
     # No state in the inner GROUP BY (since unique_keys was wiped) — but the
     # bare `state` column may still appear in WHERE/restrict clauses if the
     # query uses it; check specifically for state in the GROUP BY context.

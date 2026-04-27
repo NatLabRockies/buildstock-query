@@ -113,6 +113,9 @@ class BuildStockAggregate:
             enduse_pivot_cols.append(bs_case(ts.c[e.name]).label(f"bs__{e.name}"))
             enduse_pivot_cols.append(up_case(ts.c[e.name]).label(f"up__{e.name}"))
 
+        # Emit as a CTE rather than an inline subquery so the SQL reads
+        # `WITH ts_pivot AS (...) SELECT ... FROM ts_pivot JOIN bs ON ...`
+        # — same execution plan, easier to read than nested subqueries.
         ts_pivot_subq = (
             sa.select(*ts_key_cols, *ts_extra_group_cols, *enduse_pivot_cols)
             .select_from(ts)
@@ -121,7 +124,7 @@ class BuildStockAggregate:
                 *ts_restrict_clauses,
             )
             .group_by(*ts_key_cols, *ts_extra_group_cols)
-            .subquery("ts_pivot")
+            .cte("ts_pivot")
         )
 
         # Build virtual `ts_b` and `ts_u` aliases over the pivot subquery so the
@@ -481,10 +484,10 @@ class BuildStockAggregate:
                     if params.applied_only:
                         upgrade_col = get_col(up_tbl, col)
                     else:
-                        upgrade_col = sa.case(
-                            (up_tbl.c[self._bsq.building_id_column_name] == None, baseline_col),  # noqa: E711
-                            else_=get_col(up_tbl, col),
-                        )
+                        # Pivot: per-(bldg_id, timestamp) row, up_<col> is NULL
+                        # when the upgrade didn't produce a row for this bldg.
+                        # Fall back to baseline value via COALESCE.
+                        upgrade_col = safunc.coalesce(get_col(up_tbl, col), baseline_col)
                 else:
                     upgrade_col = baseline_col
                 savings_col = safunc.coalesce(baseline_col, 0) - safunc.coalesce(upgrade_col, 0)
@@ -616,7 +619,12 @@ class BuildStockAggregate:
                     self._bsq._upgrade_zero_filter(bs_tbl),
                 )
             )
-        query = self._bsq._add_restrict(query, bs_restrict, annual_only=params.annual_only)
+            # Annual queries have no inner join helper to fold bs_restrict into,
+            # so the outer WHERE is the only place to apply it.
+            query = self._bsq._add_restrict(query, bs_restrict, annual_only=params.annual_only)
+        # TS queries fold bs_restrict into the inner ts ⋈ bs JOIN ON inside
+        # __get_timeseries_bs_up_table, so adding it again here would just
+        # produce duplicate predicates that Trino has to dedupe.
         # Restricts on join_list tables (e.g. utility eiaid_weights.eiaid) didn't
         # land on bs or ts — they go to the outer WHERE after _add_join has
         # introduced their referenced tables.

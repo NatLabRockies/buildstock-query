@@ -2,8 +2,8 @@
   {
     "name": "savings_annual_upgrade1_electricity",
     "sql_hash": {
-      "resstock_oedi": "c67e850aa2d4eebfdcfa453e1aded228b49e956c7270440c55df495d2011d24d",
-      "comstock_oedi": "998fff49ecd1d336ef5a86fcf906b3108d216ebe28b6763d292cf76d639570b1"
+      "resstock_oedi": "e5d383d0c45da3200316ea0f9e6943b32be7ed16a7fd19fcda072523d0aabfae",
+      "comstock_oedi": "4a3a9aff76a1217c0c0e99dc1924abcfd8ac8b89c2fc0e07875a8ba808da205f"
     },
     "description": "Annual savings for upgrade 1, electricity, grouped by building type, CO only.",
     "args": {
@@ -30,7 +30,7 @@
   {
     "name": "savings_ts_monthly_upgrade1_electricity",
     "sql_hash": {
-      "resstock_oedi": "0bd5f51835333898dc40d52c5f1b96181f79685e9d16e9ff02437e6bd7d4b72c",
+      "resstock_oedi": "42b6fcea04a9420bb02d203cdfc26a9660ffc97962a9398cef11605c678a22a5",
       "comstock_oedi": ""
     },
     "description": "Monthly timeseries savings for upgrade 1, electricity, CO only.",
@@ -60,8 +60,8 @@
   {
     "name": "savings_only_upgrade1_electricity",
     "sql_hash": {
-      "resstock_oedi": "1a3c2978f505daa2bbec441589ba74c1f4d2fde099e076a7ea0df035edbcf54e",
-      "comstock_oedi": "572bfb242f19e19e9db5b1a0468a84e324fac5b6cb454f985958c69349e08d11"
+      "resstock_oedi": "1254f5e9a07f873e6b560f80561807effbc8a288a71b775b73d75c86396b4ca9",
+      "comstock_oedi": "6291d4f1810fcd410debdfedec88a43ae35382e8df40862c53ffa2b6bfdfa098"
     },
     "description": "Savings-only annual output (no baseline / no upgrade columns) for upgrade 1, CO. Catches column-suppression bugs in the include_baseline / include_upgrade flags.",
     "args": {
@@ -88,8 +88,8 @@
   {
     "name": "savings_annual_upgrade1_quartiles",
     "sql_hash": {
-      "resstock_oedi": "505930cd8529cc5246c88e294b3419feb000ecfd9253a02bbacc8bf1d5914ee7",
-      "comstock_oedi": "994b17636d36a4f40bc524267516b8d0e133479a244e31102713fce7d9d8daba"
+      "resstock_oedi": "be97ef5d82878652fff3f9a372beac5ca1c2b34b0fee4d0930a945acbbd63b09",
+      "comstock_oedi": "2cec0ad921cece0afd909bb9ddbf77928eae19eb7c3f2d143a3c8394c444369d"
     },
     "description": "Annual upgrade 1 savings with quartiles, CO only.",
     "args": {
@@ -117,8 +117,8 @@
   {
     "name": "savings_annual_two_fuel",
     "sql_hash": {
-      "resstock_oedi": "268be3d8ec0fb0b52698a4a694d153a6e20f8052684729a171b1f5e41236f7ea",
-      "comstock_oedi": "6d5e24841cceb38a04f3d9069fbaf66ce094fdc7b7e964ae3ee653de84bcd1f8"
+      "resstock_oedi": "77c6ec50e93303cd4b018f2302351613193bef04adf6af5ea5a50004fd36780b",
+      "comstock_oedi": "6267e4f49ffb0b2d67e1bb537e58a7f40f38e7ff909eaaa607e595dd6bf2a46e"
     },
     "description": "Annual savings for upgrade 1 covering both electricity and natural gas as enduses, grouped by building type, CO only. Pins the multi-fuel column-suffix shape across the baseline/upgrade/savings projection — every prior savings entry is electricity-only.",
     "args": {
@@ -146,7 +146,7 @@
   {
     "name": "savings_ts_monthly_two_fuel",
     "sql_hash": {
-      "resstock_oedi": "6c0fc70f01ae2c8fc50cf2bc222f5f99b207427f491b75c62e0e4b4b3fef6f98",
+      "resstock_oedi": "9a60ed7aa30d0bf8eb4f536e72097ed1803f803aebeca8bd1742171fe83b3dfb",
       "comstock_oedi": ""
     },
     "description": "Monthly TS savings for upgrade 1 covering both electricity and natural gas, grouped by time, CO only. Mirrors savings_annual_two_fuel on the TS path — pins the multi-fuel column-suffix shape across baseline/upgrade/savings projections in the TS upgrade-pair flow. Comstock skips per UnsupportedQueryShape (TS upgrade-pair queries on comstock).",
@@ -177,7 +177,7 @@
   {
     "name": "savings_ts_monthly_upgrade1_quartiles",
     "sql_hash": {
-      "resstock_oedi": "b9f7a7dbe5689ff8307df54f9054ce173a9befe9b8324c9b02e2c2922b709913",
+      "resstock_oedi": "fc9d92ec5ae0306d7eec61957f7fcfca49217c959a257a6394626ea9551bcc62",
       "comstock_oedi": ""
     },
     "description": "Monthly TS savings with quartiles, upgrade 1, CO only. Exercises the quartile branch in the TS upgrade-pair path; the existing TS savings entry has no quartiles.",

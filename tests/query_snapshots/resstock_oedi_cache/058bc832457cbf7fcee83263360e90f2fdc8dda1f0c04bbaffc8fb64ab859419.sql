@@ -1,1 +1,0 @@
-SELECT baseline."in.state", sum(1) AS sample_count, sum(baseline.weight) AS weighted_count FROM (SELECT * FROM resstock_2024_amy2018_release_2_metadata WHERE resstock_2024_amy2018_release_2_metadata.upgrade = 0) AS baseline GROUP BY baseline."in.state" ORDER BY baseline."in.state"

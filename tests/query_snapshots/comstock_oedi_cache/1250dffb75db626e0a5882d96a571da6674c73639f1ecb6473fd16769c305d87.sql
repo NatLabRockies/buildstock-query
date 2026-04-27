@@ -1,0 +1,1 @@
+SELECT sum(1) AS sample_count, sum(bs.weight) AS units_count, sum(bs."out.electricity.total.energy_consumption..kwh" * bs.weight) AS "electricity.total.energy_consumption..kwh" FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND bs.bldg_id = 51037 AND bs.state = 'CO'

@@ -2,8 +2,8 @@
   {
     "name": "calculated_column_elec_minus_gas",
     "sql_hash": {
-      "resstock_oedi": "7282e9ebaf95ba9bb64ccd59da21dc2af41593a9b0747892fd4c46f0e2a689a5",
-      "comstock_oedi": "cec2d9b763c138b5da484e64699f4a6542d5dc37c5a5be2fb029df6b864eb771"
+      "resstock_oedi": "9df9dfa9b364ca6add7739985c2647651bd6265875a7e06736b31d38e521478d",
+      "comstock_oedi": "6a75acb6082ea8a156625b399b7b98b3370771d20f44fae7d59c8f39274be78c"
     },
     "description": "Annual aggregation using a get_calculated_column-built enduse: electricity total minus natural gas total. Pins the operator-precedence and column-resolution path through get_calculated_column. The column_expr placeholders ($ELECTRICITY_TOTAL, $NATURAL_GAS_TOTAL) get resolved to per-schema column names by the specialized test function before construction.",
     "args": {

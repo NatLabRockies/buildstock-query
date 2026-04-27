@@ -2,8 +2,8 @@
   {
     "name": "restrict_single_state",
     "sql_hash": {
-      "resstock_oedi": "c4c779ca5c4d253d631fd3ad94e8606a6dafc54c050a4f1d7559176d6518e46a",
-      "comstock_oedi": "14b22b3d30fd55e49c4f826eae22a990eafcce1a80901c0baac8aa2b927f3a10"
+      "resstock_oedi": "254fdf8a1007b902e64a2d16a73e9be239b8a4b849555a9db1a806c4cc1da845",
+      "comstock_oedi": "f5a29b6e8f9623599d8ef45aa602f84eab98a8189e85614d250e5d28f57824e9"
     },
     "description": "Annual electricity restricted to CO. Three equivalent restrict shapes (single-element list, scalar string, scalar wrapped in tuple) must all compile to the same SQL \u2014 covers the arg-normalization code path in _get_restrict_clauses.",
     "args": [
@@ -42,8 +42,8 @@
   {
     "name": "restrict_two_states",
     "sql_hash": {
-      "resstock_oedi": "a2937c70410428d8fa77f6ac1a7568da11e1fc0a183a8fbf52695012f1fecb6c",
-      "comstock_oedi": "3dad1021118715e9f07f626f35277958818c7109ec65c2f829ca51bf455f618d"
+      "resstock_oedi": "95112dddfe598ae8530b86ad543f48c14ce15a40afeb7c092236f1ab96de7d3f",
+      "comstock_oedi": "ab883b24682f8a2cb62550086c8646bb8abe144959d8f2b7875bc8eefcc27066"
     },
     "description": "Annual electricity restricted to CO + WY.",
     "args": {
@@ -67,8 +67,8 @@
   {
     "name": "restrict_state_plus_vintage",
     "sql_hash": {
-      "resstock_oedi": "8855494f0dacdc976ab25ee3644126a3f31a57890fe37f9fd58e6c2c2f327398",
-      "comstock_oedi": "ee7fcaa3873c7a983c5d028a1821028db2ef5b9ac3bf35b8b1704630976d4466"
+      "resstock_oedi": "5c6160fe8a9274ae8aefc8845b03c4c3b4cefb6836542f7119a6ae941dac768a",
+      "comstock_oedi": "b52d5c7a5b202b27e8115f8c57625cd3f8b545a0e0042fa5de5e9d03b29a2c49"
     },
     "description": "CO + specific vintage bucket, electricity.",
     "args": {
@@ -97,8 +97,8 @@
   {
     "name": "avoid_building_type",
     "sql_hash": {
-      "resstock_oedi": "65c27bc4e5763f64143fb58665ad2ea97ca8b2cb247bff469fe1b2b36970e543",
-      "comstock_oedi": "6d4f87db3f6483ee9e446ad684eba89cda917cc33c960812f3990af738b4e6c1"
+      "resstock_oedi": "1ce5149faefbb95c888b2f71a5976156fa586ec3c2eae4ba88428054970a6f90",
+      "comstock_oedi": "a0914e766b7d28f982e0f457e57510dc8bc90312817bc75ecd66da30afadea77"
     },
     "description": "CO only, avoid one building type per schema.",
     "args": {
@@ -129,8 +129,8 @@
   {
     "name": "avoid_building_type_multi",
     "sql_hash": {
-      "resstock_oedi": "f4c8f26afdc4035a3fe0234f47a12f71377c2a03ddd25968c3ca0686bbc6258e",
-      "comstock_oedi": "28f0dabdd4bd398664e7fb8ce1a42e83d409b222da8984998c9260b6874ae114"
+      "resstock_oedi": "bb3731f60779a989bcb2e1d942ed7e9d17590632f0acf1e4a8131d1ba5bad1d8",
+      "comstock_oedi": "61fdf07dd46b744d73304ef0efdfd45915dd1f94368db973ff6eb545a365410c"
     },
     "description": "CO only, avoid multiple building types via multi-element avoid list \u2014 exercises the NOT IN code path in _add_avoid (single-value avoid emits != instead).",
     "args": {

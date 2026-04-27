@@ -1,1 +1,0 @@
-SELECT count(*) AS count FROM (SELECT * FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet WHERE comstock_amy2018_r2_2025_md_by_state_and_county_parquet.upgrade = 0) AS baseline WHERE baseline.applicability = true

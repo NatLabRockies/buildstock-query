@@ -1,0 +1,1 @@
+SELECT bs."in.vintage" AS vintage, sum(1) AS sample_count, sum(bs.weight) AS units_count, sum(bs."out.electricity.total.energy_consumption" * bs.weight) AS "electricity.total.energy_consumption" FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND bs."in.state" = 'CO' GROUP BY 1 ORDER BY 1 LIMIT 5

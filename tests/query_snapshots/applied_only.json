@@ -2,8 +2,8 @@
   {
     "name": "applied_only_upgrade1_annual",
     "sql_hash": {
-      "resstock_oedi": "b3f8c1fe49fa28163cee2ae22fe40b628803f0f77611153ac31a05b1d91802d7",
-      "comstock_oedi": "07300b51eedc7dd85680e21a7bc08f2587eda9865c5d909caefb86ec6b707a91"
+      "resstock_oedi": "70b1a9f0504ee34c82776b4bd181690d755fe4050ab0e704a8f7632ceb5843a8",
+      "comstock_oedi": "6b5e79b2127d6883394178ead1d8bd40c9bac992eb3037aaa5a63c29c6467389"
     },
     "description": "Annual upgrade 1 electricity restricted to applied buildings only, CO.",
     "args": {
@@ -28,8 +28,8 @@
   {
     "name": "all_buildings_upgrade1_annual",
     "sql_hash": {
-      "resstock_oedi": "aa72a47d1fcb182c6d18571d5d3d007568254d933743a03cc496acecf2104576",
-      "comstock_oedi": "3e41afae159931ce5e550cb2f4c8a91424bb8e56eb7d0568bfafd6d17b55e8a9"
+      "resstock_oedi": "509530d0818b7679ff7471f6f2afa3ae9f7373bcd9332a6f3d1d7545a586ee44",
+      "comstock_oedi": "2374cafeb8b4b5c2a3d2187878f4faf8a1669fbcbaa37a324adf45e9ad55e451"
     },
     "description": "Annual upgrade 1 including unapplied buildings, CO. Two variants \u2014 upgrade_id as string '1' vs int 1 \u2014 must compile to the same SQL since _validate_upgrade normalizes both to str.",
     "args": [
@@ -74,8 +74,8 @@
   {
     "name": "include_baseline_upgrade1_annual",
     "sql_hash": {
-      "resstock_oedi": "ad0e17ae00fb750cddae4d5ee1a516878c40a53b701856b0d61eb394e530d088",
-      "comstock_oedi": "c8dfae5ae6f16d6c09aa469776db4578a111f6300b2d848c4310433ecdab013b"
+      "resstock_oedi": "bf976a81143914bc331af4b16d6732a35e32ba50651ee7e1af55a079f2e8ede8",
+      "comstock_oedi": "a17a19865b9a15ad85ae069dec8010ee46a99406e007650e201e80036a3d01e9"
     },
     "description": "Annual upgrade 1 with include_baseline=true and include_savings=false. Mirrors the comstock notebook pattern that exposes baseline + upgrade columns side-by-side without the savings subtraction.",
     "args": {
@@ -103,8 +103,8 @@
   {
     "name": "baseline_with_applied_in_upgrade1",
     "sql_hash": {
-      "resstock_oedi": "b9ea238d87d94c4a82fb693628177584c31f50121c8b645ee74b4cb4250ec546",
-      "comstock_oedi": "3c9a5ef9dd6ee7021ef2acd6d87dfcb95923d1db2f7329cd02cb4d3335199132"
+      "resstock_oedi": "a761b88cba37c0a83de9bc3b8d197601bcbf4c59ebc63fc184791b084d0d192b",
+      "comstock_oedi": "cfdae29609ce4d19c733acf5b41781d5b30e8dc981649f03a8ac8f5196ab0ea2"
     },
     "description": "Annual baseline (upgrade_id=0) restricted via applied_in=[1] — buildings where upgrade 1 applied successfully. Validator was relaxed in 2026-04-26 commit (e85e741) to allow applied_in on baseline queries; before that, the validator rejected this combination as 'applied_in cannot be set when applied_only is False'. Pins the SQL shape that test_savings_equals_independent_baseline_minus_upgrade depends on.",
     "args": {
@@ -129,8 +129,8 @@
   {
     "name": "include_baseline_upgrade1_applied_only_annual",
     "sql_hash": {
-      "resstock_oedi": "cbf9daf253b6b3bbdc6f2bb2a7543679230cfefcfc78ca7002fc3b062297d96b",
-      "comstock_oedi": "c57e872caafb9555f52c55073781de84df05e7e7520b9fa5f3d5e7ae89f5061c"
+      "resstock_oedi": "665ef6fc2178e2d028998a122eee2e61aeb719e7ed5cae5460b98acc235272eb",
+      "comstock_oedi": "d7a1c6331e1e8149590291e3b97a4afdce7c88f352da24d564313477a4c50e2b"
     },
     "description": "Same as include_baseline_upgrade1_annual but with applied_only=true. Hits the upgrade_only=False branch (because include_baseline forces the baseline join).",
     "args": {

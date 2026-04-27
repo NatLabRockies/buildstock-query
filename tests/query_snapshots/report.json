@@ -2,8 +2,8 @@
   {
     "name": "report_buildings_by_change_ok",
     "sql_hash": {
-      "resstock_oedi": "b558767dae81b9057dd91d4de739143d95e6b1421d7b23061f997300ba9e2fc0",
-      "comstock_oedi": "0d0a36cf7439c5d855d6dbf365eef1af2c3fd911570cb868a4b08de45a7d6565"
+      "resstock_oedi": "f1cfd990d949b67f40171497658b82125dfb82553ff4706dfb39c57e1ffae65a",
+      "comstock_oedi": "13ecbe21eb44632285581f6efa54263d0001ad902d9628599c0ec96817d52b24"
     },
     "description": "report.get_buildings_by_change for upgrade 1, change_type='ok-chng' — buildings whose upgrade succeeded with an acceptable energy change. Pins the change-condition SQL shape now that the OEDI applicability fix lets the report layer resolve.",
     "args": {
@@ -15,8 +15,8 @@
   {
     "name": "report_successful_simulation_count_co",
     "sql_hash": {
-      "resstock_oedi": "ad386cb7efd5ac6b82134c58e00c0243655a473f51661628504c33d73ee5a534",
-      "comstock_oedi": "3389a4cacb810dba906f6490ecd929112519f6c5bb8a2679d7533a92498792f8"
+      "resstock_oedi": "bbbc030ebb2c80bfc707bf4c2c8ea273db4ff797e75d608ecab39763de428f54",
+      "comstock_oedi": "9f12bcbddb543eed119b38fb39884875bcf6fd03fcdc7ebcf29a58cb06489057"
     },
     "description": "report.get_successful_simulation_count restricted to CO. Pins the metadata-only count shape. Method was broken before fix in 2026-04-26: the call passed `bs_only=True` to _add_restrict() which doesn't accept that kwarg, causing TypeError on every call with a non-empty restrict.",
     "args": {
@@ -29,8 +29,8 @@
   {
     "name": "report_successful_simulation_count_no_restrict",
     "sql_hash": {
-      "resstock_oedi": "79a09db8a359dc5ef5fefcdcf3229eba38b9ba4d670eaf709ee45b1b7f0d0534",
-      "comstock_oedi": "3b6634ef57cfedf72453247222835d9c5ee1de1a95671c4dd448e013fd5690fd"
+      "resstock_oedi": "0c86d27cd8a5b96bbbe4e4179cbae6cdff0c237cc20a782998bcd6a6b9fb37f2",
+      "comstock_oedi": "62016fc4476e9a8e0ad2baa68b791b9d02ffa35e31a0545d9febe9514d2dedb5"
     },
     "description": "report.get_successful_simulation_count with no restrict — pins the no-WHERE branch (only the implicit applicability=true filter). Pairs with report_successful_simulation_count_co to cover both restrict and no-restrict paths.",
     "args": {
@@ -40,8 +40,8 @@
   {
     "name": "report_success_report",
     "sql_hash": {
-      "resstock_oedi": "48e792a6a9acd4973d6fdaede15369fa548adbeb0a5fc13b39868945bf41b56b",
-      "comstock_oedi": "89910bb6fcfe3f9949b1879f18dd918edcea0c12a0477f71f268f98fc15d9c67"
+      "resstock_oedi": "4806af5a3d89280c346a9949f6f965efd5e60773a26e33139a79ad9eb4b77438",
+      "comstock_oedi": "98df7489cbf4f9b36f770d3c5b93e8d128f432c6d6102e0286095d928a0121ac"
     },
     "description": "report.get_success_report — returns three SQL statements (baseline counts, per-upgrade counts, change-type breakdown). Joined into one snapshot via the harness's MULTI_SQL_SEPARATOR. Pins the most-used reporting entry point. Requires the OEDI applicability fix in _rename_completed_status_column (commit added a lowercase-string normalize so True/False booleans map correctly).",
     "args": {

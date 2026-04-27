@@ -1,0 +1,1 @@
+SELECT bs."in.state", sum(1) AS sample_count, sum(bs.weight) AS weighted_count FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.upgrade = 0 GROUP BY bs."in.state" ORDER BY bs."in.state"

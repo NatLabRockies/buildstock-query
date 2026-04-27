@@ -1,0 +1,1 @@
+SELECT eiaid_weights.eiaid AS eiaid, bs."in.state" AS state, sum(1) AS sample_count, sum(bs.weight * eiaid_weights.weight) AS units_count FROM resstock_2024_amy2018_release_2_metadata AS bs JOIN eiaid_weights ON bs."in.county" = eiaid_weights.gisjoin WHERE bs.applicability = true AND bs.upgrade = 0 AND eiaid_weights.eiaid IN ('4110', '14328') GROUP BY 1, 2 ORDER BY 1, 2

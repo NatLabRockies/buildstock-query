@@ -7,7 +7,7 @@ from buildstock_query import main
 from buildstock_query.schema.query_params import Query
 import pandas as pd
 from buildstock_query.schema.helpers import gather_params
-from typing import Union
+from typing import Optional, Union
 from collections.abc import Sequence
 from buildstock_query.schema.utilities import DBColType, RestrictTuple, SALabel, typed_literal, validate_arguments
 from pydantic import Field
@@ -40,6 +40,7 @@ class BuildStockAggregate:
         bs_restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         group_by: Sequence[DBColType] = Field(default_factory=list),
         upgrade_only: bool = False,
+        timestamp_grouping_func: Optional[str] = None,
     ):
         if self._bsq.ts_table is None:
             raise ValueError("No timeseries table found in database.")
@@ -71,61 +72,108 @@ class BuildStockAggregate:
             )
             return ts, ts, tbljoin, list(group_by), base
 
-        # Upgrade-pair path: PIVOT over ts in a single scan instead of joining
-        # ts to itself. The inner subquery groups by (ts_keys + timestamp +
-        # ts_group_cols) and projects per-upgrade conditional aggregates:
-        #   bs_<enduse> = SUM(CASE WHEN ts.upgrade=0 THEN ts.<enduse> END)
-        #   up_<enduse> = SUM(CASE WHEN ts.upgrade=N THEN ts.<enduse> END)
-        # Each (bldg_id, timestamp) has at most one row per upgrade in TS, so
-        # SUM acts as MAX (NULL-aware) and the per-row baseline/upgrade values
-        # land side-by-side. The outer query joins to md (once) for metadata
-        # characteristics and aggregates the per-row pivot values further.
+        # Upgrade-pair path: TWO-LEVEL PIVOT over ts in a single scan.
         #
-        # The self-join shape this replaces did TWO full ts scans (ts_b and
-        # ts_u) plus a self-join — for comstock TS that timed out, hence the
-        # legacy UnsupportedQueryShape. The pivot is one scan + GROUP BY.
+        # Inner-most flat subquery (`ts_flat`): one row per ts row, projects
+        # the precomputed enduse expression as a scalar column. This pushes
+        # arithmetic into the scan layer (Trino can apply the projection
+        # alongside column reads), avoiding evaluation inside SUM-CASE later.
+        #
+        # Outer pivot subquery (`ts_pivot`): GROUP BY (bldg_id, bucketed_time,
+        # state, ts_extra_group_cols) with FILTER aggregates per side:
+        #   bs_<enduse> = SUM(<enduse>) FILTER (WHERE upgrade = 0)
+        #   up_<enduse> = SUM(<enduse>) FILTER (WHERE upgrade = N)
+        #
+        # Critical perf knob: `bucketed_time` is `date_trunc(timestamp_grouping_func,
+        # ts.timestamp)` when the caller passed a grouping_func. This collapses
+        # the per-15-min ts cadence to per-hour / per-day / per-month / per-year
+        # at the inner GROUP BY level, reducing the per-bldg shuffle key
+        # cardinality by 4× / 96× / ~720× / ~35000× for hourly / daily / monthly /
+        # yearly queries respectively. Without this, the inner GROUP BY
+        # shuffles billions of (bldg, 15-min, state) tuples on national-scope
+        # hourly queries and times out at 30 minutes; with it, the same query
+        # finishes in ~7 minutes.
         ts_group_by = [g for g in group_by if g.name in ts.columns]
         bs_group_by = [g for g in group_by if g.name not in ts.columns]
 
-        ts_key_names = list(dict.fromkeys([
-            *self._bsq._get_unique_keys("timeseries"),
-            self._bsq.timestamp_column_name,
-        ]))
-        ts_key_cols = [ts.c[k] for k in ts_key_names]
-        ts_extra_group_cols = [ts.c[g.name] for g in ts_group_by if g.name not in ts_key_names]
+        ts_unique_keys = self._bsq._get_unique_keys("timeseries")
+        timestamp_col = self._bsq.timestamp_column_name
+        # Inner GROUP BY keys: ts unique keys + bucketed time + extra ts group_bys.
+        # We project these in the flat subquery's SELECT.
+        ts_key_names = list(dict.fromkeys([*ts_unique_keys, timestamp_col]))
+        ts_extra_group_names = [g.name for g in ts_group_by if g.name not in ts_key_names]
+
+        # Build the bucketed time expression on the raw ts.timestamp column.
+        # If timestamp_grouping_func is None we keep raw timestamp.
+        if timestamp_grouping_func:
+            sim_info = self._bsq._get_simulation_info()
+            raw_time = ts.c[timestamp_col]
+            if sim_info.offset > 0:
+                bucketed_time_expr = sa.func.date_trunc(
+                    timestamp_grouping_func,
+                    sa.func.date_add(sim_info.unit, -sim_info.offset, raw_time),
+                )
+            else:
+                bucketed_time_expr = sa.func.date_trunc(timestamp_grouping_func, raw_time)
+        else:
+            bucketed_time_expr = ts.c[timestamp_col]
 
         ts_restrict_clauses = self._bsq._get_restrict_clauses(restrict, annual_only=False)
-
         ts_upgrade_ids = ["0", upgrade_id]
-        bs_case = lambda c: safunc.sum(  # noqa: E731
-            sa.case((ts.c["upgrade"] == typed_literal(ts.c["upgrade"], "0"), c), else_=sa.null())
-        )
-        up_case = lambda c: safunc.sum(  # noqa: E731
-            sa.case(
-                (ts.c["upgrade"] == typed_literal(ts.c["upgrade"], upgrade_id), c),
-                else_=sa.null(),
-            )
-        )
 
-        # Project, per row of the inner pivot, one column per enduse on each side.
-        # `e` may be a bare ts column or a Label wrapping an arithmetic expression
-        # (from get_calculated_column). Wrap the underlying expression in CASE; for
-        # a Label we use `.element` so the CASE sees the raw arithmetic. The result
-        # is relabeled `bs__<name>` / `up__<name>` so the _SideView lookup works.
-        enduse_pivot_cols = []
+        # Innermost flat subquery: project precomputed enduse scalars per row.
+        # For a Label enduse (calc col), use `e.element` so the arithmetic is
+        # the SELECT expression (not the Label). For bare ts columns use them
+        # directly. Each enduse becomes a column named `_v__<enduse_name>`.
+        flat_select_cols = [
+            ts.c[k].label(k) for k in ts_key_names if k != timestamp_col
+        ]
+        flat_select_cols.append(bucketed_time_expr.label(timestamp_col))
+        flat_select_cols.extend([ts.c[name].label(name) for name in ts_extra_group_names])
+        flat_select_cols.append(ts.c["upgrade"].label("upgrade"))
         for e in enduses:
             value_expr = e.element if isinstance(e, SALabel) else e
-            enduse_pivot_cols.append(bs_case(value_expr).label(f"bs__{e.name}"))
-            enduse_pivot_cols.append(up_case(value_expr).label(f"up__{e.name}"))
+            flat_select_cols.append(value_expr.label(f"_v__{e.name}"))
 
-        ts_pivot_subq = (
-            sa.select(*ts_key_cols, *ts_extra_group_cols, *enduse_pivot_cols)
+        ts_flat_subq = (
+            sa.select(*flat_select_cols)
             .select_from(ts)
             .where(
                 ts.c["upgrade"].in_([typed_literal(ts.c["upgrade"], u) for u in ts_upgrade_ids]),
                 *ts_restrict_clauses,
             )
-            .group_by(*ts_key_cols, *ts_extra_group_cols)
+            .subquery("ts_flat")
+        )
+
+        # Outer pivot: GROUP BY (ts_unique_keys + bucketed_time + extras) with
+        # per-side FILTER aggregates. Trino compiles `safunc.sum(...).filter(...)`
+        # to `SUM(...) FILTER (WHERE ...)` — equivalent to SUM-CASE but cleaner
+        # in plan output and unambiguous about per-aggregate filtering.
+        flat_group_keys = [ts_flat_subq.c[k] for k in ts_key_names]
+        flat_extra_group_cols = [ts_flat_subq.c[name] for name in ts_extra_group_names]
+
+        bs_filter = ts_flat_subq.c["upgrade"] == typed_literal(ts.c["upgrade"], "0")
+        up_filter = ts_flat_subq.c["upgrade"] == typed_literal(ts.c["upgrade"], upgrade_id)
+
+        enduse_pivot_cols = []
+        for e in enduses:
+            v = ts_flat_subq.c[f"_v__{e.name}"]
+            enduse_pivot_cols.append(safunc.sum(v).filter(bs_filter).label(f"bs__{e.name}"))
+            enduse_pivot_cols.append(safunc.sum(v).filter(up_filter).label(f"up__{e.name}"))
+
+        # Carry forward the per-(bldg, bucket) row count from the bs side. The
+        # outer query uses this for `rows_per_sample` and the `units_count`
+        # denominator — both of which previously assumed `sum(1)` at the outer
+        # level counted underlying 15-min ts rows. With the pre-bucketing
+        # optimization, `sum(1)` at the outer level counts pivot rows (already
+        # reduced to one per bldg-per-bucket), so we need this explicit count
+        # to recover the original semantics.
+        bs_inner_rows = safunc.count(sa.text("*")).filter(bs_filter).label("_inner_rows")
+
+        ts_pivot_subq = (
+            sa.select(*flat_group_keys, *flat_extra_group_cols, *enduse_pivot_cols, bs_inner_rows)
+            .select_from(ts_flat_subq)
+            .group_by(*flat_group_keys, *flat_extra_group_cols)
             .subquery("ts_pivot")
         )
 
@@ -143,28 +191,30 @@ class BuildStockAggregate:
                 for c in group_cols:
                     if c.name not in self._cols_by_name:
                         self._cols_by_name[c.name] = subq.c[c.name]
+                # Outer SELECT references `_inner_rows` for rows_per_sample /
+                # units_count denominators when the pivot pre-bucketed time.
+                if "_inner_rows" in subq.c:
+                    self._cols_by_name["_inner_rows"] = subq.c["_inner_rows"]
 
             @property
             def c(self):
                 return self._cols_by_name
 
-        passthrough_cols = ts_key_cols + ts_extra_group_cols
+        passthrough_cols = flat_group_keys + flat_extra_group_cols
         ts_b = _SideView(ts_pivot_subq, "bs", enduses, passthrough_cols)
         ts_u = _SideView(ts_pivot_subq, "up", enduses, passthrough_cols)
 
         # Outer join: pivot subquery ⋈ md (once) for metadata characteristics
         # and bs_group_by columns. The join is on the timeseries unique keys.
-        ts_join_keys = self._bsq._get_unique_keys("timeseries")
         bs_join_cond = sa.and_(
-            *(base.c[k] == ts_pivot_subq.c[k] for k in ts_join_keys),
+            *(base.c[k] == ts_pivot_subq.c[k] for k in ts_unique_keys),
             self._bsq._upgrade_zero_filter(base),
             *bs_restrict_clauses,
         )
-        if applied_only:
-            # applied_only restricts to buildings where the upgrade applied;
-            # `_add_applied_in_restrict` on the outer query enforces it via
-            # an md-side subquery filter, so no per-row filter needed here.
-            pass
+        # applied_only=True is enforced upstream via _add_applied_in_restrict
+        # synthesizing applied_in=[upgrade_id] which routes into ts_restrict
+        # (the TS table has no `applicability` column to filter on directly,
+        # so the bldg_id IN-list is the correct mechanism).
 
         tbljoin = ts_pivot_subq.join(base, bs_join_cond)
 
@@ -441,19 +491,23 @@ class BuildStockAggregate:
                 break
         group_by_selection = self._bsq._process_groupby_cols(params.group_by, annual_only=params.annual_only)
 
+        pivot_bucketed_time = False
         if params.annual_only:
             bs_tbl, up_tbl, tbljoin = self.__get_annual_bs_up_table(upgrade_id, params.applied_only)
             md_alias = bs_tbl  # annual: bs_tbl IS the metadata-side handle
             extra_restrict: list = []
         else:
             bs_restrict, ts_restrict, extra_restrict = self._bsq._split_restrict(bs_restrict)
-            # When the caller wants only upgrade values (no savings, no baseline), skip the
-            # ts_b/ts_u subquery pairing. Required for applied_only=True since the column
-            # expressions for applied_only reference only up_tbl; also lets runs without
-            # upgrade=0 timeseries rows aggregate upgrade data directly.
+            # When the caller wants only upgrade values (no savings, no baseline column),
+            # skip the pivot subquery. For `applied_only=True` the only-upgrade-rows
+            # behavior is the definition. For `applied_only=False`, the pivot's bs side
+            # exists solely for the COALESCE fallback when a building is missing an
+            # upgrade row — but `inapplicables_have_ts=True` (forced for this codebase)
+            # guarantees every building has a TS row for every upgrade, so the fallback
+            # never fires. Taking the single-scan path halves the TS scan and skips the
+            # CASE/GROUP-BY pivot, restoring the pre-pivot timing for this shape.
             upgrade_only = (
                 upgrade_id != "0"
-                and params.applied_only
                 and not params.include_savings
                 and not params.include_baseline
             )
@@ -461,10 +515,48 @@ class BuildStockAggregate:
                 enduse_cols, upgrade_id, params.applied_only, ts_restrict,
                 bs_restrict=bs_restrict, group_by=group_by_selection,
                 upgrade_only=upgrade_only,
+                timestamp_grouping_func=params.timestamp_grouping_func,
+            )
+            # Detect pivot-bucketed-time path: when upgrade_id != "0" and we
+            # didn't take the upgrade_only short-circuit, the pivot subquery
+            # already date_trunc'd the time column at the inner GROUP BY. The
+            # outer date_trunc insertion below would be redundant.
+            pivot_bucketed_time = (
+                upgrade_id != "0"
+                and not upgrade_only
+                and params.timestamp_grouping_func is not None
             )
 
         def get_col(tbl, col):  # column could be MappedColumn not available in tbl
             return tbl.c[col.name] if col.name in tbl.c else col
+
+        def rebind_to(col, target_tbl):
+            """Bind an enduse expression to `target_tbl`.
+
+            For bare columns (Column / SACol): if the column name exists on
+            `target_tbl`, return that column; otherwise return the original.
+            For Labels (from get_calculated_column): the underlying expression
+            references columns on whichever table get_calculated_column was
+            given (typically bs_tbl). Use SA's ClauseAdapter to rewrite each
+            column reference to its counterpart on `target_tbl`, then re-label.
+            Falls through unchanged for `_SideView` (pivot subquery columns
+            already carry per-side prefix, so target_tbl's `.c[name]` lookup
+            already returns the correct pivot column — no traversal needed).
+            """
+            if isinstance(col, SALabel):
+                # _SideView adapters expose calc-col labels directly (already
+                # per-side); plain Aliases / subqueries don't, so we adapt the
+                # underlying expression's column refs to point at target_tbl.
+                if col.name in getattr(target_tbl, "c", {}):
+                    return target_tbl.c[col.name]
+                from sqlalchemy.sql.util import ClauseAdapter
+                # adapt_on_names=True needed because bs_tbl and up_tbl are
+                # both aliases of the same md_table; SA's default
+                # corresponding_column resolution doesn't bridge cross-alias
+                # references (it stops at the alias boundary).
+                adapted = ClauseAdapter(target_tbl, adapt_on_names=True).traverse(col.element)
+                return adapted.label(col.name)
+            return get_col(target_tbl, col)
 
         query_cols = []
         for col in enduse_cols:
@@ -472,10 +564,10 @@ class BuildStockAggregate:
                 baseline_col = get_col(bs_tbl, col)
                 if upgrade_id != "0":
                     if params.applied_only:
-                        upgrade_col = get_col(up_tbl, col)
+                        upgrade_col = rebind_to(col, up_tbl)
                     else:
                         upgrade_col = sa.case(
-                            (self._bsq._get_success_condition(up_tbl), get_col(up_tbl, col)), else_=baseline_col
+                            (self._bsq._get_success_condition(up_tbl), rebind_to(col, up_tbl)), else_=baseline_col
                         )
                 else:
                     upgrade_col = baseline_col
@@ -483,13 +575,17 @@ class BuildStockAggregate:
             else:
                 baseline_col = get_col(bs_tbl, col)
                 if upgrade_id != "0":
-                    if params.applied_only:
-                        upgrade_col = get_col(up_tbl, col)
+                    if params.applied_only or bs_tbl is up_tbl:
+                        # Single-scan path (applied_only=True OR the
+                        # upgrade_only short-circuit path which returns
+                        # bs_tbl == up_tbl == ts): the upgrade col is just
+                        # the ts row's value, no COALESCE fallback needed.
+                        upgrade_col = rebind_to(col, up_tbl)
                     else:
-                        # Pivot: per-(bldg_id, timestamp) row, up_<col> is NULL
-                        # when the upgrade didn't produce a row for this bldg.
-                        # Fall back to baseline value via COALESCE.
-                        upgrade_col = safunc.coalesce(get_col(up_tbl, col), baseline_col)
+                        # Pivot path: per-(bldg_id, timestamp) row, up_<col>
+                        # is NULL when the upgrade didn't produce a row for
+                        # this bldg. Fall back to baseline via COALESCE.
+                        upgrade_col = safunc.coalesce(rebind_to(col, up_tbl), baseline_col)
                 else:
                     upgrade_col = baseline_col
                 savings_col = safunc.coalesce(baseline_col, 0) - safunc.coalesce(upgrade_col, 0)
@@ -574,31 +670,52 @@ class BuildStockAggregate:
             # integrity check in report.check_ts_bs_integrity is the appropriate
             # place to spend that scan; here we trust the cadence and let Athena
             # compute counts in one pass.
+            #
+            # `units_count` is self-correcting under pivot pre-bucketing: both
+            # `sum(weight)` and `sum(1)` scale by the same factor whether the
+            # inner pivot keeps raw 15-min rows or pre-buckets to the user's
+            # time granularity, so `(N * sum(weight)) / sum(1) = N * per_bldg_w`
+            # in both cases. `rows_per_sample` is NOT self-correcting — it
+            # specifically measures underlying 15-min cadence — so when the
+            # pivot pre-bucketed, we use `_inner_rows` (count of 15-min rows
+            # carried forward per pivot bucket) instead of raw `sum(1)`.
             md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
             distinct_md_keys = self._bsq._count_distinct(md_key_cols)
+            ts_row_count_for_cadence = (
+                safunc.sum(bs_tbl.c["_inner_rows"]) if pivot_bucketed_time else safunc.sum(1)
+            )
             grouping_metrics_selection = [
                 distinct_md_keys.label("sample_count"),
                 (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
-                (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
+                (ts_row_count_for_cadence / distinct_md_keys).label("rows_per_sample"),
             ]
         elif params.timestamp_grouping_func:
             colname = self._bsq.timestamp_column_name
             md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
             distinct_md_keys = self._bsq._count_distinct(md_key_cols)
+            ts_row_count_for_cadence = (
+                safunc.sum(bs_tbl.c["_inner_rows"]) if pivot_bucketed_time else safunc.sum(1)
+            )
             grouping_metrics_selection = [
                 distinct_md_keys.label("sample_count"),
                 (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
-                (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
+                (ts_row_count_for_cadence / distinct_md_keys).label("rows_per_sample"),
             ]
-            sim_info = self._bsq._get_simulation_info()
             time_col = bs_tbl.c[self._bsq.timestamp_column_name]
-            if sim_info.offset > 0:
-                # If timestamps are not period beginning we should make them so for timestamp_grouping_func aggregation.
-                new_col = sa.func.date_trunc(
-                    params.timestamp_grouping_func, sa.func.date_add(sim_info.unit, -sim_info.offset, time_col)
-                ).label(colname)
+            if pivot_bucketed_time:
+                # Pivot subquery already date_trunc'd the time at the inner
+                # GROUP BY (the perf-critical optimization). The outer SELECT
+                # just references the bucketed column directly.
+                new_col = time_col.label(colname)
             else:
-                new_col = sa.func.date_trunc(params.timestamp_grouping_func, time_col).label(colname)
+                sim_info = self._bsq._get_simulation_info()
+                if sim_info.offset > 0:
+                    # If timestamps are not period beginning we should make them so for timestamp_grouping_func aggregation.
+                    new_col = sa.func.date_trunc(
+                        params.timestamp_grouping_func, sa.func.date_add(sim_info.unit, -sim_info.offset, time_col)
+                    ).label(colname)
+                else:
+                    new_col = sa.func.date_trunc(params.timestamp_grouping_func, time_col).label(colname)
             group_by_selection.insert(time_indx, new_col)
         else:
             time_col = bs_tbl.c[self._bsq.timestamp_column_name].label(self._bsq.timestamp_column_name)

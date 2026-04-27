@@ -154,9 +154,13 @@ def test_timeseries_query_uses_timeseries_unique_keys(monkeypatch: pytest.Monkey
 
 
 def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.MonkeyPatch) -> None:
-    """TS upgrade-pair savings now uses the pivot pattern: one scan of the
-    TS table with conditional SUM(CASE WHEN upgrade=N) per side, GROUP BY
-    (ts_keys + timestamp), then JOIN to the metadata table once."""
+    """TS upgrade-pair savings now uses a two-level pivot:
+    - Innermost `ts_flat` subquery projects per-row enduse scalars (arithmetic
+      pushed into scan).
+    - Outer `ts_pivot` subquery GROUPs BY (ts_keys + timestamp) with FILTER
+      aggregates per side: `SUM(_v__col) FILTER (WHERE upgrade=N)`.
+    - Outer SELECT joins to metadata once on the ts unique keys.
+    """
     bsq = _custom_join_key_bsq(monkeypatch, buildstock_type="resstock")
     query = bsq.query(
         upgrade_id="1", annual_only=False,
@@ -164,12 +168,12 @@ def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.M
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    # Pivot CASEs project per-side values
-    assert "CASE WHEN (custom_run_by_state.upgrade = '0') THEN" in query
-    assert "CASE WHEN (custom_run_by_state.upgrade = '1') THEN" in query
-    # GROUP BY uses the timeseries unique keys + timestamp
-    assert "GROUP BY custom_run_by_state.bldg_id, custom_run_by_state.state, custom_run_by_state.timestamp" in query
-    # Metadata join uses the ts unique keys
+    # Per-side FILTER aggregates over the precomputed `_v__<enduse>` columns
+    assert "FILTER (WHERE ts_flat.upgrade = '0')" in query
+    assert "FILTER (WHERE ts_flat.upgrade = '1')" in query
+    # Outer pivot GROUP BY uses the ts unique keys + timestamp (referenced via ts_flat)
+    assert "GROUP BY ts_flat.bldg_id, ts_flat.state, ts_flat.timestamp" in query
+    # Metadata join uses the ts unique keys against ts_pivot
     assert "bs.bldg_id = ts_pivot.bldg_id AND bs.state = ts_pivot.state" in query
     # No self-join on the TS table
     assert "ts_b.bldg_id = ts_u.bldg_id" not in query
@@ -190,10 +194,12 @@ def test_timeseries_pair_join_defaults_to_building_id_when_unconfigured(
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    # Pivot GROUP BY on the default ts unique key (bldg_id) + timestamp
-    assert "GROUP BY custom_run_by_state.bldg_id, custom_run_by_state.timestamp" in query
-    # No state in the GROUP BY (since unique_keys was wiped)
-    assert "custom_run_by_state.state" not in query
+    # Outer pivot GROUP BY on the default ts unique key (bldg_id) + timestamp
+    assert "GROUP BY ts_flat.bldg_id, ts_flat.timestamp" in query
+    # No state in the inner GROUP BY (since unique_keys was wiped) — but the
+    # bare `state` column may still appear in WHERE/restrict clauses if the
+    # query uses it; check specifically for state in the GROUP BY context.
+    assert "ts_flat.state" not in query
 
 
 # ---------------------------------------------------------------------------

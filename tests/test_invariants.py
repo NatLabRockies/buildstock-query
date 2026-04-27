@@ -404,6 +404,150 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
         )
 
 
+# --- calculated-column three-way invariant ----------------------------------
+#
+# Mirror of the bare-enduse three-way above but with a get_calculated_column
+# expression (electricity_total - natural_gas_total) as the only enduse. The
+# calc column codepath is structurally distinct: `e` is a Label-wrapping-an-
+# arithmetic-expression rather than a bare ts column, which exercises the
+# pivot's `e.element` extraction and the single-scan path's get_col fallback.
+# Without this invariant, a calc-column regression in either flow only shows
+# up as a SQL-hash drift — never as a numeric divergence.
+#
+# Scenarios cover the two TS branches that calc columns flow through:
+#   - upgrade1 (applied_only=False): single-scan path under the widened
+#     upgrade_only predicate.
+#   - upgrade1_applied (applied_only=True): single-scan path with the
+#     synthesized applied_in subquery.
+# The pivot path proper is exercised by include_baseline=True scenarios in
+# the snapshot suite (calculated_column_ts_pivot_with_baseline).
+CALC_SCENARIOS = [
+    pytest.param({"upgrade_id": "1", "applied_only": False}, id="upgrade1"),
+    pytest.param({"upgrade_id": "1", "applied_only": True}, id="upgrade1_applied"),
+]
+
+
+@pytest.mark.parametrize("scenario_extra", CALC_SCENARIOS)
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_calculated_column_matches_manual_decomposition_per_flow(
+    request,
+    bsq_fixture,
+    schema,
+    scenario_extra,
+):
+    """Calc-column manual-decomposition invariant: per flow (annual / ts_year /
+    sum-ts_monthly), the calc-column total must equal the per-group manual
+    decomposition `query(elec) - query(gas)`. Proves that the calc-col arithmetic
+    is evaluated correctly on each flow independently. Cross-flow consistency
+    (annual ≈ ts_year ≈ sum(ts_monthly)) is covered by the bare-fuel
+    `test_annual_equals_ts_year_equals_ts_monthly_sum` and is NOT replicated
+    here — subtracting two near-equal totals amplifies drift past tolerance
+    even when both flows are individually correct (a real comstock annual-vs-TS
+    drift of ~0.3% on bare fuels becomes ~4% on `elec - gas`).
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    group_col = resolve_placeholder(schema, "building_type_col")
+    restrict = [("state", resolve_placeholder(schema, "multi_state_pair"))]
+
+    # Same expression on both sides — placeholder resolver picks suffix-less
+    # names for ts and adds `..kwh` for comstock annual.
+    annual_elec = resolve_placeholder(schema, "electricity_total", annual=True)
+    annual_gas = resolve_placeholder(schema, "natural_gas_total", annual=True)
+    ts_elec = resolve_placeholder(schema, "electricity_total", annual=False)
+    ts_gas = resolve_placeholder(schema, "natural_gas_total", annual=False)
+
+    annual_calc = bsq.get_calculated_column(
+        "elec_minus_gas",
+        f"{annual_elec} - {annual_gas}",
+        table="baseline",
+    )
+    ts_calc = bsq.get_calculated_column(
+        "elec_minus_gas",
+        f"{ts_elec} - {ts_gas}",
+        table="timeseries",
+    )
+
+    # Calc-column query frames (one enduse, the labeled expression).
+    annual_df = bsq.query(
+        enduses=[annual_calc],
+        group_by=[group_col],
+        restrict=restrict,
+        **scenario_extra,
+    )
+    ts_year_df = bsq.query(
+        enduses=[ts_calc],
+        annual_only=False,
+        timestamp_grouping_func="year",
+        group_by=[group_col],
+        restrict=restrict,
+        **scenario_extra,
+    )
+    ts_monthly_df = bsq.query(
+        enduses=[ts_calc],
+        annual_only=False,
+        timestamp_grouping_func="month",
+        group_by=[group_col, "time"],
+        restrict=restrict,
+        **scenario_extra,
+    )
+
+    # Manual-decomposition query frames (two bare-column enduses) — same args
+    # as above but with the underlying fuels queried directly. The output
+    # columns are the bare enduse names with the `out.` prefix stripped.
+    annual_bare_df = bsq.query(
+        enduses=[annual_elec, annual_gas],
+        group_by=[group_col],
+        restrict=restrict,
+        **scenario_extra,
+    )
+    ts_year_bare_df = bsq.query(
+        enduses=[ts_elec, ts_gas],
+        annual_only=False,
+        timestamp_grouping_func="year",
+        group_by=[group_col],
+        restrict=restrict,
+        **scenario_extra,
+    )
+    ts_monthly_bare_df = bsq.query(
+        enduses=[ts_elec, ts_gas],
+        annual_only=False,
+        timestamp_grouping_func="month",
+        group_by=[group_col, "time"],
+        restrict=restrict,
+        **scenario_extra,
+    )
+
+    # Per-flow manual-decomposition check: calc-col total == bare-elec - bare-gas.
+    # This is the strongest check on calc-col arithmetic — proves the expression
+    # was evaluated correctly on each flow independently. Cross-flow agreement
+    # (annual calc vs ts_year calc) is intentionally NOT asserted here: when the
+    # bare-fuel cross-flow has even small drift (e.g. comstock ResStock annual
+    # vs TS aggregate disagreeing by 0.3% on FullServiceRestaurant), subtraction
+    # amplifies that drift past any reasonable tolerance. The bare-fuel
+    # `test_annual_equals_ts_year_equals_ts_monthly_sum` invariant already
+    # catches cross-flow data inconsistencies; replicating that check here over
+    # subtracted values would just produce false positives.
+    col = "elec_minus_gas"
+    annual_elec_col = _strip_out_prefix(annual_elec)
+    annual_gas_col = _strip_out_prefix(annual_gas)
+    ts_elec_col = _strip_out_prefix(ts_elec)
+    ts_gas_col = _strip_out_prefix(ts_gas)
+    for flow_name, calc_df, bare_df, elec_col, gas_col, gb in (
+        ("annual", annual_df, annual_bare_df, annual_elec_col, annual_gas_col, [group_col]),
+        ("ts_year_collapse", ts_year_df, ts_year_bare_df, ts_elec_col, ts_gas_col, [group_col]),
+        ("sum(ts_monthly)", ts_monthly_df, ts_monthly_bare_df, ts_elec_col, ts_gas_col, [group_col]),
+    ):
+        calc_totals = _scalar_total_by_group(calc_df, col, gb)
+        elec_totals = _scalar_total_by_group(bare_df, elec_col, gb)
+        gas_totals = _scalar_total_by_group(bare_df, gas_col, gb)
+        manual_totals = elec_totals - gas_totals
+        _assert_series_close(
+            f"calc-col vs manual decomposition [{flow_name}]",
+            calc_totals,
+            manual_totals,
+        )
+
+
 # --- group_by sum equals overall total ---------------------------------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)

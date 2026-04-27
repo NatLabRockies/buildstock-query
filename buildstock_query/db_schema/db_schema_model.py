@@ -22,6 +22,11 @@ class ColumnNames(BaseModel):
     unmet_hours_cooling_hr: str
     unmet_hours_heating_hr: str
     map_eiaid_column: Optional[str] = None  # Only for ResStock utility queries
+    # Column on the upgrade table that carries the human-readable upgrade name.
+    # Defaults to the classic ResStock/ComStock convention. OEDI ComStock
+    # overrides this to "in.upgrade_name". OEDI ResStock has no name column;
+    # `get_upgrade_names` then degrades to NULL upgrade_name values.
+    upgrade_name: str = "apply_upgrade.upgrade_name"
     fuel_totals: list[str]
 
 

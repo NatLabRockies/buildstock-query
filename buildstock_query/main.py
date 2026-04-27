@@ -181,12 +181,14 @@ class BuildStockQuery(QueryCore):
     def get_upgrade_names(self, get_query_only: bool = False) -> Union[str, dict]:
         """Return a dict of {upgrade_id: upgrade_name} for all upgrades in the run.
 
-        On classic ResStock/ComStock schemas the upgrade name is stored in the
-        metadata table (`apply_upgrade.upgrade_name` column) and gets populated
-        per upgrade. On OEDI schemas that column doesn't exist — the name field
-        is degraded to `None` for every upgrade, but the dict still contains an
-        entry per available upgrade so downstream iteration code keeps working
-        regardless of schema.
+        The column carrying the human-readable upgrade name is configured per
+        schema via `column_names.upgrade_name` in the TOML. Classic schemas
+        default to `apply_upgrade.upgrade_name`; OEDI ComStock overrides to
+        `in.upgrade_name`. If the configured column doesn't actually exist on
+        the upgrade table (e.g. OEDI ResStock, where the names live in run
+        config rather than the Athena tables), the name field degrades to NULL
+        for every upgrade — the returned dict still has one entry per upgrade
+        so downstream iteration keeps working regardless of schema.
         """
         if self.up_table is None:
             raise ValueError("This run has no upgrades")
@@ -196,15 +198,16 @@ class BuildStockQuery(QueryCore):
         # produces malformed `FROM SELECT * FROM ...`. SA's select() handles
         # the subquery shape correctly.
         upgrade_col = self.up_table.c["upgrade"]
-        upgrade_name_col_name = "apply_upgrade.upgrade_name"
+        upgrade_name_col_name = self.db_schema.column_names.upgrade_name
         has_name_col = upgrade_name_col_name in self.up_table.c
         if has_name_col:
             upgrade_name_col = self.up_table.c[upgrade_name_col_name]
             name_select = safunc.arbitrary(upgrade_name_col).label("upgrade_name")
         else:
-            # OEDI: no upgrade_name column. Project a literal NULL labeled
-            # `upgrade_name` so the result shape stays the same as the
-            # classic-schema path.
+            # Schema configures a name column but the upgrade table doesn't
+            # actually have it (e.g. OEDI ResStock). Project a literal NULL
+            # labeled `upgrade_name` so the result shape stays the same as
+            # the classic-schema path.
             name_select = sa.cast(sa.null(), sa.String).label("upgrade_name")
         query = (
             sa.select(

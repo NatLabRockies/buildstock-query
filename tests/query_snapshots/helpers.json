@@ -3,7 +3,7 @@
     "name": "upgrade_names_oedi",
     "sql_hash": {
       "resstock_oedi": "314c14765089db80715ddfc136a6405db899dafba043aaa7e88a82bae9bd683b",
-      "comstock_oedi": "9bd1af6ff7e275e1526128033fd06fd26dedc38c73d409c211b15d962951007c"
+      "comstock_oedi": "034ad437d268d6ee23ef7c06e800dcba3b772f75e874b51a3d0439c608ad2c7d"
     },
     "description": "get_upgrade_names — was broken before 2026-04-26 fix on two counts: (1) f-string interpolation of self.up_table (a Subquery) produced malformed `FROM SELECT * FROM ...` SQL with no enclosing parens; (2) the method assumed an `apply_upgrade.upgrade_name` column that doesn't exist on OEDI schemas. Fixed to use SA construction and gracefully degrade to `CAST(NULL AS VARCHAR) AS upgrade_name` when the name column is absent — so the dict shape stays consistent across schemas.",
     "args": {

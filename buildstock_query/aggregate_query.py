@@ -113,9 +113,6 @@ class BuildStockAggregate:
             enduse_pivot_cols.append(bs_case(ts.c[e.name]).label(f"bs__{e.name}"))
             enduse_pivot_cols.append(up_case(ts.c[e.name]).label(f"up__{e.name}"))
 
-        # Emit as a CTE rather than an inline subquery so the SQL reads
-        # `WITH ts_pivot AS (...) SELECT ... FROM ts_pivot JOIN bs ON ...`
-        # — same execution plan, easier to read than nested subqueries.
         ts_pivot_subq = (
             sa.select(*ts_key_cols, *ts_extra_group_cols, *enduse_pivot_cols)
             .select_from(ts)
@@ -124,7 +121,7 @@ class BuildStockAggregate:
                 *ts_restrict_clauses,
             )
             .group_by(*ts_key_cols, *ts_extra_group_cols)
-            .cte("ts_pivot")
+            .subquery("ts_pivot")
         )
 
         # Build virtual `ts_b` and `ts_u` aliases over the pivot subquery so the

@@ -47,6 +47,20 @@
     }
   },
   {
+    "name": "utility_get_eiaids_co",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "e1a5c3d3fbce58e1b42f3b20d34edf4b89555007b14cb81b8be13abc94de02e8"
+    },
+    "description": "utility.get_eiaids restricted to CO — returns the list of utility EIAIDs serving any building in the state. Pins the bs ⋈ eiaid_weights JOIN shape with weighted units_count aggregation. Schema-restricted: comstock TOMLs don't define map_eiaid_column. The get_query_only path bypasses the in-memory cache so the SQL is always emitted.",
+    "args": {
+      "_method": "utility.get_eiaids",
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
+  },
+  {
     "name": "utility_buildings_by_eiaids",
     "schemas": ["resstock_oedi"],
     "sql_hash": {

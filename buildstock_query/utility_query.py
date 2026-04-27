@@ -266,7 +266,11 @@ class BuildStockUtility:
         return res
 
     @validate_arguments
-    def get_eiaids(self, restrict: Optional[List[Tuple[str, List]]] = None) -> list[str]:
+    def get_eiaids(
+        self,
+        restrict: Optional[List[Tuple[str, List]]] = None,
+        get_query_only: bool = False,
+    ) -> Union[list[str], str]:
         """
         Returns the list of eiaids
         Args:
@@ -274,20 +278,27 @@ class BuildStockUtility:
                       Example: `[('state',['VA','AZ']), ("build_existing_model.lighting",['60% CFL']), ...]`
             mapping_version: Version of eiaid mapping to use. After the spatial refactor upgrade, version two
                              should be used
+            get_query_only: If True, returns the SQL string instead of executing. Bypasses the in-memory cache.
         Returns:
             Pandas dataframe consisting of the eiaids belonging to the provided list of locations.
         """
         restrict = list(restrict) if restrict else []
         eiaid_map_table_name, map_baseline_column, map_eiaid_column = self.get_eiaid_map()
         eiaid_col = self._bsq._get_column("eiaid", [eiaid_map_table_name])
+        join_list = [(eiaid_map_table_name, map_baseline_column, map_eiaid_column)]
+        weight_col = ("weight", eiaid_map_table_name)
+        if get_query_only:
+            # Skip the cache short-circuit so the SQL is always generated.
+            return self._bsq.query(
+                annual_only=True, enduses=[], group_by=[eiaid_col], restrict=restrict, join_list=join_list,
+                weights=[weight_col], sort=True, get_query_only=True,
+            )
         if "eiaids" in self._cache:
             if self._bsq.db_name + "/" + eiaid_map_table_name in self._cache["eiaids"]:
                 return self._cache["eiaids"][self._bsq.db_name + "/" + eiaid_map_table_name]
         else:
             self._cache["eiaids"] = {}
 
-        join_list = [(eiaid_map_table_name, map_baseline_column, map_eiaid_column)]
-        weight_col = ("weight", eiaid_map_table_name)
         annual_agg = self._bsq.query(
             annual_only=True, enduses=[], group_by=[eiaid_col], restrict=restrict, join_list=join_list,
             weights=[weight_col], sort=True

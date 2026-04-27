@@ -100,19 +100,6 @@ def _stub_sim_info(bsq: BuildStockQuery, monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(bsq, "_get_simulation_info", lambda: SimInfo(2018, 3600, 0, "second"))
 
 
-def _classic_resstock_bsq(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    table_name: str = "small_run_baseline_20230810_100",
-    include_upgrades: bool = True,
-    include_state_on_upgrades: bool = False,
-) -> BuildStockQuery:
-    """No longer supported — the schema model now requires the unified 2-table
-    shape (annual_and_metadata + timeseries). Tests using this fixture were
-    exercising 3-table classic-ResStock mechanics that have been removed."""
-    pytest.skip("Classic 3-table shape is no longer supported (legacy fixture)")
-
-
 # ---------------------------------------------------------------------------
 # Schema model validation
 
@@ -348,17 +335,20 @@ def test_get_available_upgrades_does_not_use_success_report() -> None:
 def test_timeseries_query_keeps_ts_restrict_without_upgrades(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When the upgrade table is missing, a restrict on building_id should still
-    propagate to the TS table (not silently dropped)."""
-    bsq = _classic_resstock_bsq(monkeypatch, include_upgrades=False)
+    """For a baseline-only timeseries query (no upgrade-pair join), a restrict
+    on building_id should still propagate to the TS table — not silently dropped
+    just because there's no second metadata-side join to anchor it on."""
+    bsq = _custom_join_key_bsq(monkeypatch, buildstock_type="resstock")
     monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0"])
     query = bsq.query(
-        annual_only=False,
-        enduses=["fuel_use__electricity__total__kwh"],
+        annual_only=False, upgrade_id="0",
+        enduses=["out.electricity.total.energy_consumption"],
         restrict=[(bsq.building_id_column_name, [1])],
         get_query_only=True,
     )
+    # Restrict materializes on both sides: TS (the FROM table) and bs (joined md).
     assert f"{bsq.ts_table.name}.{bsq.building_id_column_name} = 1" in query
+    assert "bs.bldg_id = 1" in query
 
 
 @pytest.mark.parametrize(
@@ -437,30 +427,32 @@ def test_timeseries_query_supports_subquery_restrict_with_ts_column(
     """A SA subquery passed as a restrict criterion should be inlined as
     `IN (SELECT ...)` on the timeseries column. Catches regressions where
     only literal lists were supported."""
-    bsq = _classic_resstock_bsq(monkeypatch, include_state_on_upgrades=True)
+    bsq = _custom_join_key_bsq(monkeypatch, buildstock_type="resstock")
     monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1", "2", "3", "4"])
 
-    upgrades = bsq.up_table
+    md = bsq.md_table
     eligible_buildings = (
-        sa.select(upgrades.c.building_id)
+        sa.select(md.c.bldg_id)
         .where(
-            upgrades.c.state == "CO",
-            upgrades.c.upgrade.in_(["1", "2", "3", "4"]),
-            upgrades.c.applicability.is_(True),
+            md.c.state == "CO",
+            md.c.upgrade.in_(["1", "2", "3", "4"]),
+            md.c.applicability == "true",
         )
-        .group_by(upgrades.c.building_id)
+        .group_by(md.c.bldg_id)
         .having(sa.func.count() == 4)
     )
 
     query = bsq.query(
         annual_only=False, upgrade_id="1",
-        enduses=["fuel_use__electricity__total__kwh"],
+        enduses=["out.electricity.total.energy_consumption"],
         restrict=[(bsq.ts_bldgid_column, eligible_buildings)],
         get_query_only=True,
     )
     assert "IN (SELECT" in query
     assert "HAVING count(*) = 4" in query
-    assert "applicability IS true" in query
+    assert "applicability = 'true'" in query
+    # Subquery body should select from the actual md_table (not an alias of it).
+    assert f"FROM {bsq.md_table.name} WHERE" in query
 
 
 def test_query_model_rejects_applied_in_without_applied_only() -> None:
@@ -483,7 +475,7 @@ def test_timeseries_upgrade_restrict_is_rejected(monkeypatch: pytest.MonkeyPatch
     """Passing a restrict on the TS-side `upgrade` column when annual_only=False
     and upgrade_id is explicitly set should error — the upgrade_id kwarg is
     the canonical way to filter upgrades. Catches users mixing the two."""
-    bsq = _classic_resstock_bsq(monkeypatch)
+    bsq = _custom_join_key_bsq(monkeypatch, buildstock_type="resstock")
     monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1"])
     with pytest.raises(
         ValueError,
@@ -491,7 +483,7 @@ def test_timeseries_upgrade_restrict_is_rejected(monkeypatch: pytest.MonkeyPatch
     ):
         bsq.query(
             annual_only=False, upgrade_id="1",
-            enduses=["fuel_use__electricity__total__kwh"],
+            enduses=["out.electricity.total.energy_consumption"],
             restrict=[("upgrade", [1])],
             get_query_only=True,
         )
@@ -502,16 +494,27 @@ def test_timeseries_query_applied_in_adds_subquery_restrict(
 ) -> None:
     """applied_in=[1,2,3,4] on a TS query should produce a subquery restrict
     with a HAVING count(distinct(upgrade)) clause that ensures the building
-    appears in ALL listed upgrades (set intersection semantics)."""
-    bsq = _classic_resstock_bsq(monkeypatch)
+    appears in ALL listed upgrades (set intersection semantics).
+
+    For composite-key schemas the LHS of the IN is the tuple of TS unique keys
+    `(bldg_id, state)`, and the subquery selects the same tuple from the bs
+    alias of the metadata table — mirrors the applied_in shape used by
+    snapshot tests against the OEDI schemas."""
+    bsq = _custom_join_key_bsq(monkeypatch, buildstock_type="resstock")
     monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1", "2", "3", "4"])
     query = bsq.query(
         annual_only=False, upgrade_id="1",
-        enduses=["fuel_use__electricity__total__kwh"],
+        enduses=["out.electricity.total.energy_consumption"],
         applied_in=["1", "2", "3", "4"],
         get_query_only=True,
     )
     assert "IN (SELECT" in query
-    assert "HAVING count(distinct" in query
-    assert "IN ('1', '2', '3', '4')" in query
-    assert "completed_status = 'Success'" in query
+    assert "HAVING count(distinct(bs.upgrade)) = 4" in query
+    assert "bs.upgrade IN ('1', '2', '3', '4')" in query
+    # Composite-key form: tuple-IN on the TS unique keys.
+    assert "(custom_run_by_state.bldg_id, custom_run_by_state.state) IN" in query
+    assert "SELECT bs.bldg_id, bs.state" in query
+    # The applied-in subquery filters by applicability, not completed_status,
+    # because the unified metadata table uses applicability for upgrade-applied
+    # filtering (was completed_status='Success' on the legacy 3-table shape).
+    assert "applicability = 'true'" in query

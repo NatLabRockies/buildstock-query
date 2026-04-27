@@ -1757,24 +1757,52 @@ def test_ts_time_buckets_monotonic_and_complete(
 # bug) immediately violates this. Cheap correctness check that runs entirely off
 # cached snapshot data.
 
+# Quartile entries are looked up by name from the snapshot JSON files so that SQL
+# refactors (which change the hash) don't silently drop these from the invariant
+# coverage. To add a new quartile entry, just add it under one of the listed JSON
+# files — no hash bookkeeping required.
 QUARTILE_ENTRIES = [
-    ("baseline_quartiles", "8b107153bb7a05f4b4e087d074bd19d3f7612f13363e2cd383a541cc89f0e3e3", "749f6aa7782fcad720b8c95ab1ee730338bd6983ea3448a02f08860981468876"),
-    ("savings_annual_quartiles", "505930cd8529cc5246c88e294b3419feb000ecfd9253a02bbacc8bf1d5914ee7", "994b17636d36a4f40bc524267516b8d0e133479a244e31102713fce7d9d8daba"),
+    ("annual.json", "annual_baseline_quartiles"),
+    ("savings.json", "savings_annual_upgrade1_quartiles"),
+    ("savings.json", "savings_ts_monthly_upgrade1_quartiles"),
 ]
 
 
-@pytest.mark.parametrize("entry_name, resstock_hash, comstock_hash", QUARTILE_ENTRIES)
+def _lookup_snapshot_hash(json_filename: str, entry_name: str, schema: str) -> str | None:
+    """Return the per-schema sql_hash for a named entry in a snapshot JSON file,
+    or None if the entry / schema mapping is absent. We look up by name rather
+    than hash so that hash changes (e.g. from SQL refactors) don't require
+    edits in two places."""
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parent / "query_snapshots" / json_filename
+    if not path.exists():
+        return None
+    raw = json.loads(path.read_text())
+    for item in raw:
+        if item.get("name") == entry_name:
+            sql_hash_field = item.get("sql_hash", {})
+            if isinstance(sql_hash_field, dict):
+                return sql_hash_field.get(schema) or None
+            return None
+    return None
+
+
+@pytest.mark.parametrize("json_filename, entry_name", QUARTILE_ENTRIES)
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
 def test_quartile_arrays_are_non_decreasing(
-    request, bsq_fixture, schema, entry_name, resstock_hash, comstock_hash,
+    request, bsq_fixture, schema, json_filename, entry_name,
 ):
     """Every quartile array column must be non-decreasing per row. Catches
     swapped or off-by-one percentile breakpoints — the most common bug class
     when adding a new quartile output."""
     from pathlib import Path
 
+    sql_hash = _lookup_snapshot_hash(json_filename, entry_name, schema)
+    if not sql_hash:
+        pytest.skip(f"no sql_hash for {entry_name} on {schema} in {json_filename}")
     cache_root = Path(__file__).parent / "query_snapshots" / f"{schema}_cache"
-    sql_hash = resstock_hash if schema == "resstock_oedi" else comstock_hash
     parquet = cache_root / f"{sql_hash}.parquet"
     if not parquet.exists():
         pytest.skip(f"snapshot parquet missing for {entry_name} on {schema}: {parquet.name}")

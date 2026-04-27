@@ -1452,10 +1452,28 @@ class QueryCore:
             return col.name
         raise ValueError(f"Can't get name for {col} of type {type(col)}")
 
-    def _add_join(self, query, join_list):
+    def _add_join(self, query, join_list, bs_alias=None):
+        # `bs_alias` overrides which "bs side" the join's left key resolves
+        # against. Defaults to the canonical self.bs_table. TS queries pass
+        # `bs_per_bldg` (the per-bldg pre-aggregated subquery that replaces
+        # bs in the outer FROM) so the JOIN ON references resolve to the
+        # subquery's projected columns rather than the original bs alias
+        # (which isn't in the outer FROM after the bs_per_bldg refactor).
+        bs_for_join = bs_alias if bs_alias is not None else self.bs_table
         for new_table_name, baseline_column_name, new_column_name in join_list:
             new_tbl = self._get_table(new_table_name)
-            baseline_column = self._get_column(baseline_column_name, candidate_tables=[self.bs_table])
+            # Resolve the bs-side column. baseline_column_name can be a
+            # string (column name) or an SA Column. For both we look it up
+            # by name on bs_for_join when possible — this lets the
+            # bs_per_bldg subquery substitute for the canonical bs alias.
+            ref_name = (
+                baseline_column_name if isinstance(baseline_column_name, str)
+                else getattr(baseline_column_name, "name", None)
+            )
+            if ref_name and ref_name in bs_for_join.c:
+                baseline_column = bs_for_join.c[ref_name]
+            else:
+                baseline_column = self._get_column(baseline_column_name, candidate_tables=[self.bs_table])
             new_column = self._get_column(new_column_name, candidate_tables=[new_tbl])
             query = query.join(new_tbl, baseline_column == new_column)
         return query

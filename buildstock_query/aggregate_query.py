@@ -42,6 +42,7 @@ class BuildStockAggregate:
         upgrade_only: bool = False,
         timestamp_grouping_func: Optional[str] = None,
         total_weight=None,
+        extra_bs_cols: Optional[Sequence[sa.Column]] = None,
     ):
         if self._bsq.ts_table is None:
             raise ValueError("No timeseries table found in database.")
@@ -266,6 +267,15 @@ class BuildStockAggregate:
             bs_per_bldg_cols.append(
                 safunc.arbitrary(value_expr).label(e.name)
             )
+        # Extra bs columns the outer query needs (typically the left-side
+        # of join_list joins, e.g. `bs.in.county` for the utility eiaid
+        # join). Same semantics as bs_only_enduses: per-bldg constants
+        # collapsed via arbitrary(), labeled with the original column name
+        # so `_add_join`'s `bs.<col>` reference resolves on bs_per_bldg.
+        for ec in extra_bs_cols or ():
+            if ec.name in {c.name for c in bs_per_bldg_cols}:
+                continue
+            bs_per_bldg_cols.append(safunc.arbitrary(ec).label(ec.name))
 
         bs_per_bldg = (
             sa.select(*bs_per_bldg_cols)
@@ -623,12 +633,33 @@ class BuildStockAggregate:
                 and not params.include_savings
                 and not params.include_baseline
             )
+            # Collect bs-side baseline columns referenced by join_list so
+            # bs_per_bldg projects them. Without this, _add_join's
+            # `bs.<col> = new_tbl.<col>` reference would be unbound at the
+            # outer level (bs is no longer in the outer FROM).
+            # jl[1] can be either a column-name string or an SA Column
+            # object (utility code passes bs_table.c["in.county"] directly).
+            join_bs_cols = []
+            for jl in params.join_list:
+                bs_ref = jl[1]
+                bs_col = None
+                if isinstance(bs_ref, str) and bs_ref in self._bsq.bs_table.c:
+                    bs_col = self._bsq.bs_table.c[bs_ref]
+                elif isinstance(bs_ref, sa.Column) and getattr(bs_ref, "table", None) is self._bsq.bs_table:
+                    bs_col = bs_ref
+                elif isinstance(bs_ref, sa.Column) and bs_ref.name in self._bsq.bs_table.c:
+                    # Fallback: bound to md_table or some other alias —
+                    # rebind to bs_table for consistent projection naming.
+                    bs_col = self._bsq.bs_table.c[bs_ref.name]
+                if bs_col is not None:
+                    join_bs_cols.append(bs_col)
             bs_tbl, up_tbl, tbljoin, group_by_selection, md_alias = self.__get_timeseries_bs_up_table(
                 enduse_cols, upgrade_id, params.applied_only, ts_restrict,
                 bs_restrict=bs_restrict, group_by=group_by_selection,
                 upgrade_only=upgrade_only,
                 timestamp_grouping_func=params.timestamp_grouping_func,
                 total_weight=total_weight,
+                extra_bs_cols=join_bs_cols,
             )
             # md_alias is now the bs_per_bldg subquery (per-(bldg, state) row
             # with sum(weight) AS bldg_weight, count(*) AS tract_count, and
@@ -852,7 +883,14 @@ class BuildStockAggregate:
 
         query_cols = list(group_by_selection) + grouping_metrics_selection + query_cols
         query = sa.select(*query_cols).select_from(tbljoin)
-        query = self._bsq._add_join(query, params.join_list)
+        # For TS queries, `md_alias` is the bs_per_bldg subquery — pass it
+        # as the `bs_alias` so _add_join's bs-side reference resolves to
+        # bs_per_bldg's projected columns instead of the canonical bs alias
+        # (which isn't in the outer FROM after the bs_per_bldg refactor).
+        # For annual queries `md_alias is bs_tbl is self.bs_table`, so
+        # passing it is a no-op.
+        join_bs_alias = md_alias if not params.annual_only else None
+        query = self._bsq._add_join(query, params.join_list, bs_alias=join_bs_alias)
         if params.annual_only:
             # Successful baseline rows on the bs alias that's in the FROM. For
             # upgrade-pair queries the join's ON already enforces bs.upgrade=0

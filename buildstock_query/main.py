@@ -289,18 +289,32 @@ class BuildStockQuery(QueryCore):
             pd.Series: The distinct counts.
         """
         # When table_name is None, use the canonical bs_table alias so column
-        # references in the SELECT (e.g. self.sample_wt → bs_table.weight) bind
-        # to the same table that's in the FROM. Selecting from md_table
+        # references in the SELECT (e.g. self.sample_wt → bs_table.weight)
+        # bind to the same table that's in the FROM. Selecting from md_table
         # directly would cause SA to auto-add bs_table as a comma-join (and
         # potentially produce a duplicate `upgrade` column on SELECT *).
-        tbl = self.bs_table if table_name is None else self._get_table(table_name)
+        # When the user passes an explicit table_name that's the unified
+        # metadata table, route it through the bs_table alias for the same
+        # reason — users naturally pass the real Athena table name.
+        if table_name is None or self._get_table(table_name) is self.md_table:
+            tbl = self.bs_table
+        else:
+            tbl = self._get_table(table_name)
+        # Rebind sample_wt to whichever table is actually in scope. The cached
+        # `self.sample_wt` was bound to bs_table at init; if the user passed an
+        # auxiliary table that also has a "weight" column, use that one to
+        # avoid pulling bs_table into the FROM.
+        if isinstance(self.sample_wt, sa.Column) and self.sample_wt.name in tbl.c:
+            sample_wt = tbl.c[self.sample_wt.name]
+        else:
+            sample_wt = self.sample_wt
         query = sa.select(
-            tbl.c[column], safunc.sum(1).label("sample_count"), safunc.sum(self.sample_wt).label("weighted_count")
+            tbl.c[column], safunc.sum(1).label("sample_count"), safunc.sum(sample_wt).label("weighted_count")
         )
-        if table_name is None:
-            # Default-table case: restrict to baseline rows so the count matches
-            # the legacy baseline-only contract.
-            query = query.where(self._md_baseline_filter())
+        if table_name is None or tbl is self.bs_table:
+            # Default-table case (or user-passed-md): restrict to baseline rows
+            # so the count matches the legacy baseline-only contract.
+            query = query.where(self._md_baseline_filter(tbl))
         query = query.group_by(tbl.c[column]).order_by(tbl.c[column])
         if get_query_only:
             return self._compile(query)

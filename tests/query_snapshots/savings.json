@@ -30,8 +30,8 @@
   {
     "name": "savings_ts_monthly_upgrade1_electricity",
     "sql_hash": {
-      "resstock_oedi": "25f142b8d7e8b27cd6922e932ffd69c2c2999d653001f8b14d858b4906dde997",
-      "comstock_oedi": "a83395b6d0a4838268d70e674f30b067dcc2ed4d0425fc564d09c73b085cf69e"
+      "resstock_oedi": "367946dd1cce924485fd48f9944f186e29ef4c90d5528050677bf0e117fe2563",
+      "comstock_oedi": "295ea07b09aa0ac855835f1211a31f145f2ed26a0bac5750034e09f527f13dd2"
     },
     "description": "Monthly timeseries savings for upgrade 1, electricity, CO only.",
     "args": {
@@ -146,8 +146,8 @@
   {
     "name": "savings_ts_monthly_two_fuel",
     "sql_hash": {
-      "resstock_oedi": "b361fe07d185741391fee6ef68c6a40a10ac2092fb3acd9b5b4bb620957373cc",
-      "comstock_oedi": "99844cee329586e2953ff11e5ccc45af3d9466d2e75a5783d80167c1db418a21"
+      "resstock_oedi": "50050cc4710a93f0a88be160e99ba810072855d99fa1253c6e6b4e86a4163b4e",
+      "comstock_oedi": "3e4e72ec11388f4538cb43f26303dc70c71ca8b4c98fdd106e7098c8a8f9c18f"
     },
     "description": "Monthly TS savings for upgrade 1 covering both electricity and natural gas, grouped by time, CO only. Mirrors savings_annual_two_fuel on the TS path \u2014 pins the multi-fuel column-suffix shape across baseline/upgrade/savings projections in the TS upgrade-pair flow. Comstock skips per UnsupportedQueryShape (TS upgrade-pair queries on comstock).",
     "args": {

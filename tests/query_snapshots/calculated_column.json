@@ -19,8 +19,8 @@
   {
     "name": "calculated_column_ts_pivot_upgrade_pair",
     "sql_hash": {
-      "resstock_oedi": "7959e32c4d745eba3ff83a2913787964472999f4436b110e3f469e1b3152e652",
-      "comstock_oedi": "aab919667b026fd5638b3ff30eb29f951494773e6af28986afd3054457226272"
+      "resstock_oedi": "9fff07e9bd2d54703e4e2885b3b0a02d5af45bcad0718833a696136e2f319edd",
+      "comstock_oedi": "cdb77fa1204293439c961823ae8722dcffc106cf51cf009d871541dc89931866"
     },
     "description": "TS calculated column on the pivot path: table='timeseries' + annual_only=False + upgrade_id != 0 + applied_only=False forces the upgrade-pair pivot subquery (NOT the upgrade_only short-circuit). The Label produced by get_calculated_column wraps an arithmetic expression of raw ts columns; the pivot must wrap that whole expression in a per-side CASE, not look up Label.name on ts.c. Without this entry, the pivot path's calculated-column handling is uncovered.",
     "args": {
@@ -41,7 +41,7 @@
     "name": "calculated_column_ts_pivot_with_baseline",
     "sql_hash": {
       "resstock_oedi": "7c9426169d7fb7863282989eddb8bf3859f51486a4e7cc1821ace2ea266d091e",
-      "comstock_oedi": "e2727fe98bf7524fbd682fc8ef381d89c20c727d2e4c0c3bb4bd8da6e8669ace"
+      "comstock_oedi": "f5dc895e08d596da3191d1e419bb4cbb91458cdf29a05f019063e5bc9e084850"
     },
     "description": "TS calculated column on the pivot path with include_baseline=True + applied_only=True. This combination forces the pivot subquery (upgrade_only short-circuit only fires when both include_baseline and include_savings are False) AND exercises the applied_in synthesis path that filters to applicable buildings. Together with the upgrade_pair entry above, these two pin both branches of the TS pivot's calculated-column handling.",
     "args": {

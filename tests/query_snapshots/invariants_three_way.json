@@ -3,7 +3,7 @@
     "name": "inv_baseline_ts_year_by_building_type",
     "sql_hash": {
       "resstock_oedi": "c8291221281a19ef9d7ff1546fb76c20fe611afa7ecb3b00bd0812c4e015fd62",
-      "comstock_oedi": "d8f09b217ba805e2813555302ed1b613f71b032b467c15268343d4fc3c169ae5"
+      "comstock_oedi": "78d4a8c2077ee99a9bee93d0abe09dc7a2c1760686b99240e0e31c2ffde77b3b"
     },
     "description": "Three-way invariant: ts-year-collapse leg, baseline. Two fuels.",
     "args": {
@@ -58,7 +58,7 @@
     "name": "inv_upgrade1_ts_year_by_building_type",
     "sql_hash": {
       "resstock_oedi": "ef97910516e5037ab0c5e04faa59350bacfa154bb2fadd5761689116d09665c5",
-      "comstock_oedi": "c4c0beb5714e376471fc8cd3e0da84a43c04c41fbfd28a01bba0bac5b25aa694"
+      "comstock_oedi": "f0085a69b9f1e73116a7e631044acbc51f3d3f9bf331036222837961bda839ce"
     },
     "description": "Three-way invariant: ts-year-collapse leg, upgrade 1 (no applied filter). Two fuels.",
     "args": {
@@ -86,8 +86,8 @@
   {
     "name": "inv_upgrade1_ts_monthly_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "4d929fb0c601091a7150defd66fe1f2850639eec63019b86e704ec6244a1200d",
-      "comstock_oedi": "c736058e18f406a804fb97c4f66257d078a4446f6e9d4475add43a2d2c2f78fe"
+      "resstock_oedi": "09e89656dbd2a52b77c07cdd4e8842b85f063e425c9b5ddb6c3fead45ed9c792",
+      "comstock_oedi": "aeb21a19355f1216faf081de560c4c35284e56f1bed7b832102c92e6c4e780b2"
     },
     "description": "Three-way invariant: ts-monthly leg, upgrade 1 (no applied filter). Two fuels.",
     "args": {
@@ -144,7 +144,7 @@
     "name": "inv_upgrade1_applied_ts_year_by_building_type",
     "sql_hash": {
       "resstock_oedi": "0076fd47bf8318791c93ba9b86fbdbcb1ea843172fafdfcdaad724fee9af17aa",
-      "comstock_oedi": "8a97b56e2fb55a4867653dc59dc6492d6c0fd6ed90a85ae73b210abaa2dd9d0e"
+      "comstock_oedi": "8cedc3d94c12e54fe7b04b64d7c820122f0231b69549502ea53cc2d2c2b68678"
     },
     "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True. Two fuels.",
     "args": {
@@ -172,8 +172,8 @@
   {
     "name": "inv_upgrade1_applied_ts_monthly_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "70dfa2a3d7bad083b3765f3efc9e9d51569c500159c6126b863220fda6c570b6",
-      "comstock_oedi": "742231ab94b1dfc0b2280a1393baa053a16ff0978d2ed9aef3de19b205365151"
+      "resstock_oedi": "85e4f603d6c506538fb9e84bcc65d25509057816037db80f0730ffb114e8a280",
+      "comstock_oedi": "e0248142674cfeb48bf46c6b9c37584ecc800b9524f118961d105ab549c279b9"
     },
     "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True. Two fuels.",
     "args": {
@@ -234,7 +234,7 @@
     "name": "inv_upgrade1_applied_in_1_2_ts_year_by_building_type",
     "sql_hash": {
       "resstock_oedi": "56374ddea912b7a83260f8aa47ea467551eaaacbc812e90bef044a9ca869534c",
-      "comstock_oedi": "fb6edf0dd632c91b1bf3315da6d630b62db71c403dd1c65764094843182ac2aa"
+      "comstock_oedi": "43f268a4766ec9fde1478897bb55fba7c8e6ffbbd0b0a9003bd592e0571e4dbe"
     },
     "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True, applied_in=[1,2]. Two fuels.",
     "args": {
@@ -266,8 +266,8 @@
   {
     "name": "inv_upgrade1_applied_in_1_2_ts_monthly_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "07051298d4fbdcd58e5a28bd43e957a9025f45f1dc5775d06e591edaf4b384c9",
-      "comstock_oedi": "d53e8a73e3adf9c5bbaa64aeed550143c27853bfbaf4f3aaab5ed6dbc6809e8f"
+      "resstock_oedi": "89fc66912c0e8b5733cd109626d4ed36650ffa8311f7d6790d6da300d181fa63",
+      "comstock_oedi": "224d7672b57fa0b39aaa14dda480ac05ae9cf8d3be816e4f1f040859abf2d7cf"
     },
     "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True, applied_in=[1,2]. Two fuels.",
     "args": {

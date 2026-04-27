@@ -832,13 +832,17 @@ def _run_and_compare_data(bsq, outcome: EntryOutcome, *, cache: SqlCache) -> Non
     outcome.data_error = err
 
 
-# Cost-regression thresholds. ±20% on either metric trips the gate; smaller
-# changes are run-to-run noise. Below the floors, even percentage-large
-# changes are absolute-tiny and not worth flagging.
+# Cost-regression thresholds. A metric trips the gate only if BOTH its
+# percentage delta exceeds ±20% AND its absolute delta exceeds the per-metric
+# absolute floor. The combined rule keeps the gate silent on absolute-tiny
+# changes (e.g. 4241→4242 MB is +0% and +0.4 MB — noise) while still firing
+# on real shape regressions (e.g. 1.1→4.2 GB).
 _COST_REGRESSION_THRESHOLD = 0.20  # +20% → regression (caller may block write)
 _COST_WIN_THRESHOLD = -0.20        # -20% → win (celebrate in summary)
 _COST_FLOOR_MB = 1.0               # tiny scans are noise-dominated
 _COST_FLOOR_MS = 1000.0            # sub-second queries similarly
+_COST_ABS_FLOOR_MB = 10.0          # changes ≤10 MB are noise even at high %
+_COST_ABS_FLOOR_MS = 10_000.0      # sub-10s timing changes are noise
 
 
 def _cost_summary(qe_dict: dict | None) -> dict | None:
@@ -886,9 +890,25 @@ def _check_cost_change(fresh: dict | None, stored: dict | None) -> tuple[str, st
         return "neutral", ""
 
     note = f"{old_mb:.1f}→{new_mb:.1f} MB ({_pct(mb_d)}), {old_ms}→{new_ms} ms ({_pct(ms_d)})"
-    if any(d > _COST_REGRESSION_THRESHOLD for d in deltas):
+
+    def _exceeds(d, new, old, abs_floor, pct_threshold, *, side):
+        if d is None:
+            return False
+        if abs((new or 0) - (old or 0)) <= abs_floor:
+            return False
+        return d > pct_threshold if side == "up" else d < pct_threshold
+
+    mb_regress = _exceeds(mb_d, new_mb, old_mb, _COST_ABS_FLOOR_MB,
+                          _COST_REGRESSION_THRESHOLD, side="up")
+    ms_regress = _exceeds(ms_d, new_ms, old_ms, _COST_ABS_FLOOR_MS,
+                          _COST_REGRESSION_THRESHOLD, side="up")
+    if mb_regress or ms_regress:
         return "regression", note
-    if any(d < _COST_WIN_THRESHOLD for d in deltas):
+    mb_win = _exceeds(mb_d, new_mb, old_mb, _COST_ABS_FLOOR_MB,
+                      _COST_WIN_THRESHOLD, side="down")
+    ms_win = _exceeds(ms_d, new_ms, old_ms, _COST_ABS_FLOOR_MS,
+                      _COST_WIN_THRESHOLD, side="down")
+    if mb_win or ms_win:
         return "win", note
     return "neutral", ""
 

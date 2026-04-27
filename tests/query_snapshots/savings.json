@@ -25,13 +25,23 @@
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 9.83,
+        "query_time_ms": 2067
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 1.99,
+        "query_time_ms": 4353
+      }
     }
   },
   {
     "name": "savings_ts_monthly_upgrade1_electricity",
     "sql_hash": {
-      "resstock_oedi": "42b6fcea04a9420bb02d203cdfc26a9660ffc97962a9398cef11605c678a22a5",
-      "comstock_oedi": ""
+      "resstock_oedi": "73adaf21381f2380277e97a9b3ec03dd0f7a911382f84b48b667273e7c2ef29b",
+      "comstock_oedi": "caed6e1a101e80e852b2be9c6982f913057fcc30326264cddff771f66289cef2"
     },
     "description": "Monthly timeseries savings for upgrade 1, electricity, CO only.",
     "args": {
@@ -55,6 +65,16 @@
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 7180.84,
+        "query_time_ms": 8692
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 753.8,
+        "query_time_ms": 128616
+      }
     }
   },
   {
@@ -83,6 +103,16 @@
       "include_baseline": false,
       "include_upgrade": false,
       "include_savings": true
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 9.83,
+        "query_time_ms": 1865
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 1.99,
+        "query_time_ms": 4539
+      }
     }
   },
   {
@@ -112,6 +142,16 @@
       "include_upgrade": true,
       "include_savings": true,
       "get_quartiles": true
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 9.83,
+        "query_time_ms": 2270
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 1.99,
+        "query_time_ms": 3922
+      }
     }
   },
   {
@@ -120,7 +160,7 @@
       "resstock_oedi": "77c6ec50e93303cd4b018f2302351613193bef04adf6af5ea5a50004fd36780b",
       "comstock_oedi": "6267e4f49ffb0b2d67e1bb537e58a7f40f38e7ff909eaaa607e595dd6bf2a46e"
     },
-    "description": "Annual savings for upgrade 1 covering both electricity and natural gas as enduses, grouped by building type, CO only. Pins the multi-fuel column-suffix shape across the baseline/upgrade/savings projection — every prior savings entry is electricity-only.",
+    "description": "Annual savings for upgrade 1 covering both electricity and natural gas as enduses, grouped by building type, CO only. Pins the multi-fuel column-suffix shape across the baseline/upgrade/savings projection \u2014 every prior savings entry is electricity-only.",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL",
@@ -141,15 +181,25 @@
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 13.46,
+        "query_time_ms": 2487
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 2.31,
+        "query_time_ms": 4101
+      }
     }
   },
   {
     "name": "savings_ts_monthly_two_fuel",
     "sql_hash": {
-      "resstock_oedi": "9a60ed7aa30d0bf8eb4f536e72097ed1803f803aebeca8bd1742171fe83b3dfb",
-      "comstock_oedi": ""
+      "resstock_oedi": "4958692aa42afa5992eb39368e51663eec69844ef1347650477f918e5ca7a9a0",
+      "comstock_oedi": "c1a75292e213d75fa764cf8943467ce586187f02c58eb8a377389e50dce86520"
     },
-    "description": "Monthly TS savings for upgrade 1 covering both electricity and natural gas, grouped by time, CO only. Mirrors savings_annual_two_fuel on the TS path — pins the multi-fuel column-suffix shape across baseline/upgrade/savings projections in the TS upgrade-pair flow. Comstock skips per UnsupportedQueryShape (TS upgrade-pair queries on comstock).",
+    "description": "Monthly TS savings for upgrade 1 covering both electricity and natural gas, grouped by time, CO only. Mirrors savings_annual_two_fuel on the TS path \u2014 pins the multi-fuel column-suffix shape across baseline/upgrade/savings projections in the TS upgrade-pair flow. Comstock skips per UnsupportedQueryShape (TS upgrade-pair queries on comstock).",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL",
@@ -172,13 +222,23 @@
       "include_baseline": true,
       "include_upgrade": true,
       "include_savings": true
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 8176.55,
+        "query_time_ms": 12827
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 1124.07,
+        "query_time_ms": 135914
+      }
     }
   },
   {
     "name": "savings_ts_monthly_upgrade1_quartiles",
     "sql_hash": {
-      "resstock_oedi": "fc9d92ec5ae0306d7eec61957f7fcfca49217c959a257a6394626ea9551bcc62",
-      "comstock_oedi": ""
+      "resstock_oedi": "eb9453fffb7899cc52fa7934f1ba8d04bd6cebdd95a5daf5229acaadbd559fb1",
+      "comstock_oedi": "98ae876a28b0cc6ca70ae48c789f929018f2e4b98727da4ef7f081694cdf517b"
     },
     "description": "Monthly TS savings with quartiles, upgrade 1, CO only. Exercises the quartile branch in the TS upgrade-pair path; the existing TS savings entry has no quartiles.",
     "args": {
@@ -203,6 +263,16 @@
       "include_upgrade": true,
       "include_savings": true,
       "get_quartiles": true
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 7180.84,
+        "query_time_ms": 17134
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 753.8,
+        "query_time_ms": 148883
+      }
     }
   }
 ]

@@ -23,6 +23,16 @@
         ]
       ],
       "applied_only": true
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 7.79,
+        "query_time_ms": 2468
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 1.79,
+        "query_time_ms": 4026
+      }
     }
   },
   {
@@ -69,7 +79,17 @@
         ],
         "applied_only": false
       }
-    ]
+    ],
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 9.83,
+        "query_time_ms": 1990
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 1.99,
+        "query_time_ms": 5652
+      }
+    }
   },
   {
     "name": "include_baseline_upgrade1_annual",
@@ -98,21 +118,33 @@
       "include_upgrade": true,
       "include_savings": false,
       "applied_only": false
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 9.83,
+        "query_time_ms": 2652
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 1.99,
+        "query_time_ms": 4460
+      }
     }
   },
   {
     "name": "baseline_with_applied_in_upgrade1",
     "sql_hash": {
-      "resstock_oedi": "a761b88cba37c0a83de9bc3b8d197601bcbf4c59ebc63fc184791b084d0d192b",
-      "comstock_oedi": "cfdae29609ce4d19c733acf5b41781d5b30e8dc981649f03a8ac8f5196ab0ea2"
+      "resstock_oedi": "3fd9dc45319dd9d56211997e6b577f93484a75ebc2f77023f25825de706fe047",
+      "comstock_oedi": "f534cd62905c86e808029aba7783f3370ba56c29cec7a09c87cffd0936c97f78"
     },
-    "description": "Annual baseline (upgrade_id=0) restricted via applied_in=[1] — buildings where upgrade 1 applied successfully. Validator was relaxed in 2026-04-26 commit (e85e741) to allow applied_in on baseline queries; before that, the validator rejected this combination as 'applied_in cannot be set when applied_only is False'. Pins the SQL shape that test_savings_equals_independent_baseline_minus_upgrade depends on.",
+    "description": "Annual baseline (upgrade_id=0) restricted via applied_in=[1] \u2014 buildings where upgrade 1 applied successfully. Validator was relaxed in 2026-04-26 commit (e85e741) to allow applied_in on baseline queries; before that, the validator rejected this combination as 'applied_in cannot be set when applied_only is False'. Pins the SQL shape that test_savings_equals_independent_baseline_minus_upgrade depends on.",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL"
       ],
       "upgrade_id": "0",
-      "applied_in": [1],
+      "applied_in": [
+        1
+      ],
       "group_by": [
         "$BUILDING_TYPE_COL"
       ],
@@ -124,6 +156,16 @@
           ]
         ]
       ]
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 7.66,
+        "query_time_ms": 2142
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 15.17,
+        "query_time_ms": 61698
+      }
     }
   },
   {
@@ -153,6 +195,16 @@
       "include_upgrade": true,
       "include_savings": false,
       "applied_only": true
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 9.83,
+        "query_time_ms": 2005
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 1.99,
+        "query_time_ms": 5336
+      }
     }
   }
 ]

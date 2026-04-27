@@ -22,6 +22,16 @@
           ]
         ]
       ]
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 2.67,
+        "query_time_ms": 1118
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 1.32,
+        "query_time_ms": 2946
+      }
     }
   },
   {
@@ -48,6 +58,16 @@
           ]
         ]
       ]
+    },
+    "cost": {
+      "resstock_oedi": {
+        "data_scanned_mb": 0.62,
+        "query_time_ms": 1074
+      },
+      "comstock_oedi": {
+        "data_scanned_mb": 1.12,
+        "query_time_ms": 2878
+      }
     }
   }
 ]

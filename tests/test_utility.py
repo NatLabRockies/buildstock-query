@@ -39,7 +39,7 @@ DATA_ATOL = 1e-6
 # conftest.py reads this at the end of the run to print real entry/variant counts
 # (which exceed the test-function count because each pytest node processes a
 # whole JSON file of entries × variants).
-SESSION_TOTALS: dict[str, int] = {
+SESSION_TOTALS: dict[str, Any] = {
     "entries": 0,
     "variants": 0,
     "passed": 0,
@@ -47,6 +47,9 @@ SESSION_TOTALS: dict[str, int] = {
     "errored": 0,
     "updated": 0,
     "failed": 0,
+    # Cost-regression check outcomes appended by `evaluate_entries` after
+    # `_maybe_update` decides. Each entry: {"schema", "name", "status", "note", "applied"}.
+    "cost_changes": [],
 }
 
 
@@ -277,6 +280,12 @@ class EntryOutcome:
     data_error: str | None = None
     updated: bool = False  # True if the cache/JSON was updated this run
     update_note: str = ""  # human-readable description of what was updated
+    # Cost-regression classification, set during _maybe_update by comparing
+    # the just-completed Athena execution's metadata against the previously-
+    # stored `<old_hash>.json` sidecar. "regression" blocks write-through
+    # unless --overwrite-snapshot. "win" celebrates in the summary.
+    cost_status: str | None = None  # "regression", "win", "neutral", or None
+    cost_note: str = ""  # human-readable diff for the summary
 
     @property
     def primary_sql(self) -> str:
@@ -726,6 +735,14 @@ def evaluate_entries(
         )
         if outcome.updated:
             _log(f"[{idx}/{total}] {entry.name} :: {outcome.update_note}")
+        if outcome.cost_status in ("win", "regression"):
+            SESSION_TOTALS["cost_changes"].append({
+                "schema": outcome.entry.schema,
+                "name": outcome.entry.name,
+                "status": outcome.cost_status,
+                "note": outcome.cost_note,
+                "applied": outcome.updated,
+            })
 
         outcomes.append(outcome)
 
@@ -815,6 +832,73 @@ def _run_and_compare_data(bsq, outcome: EntryOutcome, *, cache: SqlCache) -> Non
     outcome.data_error = err
 
 
+# Cost-regression thresholds. ±20% on either metric trips the gate; smaller
+# changes are run-to-run noise. Below the floors, even percentage-large
+# changes are absolute-tiny and not worth flagging.
+_COST_REGRESSION_THRESHOLD = 0.20  # +20% → regression (caller may block write)
+_COST_WIN_THRESHOLD = -0.20        # -20% → win (celebrate in summary)
+_COST_FLOOR_MB = 1.0               # tiny scans are noise-dominated
+_COST_FLOOR_MS = 1000.0            # sub-second queries similarly
+
+
+def _cost_summary(qe_dict: dict | None) -> dict | None:
+    """Pull the just-the-cost-numbers we care about out of a raw GetQueryExecution
+    response. Returns None if the input doesn't look like one."""
+    if not qe_dict or "Statistics" not in qe_dict:
+        return None
+    stats = qe_dict["Statistics"]
+    return {
+        "data_scanned_mb": round((stats.get("DataScannedInBytes") or 0) / 1e6, 2),
+        "query_time_ms": stats.get("EngineExecutionTimeInMillis"),
+    }
+
+
+def _check_cost_change(fresh: dict | None, stored: dict | None) -> tuple[str, str]:
+    """Compare fresh cost vs stored cost and classify the change.
+
+    Returns `(status, note)`. Status values:
+      - "regression": one or both metrics regressed >20% above noise floor.
+        Caller should refuse to write through unless --overwrite-snapshot.
+      - "win": one or both metrics improved >20% past the noise floor.
+        Caller writes through and tags for summary celebration.
+      - "neutral": within ±20% on both metrics, OR below the noise floors,
+        OR no comparison possible.
+    """
+    if fresh is None or stored is None:
+        return "neutral", ""
+
+    new_mb = fresh.get("data_scanned_mb") or 0
+    new_ms = fresh.get("query_time_ms") or 0
+    old_mb = stored.get("data_scanned_mb") or 0
+    old_ms = stored.get("query_time_ms") or 0
+
+    # Skip noisy regime: both metrics under both floors.
+    if max(new_mb, old_mb) < _COST_FLOOR_MB and max(new_ms, old_ms) < _COST_FLOOR_MS:
+        return "neutral", ""
+
+    def _delta(new, old):
+        return None if not old else (new - old) / old
+
+    mb_d = _delta(new_mb, old_mb)
+    ms_d = _delta(new_ms, old_ms)
+    deltas = [d for d in (mb_d, ms_d) if d is not None]
+    if not deltas:
+        return "neutral", ""
+
+    note = f"{old_mb:.1f}→{new_mb:.1f} MB ({_pct(mb_d)}), {old_ms}→{new_ms} ms ({_pct(ms_d)})"
+    if any(d > _COST_REGRESSION_THRESHOLD for d in deltas):
+        return "regression", note
+    if any(d < _COST_WIN_THRESHOLD for d in deltas):
+        return "win", note
+    return "neutral", ""
+
+
+def _pct(d: float | None) -> str:
+    if d is None:
+        return "n/a"
+    return f"{d * 100:+.0f}%"
+
+
 def _maybe_update(
     outcome: EntryOutcome,
     *,
@@ -891,6 +975,36 @@ def _maybe_update(
     actual_df = getattr(outcome, "_actual_df", None)
     ds = outcome.data_status
 
+    # Cost-regression gate. Read both old and new metadata sidecars from the
+    # cache directory: the new one was written by `execute()` during the data
+    # check, the old one is whatever was committed previously. Note the new
+    # sidecar may be missing if the data check took the cache shortcut (the
+    # new-hash parquet was already on disk pre-run); in that case there's no
+    # fresh execution to compare and we skip the gate.
+    fresh_cost = stored_cost = None
+    if old_hash:
+        old_meta_path = cache.root / f"{old_hash}.json"
+        if old_meta_path.exists():
+            try:
+                stored_cost = _cost_summary(json.loads(old_meta_path.read_text()))
+            except json.JSONDecodeError:
+                stored_cost = None
+    new_meta_path = cache.root / f"{new_hash}.json"
+    if new_meta_path.exists():
+        try:
+            fresh_cost = _cost_summary(json.loads(new_meta_path.read_text()))
+        except json.JSONDecodeError:
+            fresh_cost = None
+    cost_status, cost_note = _check_cost_change(fresh_cost, stored_cost)
+    outcome.cost_status = cost_status
+    outcome.cost_note = cost_note
+    if cost_status == "regression" and not overwrite_snapshot:
+        outcome.update_note = (
+            f"COST REGRESSION ({cost_note}); refusing to write — pass "
+            f"--overwrite-snapshot to force"
+        )
+        return
+
     if ds == "match":
         # SQL changed but data is identical — same as sqlglot_only path.
         if old_hash:
@@ -902,6 +1016,15 @@ def _maybe_update(
             (cache.root / f"{new_hash}.sql").write_text(normalize_sql(new_sql))
             if old_sql_path.exists() and old_sql_path != cache.root / f"{new_hash}.sql":
                 old_sql_path.unlink()
+            # Same for metadata: if there's no new sidecar yet (cache shortcut)
+            # but there's an old one, carry it across to the new hash so future
+            # runs have a comparison anchor.
+            old_meta = cache.root / f"{old_hash}.json"
+            new_meta = cache.root / f"{new_hash}.json"
+            if old_meta.exists() and not new_meta.exists() and old_meta != new_meta:
+                old_meta.rename(new_meta)
+            elif old_meta.exists() and old_meta != new_meta:
+                old_meta.unlink()
         _patch_hash(outcome.entry.source_path, outcome.entry.name, outcome.entry.schema, new_hash)
         outcome.updated = True
         outcome.update_note = f"data matched; renamed parquet {old_hash[:12] if old_hash else '<empty>'} → {new_hash[:12]}; patched JSON"
@@ -912,6 +1035,7 @@ def _maybe_update(
         if old_hash and old_hash != new_hash:
             (cache.root / f"{old_hash}.parquet").unlink(missing_ok=True)
             (cache.root / f"{old_hash}.sql").unlink(missing_ok=True)
+            (cache.root / f"{old_hash}.json").unlink(missing_ok=True)
         _patch_hash(outcome.entry.source_path, outcome.entry.name, outcome.entry.schema, new_hash)
         outcome.updated = True
         outcome.update_note = f"wrote new pair {new_hash[:12]}; deleted old {old_hash[:12] if old_hash else '<empty>'}; patched JSON"
@@ -922,6 +1046,7 @@ def _maybe_update(
         if old_hash and old_hash != new_hash:
             (cache.root / f"{old_hash}.parquet").unlink(missing_ok=True)
             (cache.root / f"{old_hash}.sql").unlink(missing_ok=True)
+            (cache.root / f"{old_hash}.json").unlink(missing_ok=True)
         _patch_hash(outcome.entry.source_path, outcome.entry.name, outcome.entry.schema, new_hash)
         outcome.updated = True
         outcome.update_note = f"OVERWROTE: new pair {new_hash[:12]}; deleted old {old_hash[:12] if old_hash else '<empty>'}; patched JSON"

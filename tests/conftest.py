@@ -29,6 +29,27 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         f"failed={SESSION_TOTALS['failed']}"
     )
 
+    # Cost-regression summary, only when there's something interesting.
+    cost_changes = SESSION_TOTALS.get("cost_changes") or []
+    wins = [c for c in cost_changes if c["status"] == "win"]
+    regressions = [c for c in cost_changes if c["status"] == "regression"]
+    if wins:
+        terminalreporter.write_sep("=", "cost wins (≥20% improvement)", green=True)
+        for c in wins:
+            applied = "" if c["applied"] else " [not written]"
+            terminalreporter.write_line(
+                f"  {c['name']} ({c['schema']}): {c['note']}{applied}",
+                green=True,
+            )
+    if regressions:
+        terminalreporter.write_sep("=", "cost regressions (≥20% worse)", red=True)
+        for c in regressions:
+            applied = "" if c["applied"] else " [BLOCKED — pass --overwrite-snapshot to update]"
+            terminalreporter.write_line(
+                f"  {c['name']} ({c['schema']}): {c['note']}{applied}",
+                red=True,
+            )
+
 
 def pytest_addoption(parser):
     parser.addoption(

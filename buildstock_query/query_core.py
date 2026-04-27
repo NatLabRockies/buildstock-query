@@ -39,6 +39,7 @@ from buildstock_query.schema.utilities import (
     typed_literal,
     validate_arguments,
 )
+import json as _json_module
 import re
 import toml
 import uuid
@@ -543,18 +544,30 @@ class QueryCore:
         with open(self._execution_history_file, "a") as f:
             f.write(f"{time.time()},{execution_id}\n")
 
-    def _log_execution_cost(self, execution_id: ExeId):
+    def _log_execution_cost(self, execution_id: ExeId, sql: Optional[str] = None):
+        """Pull GetQueryExecution metadata, log session cost, and (when `sql`
+        is supplied) write the full Athena response as a `<hash>.json` sidecar
+        in the cache directory. Future runs read that sidecar to compare cost
+        across runs without re-querying Athena.
+        """
         if execution_id == "CACHED":
             # Can't log cost for cached query
             return
         res = self._aws_athena.get_query_execution(QueryExecutionId=execution_id)
-        stats = res["QueryExecution"]["Statistics"]
+        qe = res["QueryExecution"]
+        stats = qe["Statistics"]
         scanned_GB = stats["DataScannedInBytes"] / 1e9
         cost = scanned_GB * 5 / 1e3  # 5$ per TB scanned
         if execution_id not in self.seen_execution_ids:
             self.execution_cost["Dollars"] += cost
             self.execution_cost["GB"] += scanned_GB
             self.seen_execution_ids.add(execution_id)
+
+        # Persist the full QueryExecution dict alongside the query result so
+        # future analyses can pull whatever Athena reports without re-fetching.
+        # Keyed by the same hash as the .sql / .parquet sidecars.
+        if sql is not None:
+            self._cache.put_metadata(sql, qe)
 
         logger.info(
             f"{execution_id} cost {scanned_GB:.2f} GB (${cost:.2f}). Session total:"
@@ -563,21 +576,20 @@ class QueryCore:
 
     _UNLOAD_RE = re.compile(r"^\s*UNLOAD\s*\((.*)\)\s*TO\s*'", re.DOTALL | re.IGNORECASE)
 
-    def build_query_cost_index(self) -> dict[str, dict]:
-        """Walk this workgroup's Athena history once and return a
-        `{hash_sql(inner_select): cost_dict}` mapping. Use this when
-        backfilling cost metrics for many snapshots — the per-query
-        `get_query_cost_from_history` walks the same history, so calling
-        it 100 times is 100× more expensive than building the index once.
+    def build_query_metadata_index(self) -> dict[str, dict]:
+        """Walk this workgroup's Athena history once and return
+        `{hash_sql(inner_select): full_QueryExecution_dict}`.
 
         For each historical query that's an UNLOAD wrapping a SELECT, the
         index records the EARLIEST non-cache-hit successful execution
-        (DataScannedInBytes > 0). Athena history is ~45 days; older
-        snapshots have no entry.
-
-        Each value: {data_scanned_mb, query_time_ms, execution_id, submitted_at}.
+        (DataScannedInBytes > 0). The full QueryExecution dict is preserved
+        so callers can pull whatever Athena reports — Statistics,
+        EngineVersion, ResultReuseInformation, etc. Athena history retains
+        ~45 days; older snapshots have no entry.
         """
-        index: dict[str, tuple[float, dict]] = {}  # hash → (submitted_ts, cost_dict)
+        # hash → (submitted_ts, full_qe_dict). On a duplicate hash, keep the
+        # earliest submitted_ts so we capture the cold-cache cost.
+        index: dict[str, tuple[float, dict]] = {}
         paginator = self._aws_athena.get_paginator("list_query_executions")
         for page in paginator.paginate(WorkGroup=self.workgroup):
             ids = page.get("QueryExecutionIds", [])
@@ -605,28 +617,54 @@ class QueryCore:
                         continue
                     submitted_ts = submitted.timestamp()
                     key = hash_sql(m.group(1))
-                    cost = {
-                        "data_scanned_mb": round(scanned_bytes / 1e6, 2),
-                        "query_time_ms": stats.get("EngineExecutionTimeInMillis"),
-                        "execution_id": qe["QueryExecutionId"],
-                        "submitted_at": datetime.datetime.fromtimestamp(submitted_ts).isoformat(),
-                    }
                     existing = index.get(key)
                     if existing is None or submitted_ts < existing[0]:
-                        index[key] = (submitted_ts, cost)
+                        index[key] = (submitted_ts, qe)
         return {k: v[1] for k, v in index.items()}
 
+    def backfill_cache_metadata(self, cache_dir: Optional[pathlib.Path | str] = None) -> tuple[int, int]:
+        """Walk Athena history once and write `<hash>.json` sidecars into the
+        cache directory for any cached SQL that doesn't have one yet.
+
+        `cache_dir` defaults to this BSQ's cache folder. The lookup matches
+        a cached SQL by its hash against the inner-SELECT hash of every
+        historical UNLOAD execution — so it works whether the cached SQL
+        was originally executed in this session or weeks ago.
+
+        Returns (filled, skipped) — count of metadata files written and
+        cached entries whose execution wasn't found in history.
+        """
+        cache_root = pathlib.Path(cache_dir) if cache_dir else self._cache.root
+        # Find cached entries lacking metadata
+        missing_hashes: list[str] = []
+        for parquet in cache_root.glob("*.parquet"):
+            h = parquet.stem
+            if not (cache_root / f"{h}.json").exists():
+                missing_hashes.append(h)
+        if not missing_hashes:
+            return 0, 0
+        index = self.build_query_metadata_index()
+        filled = 0
+        skipped = 0
+        for h in missing_hashes:
+            qe = index.get(h)
+            if qe is None:
+                skipped += 1
+                continue
+            (cache_root / f"{h}.json").write_text(_json_module.dumps(qe, indent=2, default=str))
+            filled += 1
+        return filled, skipped
+
     def get_query_cost_from_history(self, sql: str) -> Optional[dict]:
-        """Look up cost metrics for a single SQL by walking Athena history.
+        """Look up Athena execution metadata for a single SQL by walking
+        history. Returns the full QueryExecution dict (or None if not found).
 
-        This is the convenient one-shot form. For backfilling many snapshots,
-        prefer `build_query_cost_index()` (one history walk vs N).
-
-        Returns a dict {data_scanned_mb, query_time_ms, execution_id, submitted_at}
-        or None if no matching successful execution is found.
+        Convenience wrapper for one-shot lookups. To backfill many snapshots,
+        prefer `backfill_cache_metadata()` or `build_query_metadata_index()`
+        — those walk history once instead of N times.
         """
         target_hash = hash_sql(sql)
-        index = self.build_query_cost_index()
+        index = self.build_query_metadata_index()
         return index.get(target_hash)
 
     def _compile(self, query) -> str:
@@ -812,6 +850,7 @@ class QueryCore:
                 return cached_inner
             df_inner = self._get_unload_result(exe_id, result_location)
             self._cache.put(query, df_inner)
+            self._log_execution_cost(exe_id, sql=query)
             return df_inner.copy()
 
         if run_async:
@@ -821,6 +860,7 @@ class QueryCore:
 
         df = self._get_unload_result(exe_id, result_location)
         self._cache.put(query, df)
+        self._log_execution_cost(exe_id, sql=query)
         return df.copy()
 
     def print_all_batch_query_status(self) -> None:
@@ -1037,6 +1077,7 @@ class QueryCore:
 
         if len(query_exe_ids) == 0:
             raise ValueError("No query was submitted successfully")
+        submitted_queries = self._batch_query_status_map[batch_id]["submitted_queries"]
         res_df_array: list[pd.DataFrame] = []
         for index, exe_id in enumerate(query_exe_ids):
             df = query_futures[index].as_pandas()
@@ -1044,7 +1085,7 @@ class QueryCore:
                 if len(df) > 0:
                     df["query_id"] = index
             logger.info(f"Got result from Query [{index}] ({exe_id})")
-            self._log_execution_cost(exe_id)
+            self._log_execution_cost(exe_id, sql=submitted_queries[index])
             res_df_array.append(df)
         if not combine:
             return res_df_array

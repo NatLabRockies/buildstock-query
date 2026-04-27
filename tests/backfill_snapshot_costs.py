@@ -1,17 +1,21 @@
-"""Backfill `cost` metrics into snapshot JSON entries from Athena history.
+"""Backfill `<hash>.json` Athena execution metadata sidecars into the snapshot
+cache directories.
 
-For each entry in tests/query_snapshots/*.json that has a `sql_hash` populated
-but no `cost` field (or one with null values), look up the past Athena
-execution via `bsq.build_query_cost_index()` and fill in `data_scanned_mb`,
-`query_time_ms`, etc. Entries whose original execution is older than Athena's
-~45-day history retention are left as `cost: null` per schema.
+Walks each schema's snapshot cache (`tests/query_snapshots/<schema>_cache/`),
+finds `<hash>.parquet` entries that lack an `<hash>.json` companion, and
+populates them by looking up the past Athena execution via the workgroup's
+query history. Each metadata file is the full GetQueryExecution response —
+DataScannedInBytes, EngineExecutionTimeInMillis, ResultReuseInformation,
+EngineVersion, etc. — stored verbatim so future analyses can pull whatever
+they need without re-fetching.
 
 Usage:
     python tests/backfill_snapshot_costs.py [--dry-run]
 
-The script builds ONE index per schema (resstock_oedi, comstock_oedi) by
-walking that workgroup's full Athena history once, then dictionary-looks-up
-each snapshot's hash. Dry-run prints what would change without writing.
+Idempotent: re-running on already-populated entries is a no-op (the script
+only fills in missing files). Entries whose original execution is older than
+Athena's ~45-day history retention are reported as "skipped" and remain
+without a metadata sidecar.
 """
 from __future__ import annotations
 
@@ -50,66 +54,23 @@ def main() -> None:
     args = parser.parse_args()
 
     schemas = ("resstock_oedi", "comstock_oedi")
-    indices: dict[str, dict] = {}
     for schema in schemas:
-        print(f"Building cost index for {schema}...")
-        bsq = _make_bsq(schema)
-        idx = bsq.build_query_cost_index()
-        indices[schema] = idx
-        print(f"  {len(idx)} entries indexed")
-
-    json_files = sorted(p for p in SNAPSHOTS_ROOT.glob("*.json"))
-    print(f"\nProcessing {len(json_files)} snapshot JSON files...")
-
-    total_filled = 0
-    total_missing = 0
-    for jf in json_files:
-        data = json.loads(jf.read_text())
-        if not isinstance(data, list):
+        cache_dir = SNAPSHOTS_ROOT / f"{schema}_cache"
+        # Find cached entries lacking metadata sidecars BEFORE we walk history
+        # so we can report what we're about to do.
+        missing = [p.stem for p in cache_dir.glob("*.parquet") if not (cache_dir / f"{p.stem}.json").exists()]
+        if not missing:
+            print(f"{schema}: all cache entries already have metadata; skipping")
             continue
-        modified = False
-        per_file_filled = 0
-        per_file_missing = 0
-        for entry in data:
-            sql_hash_dict = entry.get("sql_hash", {})
-            if not isinstance(sql_hash_dict, dict):
-                continue
-            cost_dict = entry.get("cost") or {}
-            if not isinstance(cost_dict, dict):
-                cost_dict = {}
-            entry_modified = False
-            for schema, hash_val in sql_hash_dict.items():
-                if not hash_val:
-                    continue
-                if schema not in indices:
-                    continue
-                if cost_dict.get(schema):  # already filled
-                    continue
-                cost_entry = indices[schema].get(hash_val)
-                if cost_entry is None:
-                    per_file_missing += 1
-                    cost_dict[schema] = None  # explicit null marker
-                    entry_modified = True
-                    continue
-                cost_dict[schema] = {
-                    "data_scanned_mb": cost_entry["data_scanned_mb"],
-                    "query_time_ms": cost_entry["query_time_ms"],
-                }
-                per_file_filled += 1
-                entry_modified = True
-            if entry_modified:
-                entry["cost"] = cost_dict
-                modified = True
-        if modified:
-            total_filled += per_file_filled
-            total_missing += per_file_missing
-            print(f"  {jf.name}: filled={per_file_filled} missing={per_file_missing}")
-            if not args.dry_run:
-                jf.write_text(json.dumps(data, indent=2) + "\n")
-
-    print(f"\nDone. Filled {total_filled} cost entries; {total_missing} not found in history.")
-    if args.dry_run:
-        print("(dry-run; no files written)")
+        print(f"{schema}: {len(missing)} cache entries missing metadata; querying history...")
+        bsq = _make_bsq(schema)
+        if args.dry_run:
+            index = bsq.build_query_metadata_index()
+            found = sum(1 for h in missing if h in index)
+            print(f"  would fill {found}, skip {len(missing) - found}")
+        else:
+            filled, skipped = bsq.backfill_cache_metadata()
+            print(f"  filled {filled}, skipped {skipped} (older than Athena history)")
 
 
 if __name__ == "__main__":

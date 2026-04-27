@@ -1,8 +1,12 @@
 """Content-addressed on-disk cache for SQL query results.
 
-Each cached query is a pair of files in the cache directory:
+Each cached query is up to three files in the cache directory:
     <sha256(normalized_sql)>.sql      — the normalized SQL text
     <sha256(normalized_sql)>.parquet  — the query result DataFrame
+    <sha256(normalized_sql)>.json     — Athena execution metadata (cost, runtime,
+                                        engine version, etc.) — optional;
+                                        present when the query came from a real
+                                        Athena execution (not a stale-cache hit).
 
 Lookups, writes, and existence checks all key on the hash. No in-memory state —
 every get() reads from disk, every put() writes to disk. Concurrency-safe by
@@ -12,9 +16,10 @@ paths (no contention).
 from __future__ import annotations
 
 import hashlib
+import json as _json
 import re
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 import pandas as pd
 
@@ -54,6 +59,9 @@ class SqlCache:
     def _sql_path(self, sql: str) -> Path:
         return self.root / f"{hash_sql(sql)}.sql"
 
+    def _meta_path(self, sql: str) -> Path:
+        return self.root / f"{hash_sql(sql)}.json"
+
     def __contains__(self, sql: str) -> bool:
         return self._parquet_path(sql).exists()
 
@@ -73,9 +81,31 @@ class SqlCache:
         df.to_parquet(self._parquet_path(sql), index=False)
         self._sql_path(sql).write_text(normalize_sql(sql))
 
+    def put_metadata(self, sql: str, metadata: dict[str, Any]) -> None:
+        """Write Athena execution metadata for `sql` as a JSON sidecar.
+
+        `metadata` is the full GetQueryExecution response (or any subset the
+        caller chose) — stored as-is so future analyses can pull whatever
+        Athena reports (DataScannedInBytes, EngineExecutionTimeInMillis,
+        ResultReuseInformation, EngineVersion, etc.) without needing to
+        re-fetch from Athena history.
+        """
+        self._meta_path(sql).write_text(_json.dumps(metadata, indent=2, default=str))
+
+    def get_metadata(self, sql: str) -> dict[str, Any] | None:
+        """Return the metadata JSON for `sql`, or None if not present."""
+        path = self._meta_path(sql)
+        if not path.exists():
+            return None
+        try:
+            return _json.loads(path.read_text())
+        except _json.JSONDecodeError:
+            return None
+
     def delete(self, sql: str) -> None:
         self._sql_path(sql).unlink(missing_ok=True)
         self._parquet_path(sql).unlink(missing_ok=True)
+        self._meta_path(sql).unlink(missing_ok=True)
 
     def rename(self, old_sql: str, new_sql: str) -> None:
         """Move an entry from old_sql's hash to new_sql's hash.
@@ -92,6 +122,12 @@ class SqlCache:
         old_sql_path = self._sql_path(old_sql)
         if old_sql_path != self._sql_path(new_sql):
             old_sql_path.unlink(missing_ok=True)
+        # Carry the metadata along too if it exists. Cost is associated with
+        # the data, and the data didn't change — so the cost numbers carry.
+        old_meta_path = self._meta_path(old_sql)
+        new_meta_path = self._meta_path(new_sql)
+        if old_meta_path != new_meta_path and old_meta_path.exists():
+            old_meta_path.rename(new_meta_path)
 
     def read_sql(self, sql_or_hash: str) -> str | None:
         """Read the stored .sql sidecar text, by either SQL or raw hash.

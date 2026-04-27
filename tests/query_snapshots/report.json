@@ -48,5 +48,17 @@
       "_method": "report.get_success_report",
       "trim_missing_bs": "auto"
     }
+  },
+  {
+    "name": "report_check_ts_bs_integrity",
+    "sql_hash": {
+      "resstock_oedi": "3c945e09edd606ea55d453c4584741f6f27e7112e8b9ab3dc442d15deb70004f",
+      "comstock_oedi": "d01c10906735517e27c5c1038aef59289cf803e10e85f587fe99c7ae76aaa706"
+    },
+    "nondeterministic": true,
+    "description": "report.check_ts_bs_integrity — every BuildStockQuery(skip_reports=False) init runs this. Pins the SQL shape of all queries it submits: per-upgrade ts distinct counts, metadata distinct counts (baseline + per-upgrade), duplicate-row checks, rows-per-building. Marked nondeterministic to skip data check — _get_rows_per_building scans the full TS table and would be a multi-TB landmine to actually run. SQL-shape regression coverage for the comma-join class of bug fixed in commit 9cd148d (md_table column refs mixed with bs_table predicates produced FROM x, x AS bs Cartesians that Athena rejected with 'mismatched input GROUP').",
+    "args": {
+      "_method": "report.check_ts_bs_integrity"
+    }
   }
 ]

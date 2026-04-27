@@ -694,13 +694,10 @@ class BuildStockReport:
         result_df = result_df.rename(columns={"count": "success"})
         return result_df
 
-    def _get_metadata_distinct_bldg_count(self) -> dict[str, int]:
-        """Distinct count over the *timeseries* unique-key columns, computed on the
-        unified metadata table. Uses ts_key (not md_key) so the count is comparable
-        to the timeseries-side count: when metadata has more key columns than
-        timeseries (e.g. metadata fanned out by tract, timeseries by state), counting
-        on md_key would over-count. ts_key ⊆ md_key is enforced by the schema model.
-        """
+    def _build_metadata_distinct_bldg_count_queries(self):
+        """Builds the two SA queries used by `_get_metadata_distinct_bldg_count`.
+        Factored out so snapshot tests can compile them via `_compile` without
+        executing.  See `_get_metadata_distinct_bldg_count` for semantics."""
         bsq = self._bsq
         # Bind every column reference to the canonical bs_table alias so the
         # WHERE-side filters (which use bs_table) and the SELECT/GROUP BY (which
@@ -725,7 +722,6 @@ class BuildStockReport:
         baseline_query = sa.select(
             sa.literal("0").label("upgrade"), distinct_expr.label("count"),
         ).select_from(bs).where(sa.and_(bsq._md_baseline_filter(), success_or_inapplicable))
-        counts: dict[str, int] = {"0": int(bsq.execute(baseline_query)["count"].iloc[0])}
 
         up_query = (
             sa.select(upgrade_col.label("upgrade"), distinct_expr.label("count"))
@@ -736,13 +732,23 @@ class BuildStockReport:
             ))
             .group_by(upgrade_col)
         )
+        return baseline_query, up_query
+
+    def _get_metadata_distinct_bldg_count(self) -> dict[str, int]:
+        """Returns `{upgrade: distinct_bldg_count}` over ts_key columns. See
+        `_build_metadata_distinct_bldg_count_queries` for SQL construction
+        details (factored out for snapshot tests)."""
+        bsq = self._bsq
+        baseline_query, up_query = self._build_metadata_distinct_bldg_count_queries()
+        counts: dict[str, int] = {"0": int(bsq.execute(baseline_query)["count"].iloc[0])}
         up_df = bsq.execute(up_query)
         for _, row in up_df.iterrows():
             counts[str(row["upgrade"])] = int(row["count"])
         return counts
 
-    def _find_duplicate_rows(self, table, key_columns: Sequence[sa.Column], where=None, limit: int = 5):
-        """Return up to `limit` rows of key-tuples that appear more than once in `table`."""
+    def _build_duplicate_rows_query(self, table, key_columns: Sequence[Any], where=None, limit: int = 5):
+        """Builds the SA query used by `_find_duplicate_rows`. Factored out so
+        snapshot tests can compile without executing."""
         query = (
             sa.select(*key_columns, safunc.count().label("n"))
             .select_from(table)
@@ -752,9 +758,14 @@ class BuildStockReport:
         )
         if where is not None:
             query = query.where(where)
+        return query
+
+    def _find_duplicate_rows(self, table, key_columns: Sequence[Any], where=None, limit: int = 5):
+        """Return up to `limit` rows of key-tuples that appear more than once in `table`."""
+        query = self._build_duplicate_rows_query(table, key_columns, where=where, limit=limit)
         return self._bsq.execute(query)
 
-    def check_ts_bs_integrity(self) -> bool:
+    def check_ts_bs_integrity(self, get_query_only: bool = False):
         """Checks the integrity between the timeseries and baseline (metadata) tables.
 
         Runs these checks:
@@ -765,10 +776,37 @@ class BuildStockReport:
            show up as a non-uniform count, and this is cheap relative to `count(DISTINCT ...)`
            which can exhaust Athena's memory on large ts tables.
 
+        Args:
+            get_query_only: If True, return the list of compiled SQL strings
+                this method would execute instead of running them. Used by
+                snapshot tests to pin the SQL shape — these queries fire on
+                every `BuildStockQuery(..., skip_reports=False)` init, and have
+                historically been a source of comma-join bugs (see commit 9cd148d).
+
         Returns:
-            bool: Whether or not the integrity check passed.
+            bool: Whether or not the integrity check passed (default mode).
+            list[str]: Compiled SQL strings (when get_query_only=True), in
+                execution order: ts-report queries, metadata-distinct counts,
+                duplicate-row checks, rows-per-building check.
         """
         bsq = self._bsq
+
+        if get_query_only:
+            queries: list[str] = []
+            queries.extend(self._get_ts_report(get_query_only=True))
+            baseline_q, up_q = self._build_metadata_distinct_bldg_count_queries()
+            queries.append(bsq._compile(baseline_q))
+            queries.append(bsq._compile(up_q))
+            bs = bsq.bs_table
+            queries.append(bsq._compile(self._build_duplicate_rows_query(
+                bs, list(bsq.md_key_cols), where=bsq._md_baseline_filter(),
+            )))
+            queries.append(bsq._compile(self._build_duplicate_rows_query(
+                bs, list(bsq.md_key_cols) + [bs.c["upgrade"]],
+            )))
+            queries.append(bsq._get_rows_per_building(get_query_only=True))
+            return queries
+
         logger.info("Checking integrity with ts_tables ...")
         check_pass = True
 

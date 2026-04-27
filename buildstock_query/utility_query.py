@@ -324,7 +324,9 @@ class BuildStockUtility:
 
         """
         eiaid_map_table_name, map_baseline_column, map_eiaid_column = self.get_eiaid_map()
-        query = sa.select(*[self._bsq.md_bldgid_column.distinct()])
+        # md_bldgid_column binds to bs_table — set FROM explicitly so SA doesn't
+        # auto-derive a different one when joins are added below.
+        query = sa.select(*[self._bsq.md_bldgid_column.distinct()]).select_from(self._bsq.bs_table)
         query = self._bsq._add_join(query, [(eiaid_map_table_name, map_baseline_column, map_eiaid_column)])
         query = self._bsq._add_restrict(query, [(self._bsq._get_column("eiaid", [eiaid_map_table_name]), eiaids)])
         query = query.where(self._bsq._get_column("weight", [eiaid_map_table_name]) > 0)

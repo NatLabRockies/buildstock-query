@@ -208,6 +208,7 @@ class BuildStockQuery(QueryCore):
                 sa.cast(upgrade_col, sa.Integer).label("upgrade"),
                 name_select,
             )
+            .select_from(self.md_table)  # explicit FROM matches the column binds
             # Exclude baseline rows from the upgrade names listing. The unified
             # annual_and_metadata table has upgrade=0 baseline rows that pre-2-table-
             # pivot lived on a separate parquet — historical callers expect this
@@ -263,7 +264,7 @@ class BuildStockQuery(QueryCore):
         # Default to the unified metadata table when table_name is None.
         defaulted = table_name is None
         tbl = self.md_table if defaulted else self._get_table(table_name)
-        query = sa.select(tbl.c[column]).distinct()
+        query = sa.select(tbl.c[column]).select_from(tbl).distinct()
         if defaulted:
             # Restrict to baseline rows so the result matches the legacy
             # baseline-only contract.
@@ -310,7 +311,7 @@ class BuildStockQuery(QueryCore):
             sample_wt = self.sample_wt
         query = sa.select(
             tbl.c[column], safunc.sum(1).label("sample_count"), safunc.sum(sample_wt).label("weighted_count")
-        )
+        ).select_from(tbl)
         if table_name is None or tbl is self.bs_table:
             # Default-table case (or user-passed-md): restrict to baseline rows
             # so the count matches the legacy baseline-only contract.
@@ -698,7 +699,7 @@ class BuildStockQuery(QueryCore):
         restrict = list(restrict) if restrict else []
         # md_table holds rows for every upgrade — filter to baseline so the
         # result is one row per (building × keys), not (building × upgrade × keys).
-        query = sa.select(*self.md_key_cols).where(self._md_baseline_filter())
+        query = sa.select(*self.md_key_cols).select_from(self.bs_table).where(self._md_baseline_filter())
         query = self._add_restrict(query, restrict, annual_only=True)
         applied_subquery = self._get_applied_in_subquery(applied_in, key_kind="metadata")
         if applied_subquery is not None:
@@ -879,7 +880,7 @@ class BuildStockQuery(QueryCore):
         Returns:
             list: List of upgrades
         """
-        query = sa.select(self.md_table.c["upgrade"]).distinct().order_by(sa.text("1"))
+        query = sa.select(self.md_table.c["upgrade"]).select_from(self.md_table).distinct().order_by(sa.text("1"))
         upgrades = self.execute(query)["upgrade"].dropna().map(str).to_list()
         return list(dict.fromkeys(["0", *upgrades]))
 

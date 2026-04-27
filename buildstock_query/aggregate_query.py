@@ -88,22 +88,33 @@ class BuildStockAggregate:
 
         ts_unique_keys = self._bsq._get_unique_keys("timeseries")
         timestamp_col = self._bsq.timestamp_column_name
+        # When the user asks for year-collapse (`timestamp_grouping_func='year'`)
+        # the outer query never references timestamp — it's a single value per
+        # building. Carrying timestamp through the inner ts_flat / ts_aggr
+        # forces Athena to materialize the truncated timestamp before the
+        # inner GROUP BY, blocking partial-aggregation pushdown into the scan
+        # (a year-collapse query that previously scanned 1.1 GB ballooned to
+        # 4.2 GB after the unification). Skip the timestamp dimension entirely
+        # at the inner level for this case; the outer query collapses time
+        # via SUM regardless.
+        collapse_inner_time = timestamp_grouping_func == "year"
         # Order keys for hash distribution: partition columns (typically
         # `state`) first, then timestamp, then bldg_id last. Trino hashes
         # by leftmost columns when shuffling for GROUP BY; partition-aligned
         # ordering lets it distribute work along the parquet's existing
         # layout instead of fighting it.
         partition_cols = [k for k in ts_unique_keys if k != self._bsq.building_id_column_name]
-        ts_key_names = list(dict.fromkeys([
-            *partition_cols,
-            timestamp_col,
-            self._bsq.building_id_column_name,
-        ]))
+        ts_key_names_pieces = [*partition_cols]
+        if not collapse_inner_time:
+            ts_key_names_pieces.append(timestamp_col)
+        ts_key_names_pieces.append(self._bsq.building_id_column_name)
+        ts_key_names = list(dict.fromkeys(ts_key_names_pieces))
         ts_extra_group_names = [g.name for g in ts_group_by if g.name not in ts_key_names]
 
         # Bucketed time expression — pushed into ts_flat so ts_aggr GROUPs BY
-        # coarse buckets, not raw 15-min timestamps.
-        if timestamp_grouping_func:
+        # coarse buckets, not raw 15-min timestamps. Only built when we
+        # actually carry timestamp through the inner shape.
+        if timestamp_grouping_func and not collapse_inner_time:
             sim_info = self._bsq._get_simulation_info()
             raw_time = ts.c[timestamp_col]
             if sim_info.offset > 0:
@@ -113,8 +124,10 @@ class BuildStockAggregate:
                 )
             else:
                 bucketed_time_expr = sa.func.date_trunc(timestamp_grouping_func, raw_time)
-        else:
+        elif not collapse_inner_time:
             bucketed_time_expr = ts.c[timestamp_col]
+        else:
+            bucketed_time_expr = None
 
         ts_restrict_clauses = self._bsq._get_restrict_clauses(restrict, annual_only=False)
 
@@ -166,7 +179,8 @@ class BuildStockAggregate:
         flat_select_cols = [
             ts.c[k].label(k) for k in ts_key_names if k != timestamp_col
         ]
-        flat_select_cols.append(bucketed_time_expr.label(timestamp_col))
+        if not collapse_inner_time:
+            flat_select_cols.append(bucketed_time_expr.label(timestamp_col))
         flat_select_cols.extend([ts.c[name].label(name) for name in ts_extra_group_names])
         if not single_upgrade:
             flat_select_cols.append(ts.c["upgrade"].label("upgrade"))

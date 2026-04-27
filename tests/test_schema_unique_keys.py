@@ -76,12 +76,10 @@ def _custom_join_key_bsq(
         sa.Column("upgrade", sa.String),
         sa.Column("out.electricity.total.energy_consumption", sa.Float),
     )
-    baseline = md.alias("bs")
-    upgrades = md.alias("up")
 
     def _get_local_tables(self, requested_table_name):
         assert requested_table_name == "custom_run"
-        return baseline, timeseries, upgrades, md
+        return md, timeseries
 
     monkeypatch.setattr(BuildStockQuery, "_get_tables", _get_local_tables)
     bsq = BuildStockQuery(
@@ -210,10 +208,9 @@ def test_timeseries_pair_join_defaults_to_building_id_when_unconfigured(
 
 def test_key_attributes_reflect_configured_unique_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     bsq = _custom_join_key_bsq(monkeypatch)
-    assert bsq.bs_key == ("bldg_id", "county", "state")
-    assert bsq.up_key == ("bldg_id", "county", "state")
+    assert bsq.md_key == ("bldg_id", "county", "state")
     assert bsq.ts_key == ("bldg_id", "state")
-    assert [c.name for c in bsq.bs_key_cols] == list(bsq.bs_key)
+    assert [c.name for c in bsq.md_key_cols] == list(bsq.md_key)
     assert [c.name for c in bsq.ts_key_cols] == list(bsq.ts_key)
 
 
@@ -222,16 +219,15 @@ def test_key_attributes_default_to_building_id(monkeypatch: pytest.MonkeyPatch) 
     bsq.db_schema.unique_keys.metadata = None
     bsq.db_schema.unique_keys.timeseries = None
     bsq._initialize_tables()
-    assert bsq.bs_key == ("bldg_id",)
-    assert bsq.up_key == ("bldg_id",)
+    assert bsq.md_key == ("bldg_id",)
     assert bsq.ts_key == ("bldg_id",)
 
 
 def test_get_building_ids_returns_all_metadata_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     bsq = _custom_join_key_bsq(monkeypatch)
     query = bsq.get_building_ids(get_query_only=True)
-    # bs_table is aliased as "bs" over the unified metadata table.
-    assert "SELECT bs.bldg_id, bs.county, bs.state" in query
+    # Selects directly from md_table (no self-join needed).
+    assert "SELECT custom_run_metadata.bldg_id, custom_run_metadata.county, custom_run_metadata.state" in query
 
 
 # ---------------------------------------------------------------------------
@@ -312,17 +308,17 @@ def test_aggregate_single_key_preserves_scalar_count_distinct(monkeypatch: pytes
 
 
 def test_get_available_upgrades_does_not_use_success_report() -> None:
-    """Regression guard: get_available_upgrades must derive from the upgrade
+    """Regression guard: get_available_upgrades must derive from the metadata
     table directly, not by calling report.get_success_report (which is heavier
     and has its own dependencies)."""
     metadata = sa.MetaData()
-    upgrades = sa.Table(
-        "test_upgrades", metadata,
+    md = sa.Table(
+        "test_metadata", metadata,
         sa.Column("building_id", sa.Integer),
         sa.Column("upgrade", sa.Integer),
     )
     bsq = BuildStockQuery.__new__(BuildStockQuery)
-    bsq.up_table = upgrades
+    bsq.md_table = md
 
     class Report:
         def get_success_report(self):
@@ -358,20 +354,15 @@ def test_timeseries_query_keeps_ts_restrict_without_upgrades(
 
 @pytest.mark.parametrize(
     "table_name",
-    ["shared_run", ("shared_run_md", None, None)],
+    ["shared_run", ("shared_run_md", None)],
 )
-def test_get_tables_aliases_unified_metadata_table(
-    table_name: str | tuple[str, None, None],
+def test_get_tables_returns_md_and_ts(
+    table_name: str | tuple[str, None],
 ) -> None:
-    """The 2-table schema shape (`annual_and_metadata` + `timeseries`) wraps the
-    single physical table in two SQLAlchemy aliases — one labelled "bs",
-    one "up". This produces clean `FROM md AS bs JOIN md AS up` SQL with no
-    synthesized `(SELECT * FROM md WHERE upgrade=0)` subquery wrapper. The
-    `md_table` attribute exposes the underlying table; `bs_table` and
-    `up_table` are the aliases. The aliases name which side of the join
-    a column reference belongs to, not that the table itself is baseline-
-    or upgrade-only."""
-    # Build a minimal 2-table schema dict (no Athena needed).
+    """`_get_tables` returns (md_table, ts_table) — the unified annual_and_metadata
+    parquet plus the timeseries table. Self-join sites that need a baseline-vs-
+    upgrade split construct `md.alias("bs")` / `.alias("up")` locally; there are
+    no module-level baseline/upgrade attributes."""
     db_schema_dict = toml.load(_RESSTOCK_OEDI_SCHEMA_PATH)
     db_schema_dict["table_suffix"] = {
         "annual_and_metadata": "_md",
@@ -403,24 +394,20 @@ def test_get_tables_aliases_unified_metadata_table(
 
     bsq._get_table = _get_local_table
 
-    baseline_table, ts_table, upgrade_table, md_table = bsq._get_tables(table_name)
+    md_table, ts_table = bsq._get_tables(table_name)
     assert ts_table is None
     assert md_table is source_table
-    # Aliases preserve the underlying column list.
-    assert baseline_table.c["building_id"].name == "building_id"
-    assert upgrade_table.c["building_id"].name == "building_id"
-    # Aliases must be distinct SA handles so identity-based dispatch keeps
-    # discriminating bs vs up usage.
-    assert baseline_table is not upgrade_table
 
-    # SELECTing from each alias should produce `FROM <real_table> AS <alias>`,
-    # not a `(SELECT * FROM ...)` subquery wrapper.
-    compiled_baseline = " ".join(bsq._compile(sa.select(baseline_table.c["building_id"])).split())
-    compiled_upgrade = " ".join(bsq._compile(sa.select(upgrade_table.c["building_id"])).split())
-    assert "SELECT *" not in compiled_baseline
-    assert "SELECT *" not in compiled_upgrade
-    assert f"FROM {source_table.name} AS bs" in compiled_baseline
-    assert f"FROM {source_table.name} AS up" in compiled_upgrade
+    # Local self-join aliases produce clean `FROM <real_table> AS bs / AS up`
+    # — no synthesized `(SELECT * FROM ...)` subquery wrapper.
+    bs = md_table.alias("bs")
+    up = md_table.alias("up")
+    compiled_bs = " ".join(bsq._compile(sa.select(bs.c["building_id"])).split())
+    compiled_up = " ".join(bsq._compile(sa.select(up.c["building_id"])).split())
+    assert "SELECT *" not in compiled_bs
+    assert "SELECT *" not in compiled_up
+    assert f"FROM {source_table.name} AS bs" in compiled_bs
+    assert f"FROM {source_table.name} AS up" in compiled_up
 
     compiled_available_upgrades = []
 
@@ -428,11 +415,10 @@ def test_get_tables_aliases_unified_metadata_table(
         compiled_available_upgrades.append(" ".join(bsq._compile(query).split()))
         return pd.DataFrame({"upgrade": [1, 2, 3]})
 
-    bsq.up_table = upgrade_table
+    bsq.md_table = md_table
     bsq.execute = execute
     assert bsq.get_available_upgrades() == ["0", "1", "2", "3"]
-    assert "SELECT DISTINCT up.upgrade" in compiled_available_upgrades[0]
-    assert "ORDER BY up.upgrade" not in compiled_available_upgrades[0]
+    assert f"SELECT DISTINCT {source_table.name}.upgrade" in compiled_available_upgrades[0]
     assert "ORDER BY 1" in compiled_available_upgrades[0]
 
 

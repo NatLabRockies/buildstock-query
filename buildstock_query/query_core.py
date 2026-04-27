@@ -86,14 +86,14 @@ class QueryCore:
             workgroup (str): The workgroup for athena. The cost will be charged based on workgroup.
             db_name (str): The athena database name
             buildstock_type (str, optional): 'resstock' or 'comstock' runs. Defaults to 'resstock'
-            table_name (str or Union[str, tuple[str, Optional[str], Optional[str]]]): If a single string is provided,
-            say, 'mfm_run', then it must correspond to tables in athena named mfm_run_baseline and optionally
-            mfm_run_timeseries and mf_run_upgrades. Or, tuple of three elements can be provided for the table names
-            for baseline, timeseries and upgrade. Timeseries and upgrade can be None if no such table exist.
-            db_schema (str, optional): The database structure in Athena is different between ResStock and ComStock run.
-                It is also different between the version in OEDI and default version from BuildStockBatch. This argument
-                controls the assumed schema. Allowed values are 'resstock_default', 'resstock_oedi', 'comstock_default'
-                and 'comstock_oedi'. Defaults to 'resstock_default' for resstock and 'comstock_default' for comstock.
+            table_name (str or tuple[str, Optional[str]]): If a single string is provided, say, 'mfm_run', then it
+                must correspond to tables in athena formed by appending the schema's
+                `[table_suffix].annual_and_metadata` and `.timeseries` to it. Or, a tuple `(annual_and_metadata,
+                timeseries)` can be provided directly. Timeseries may be None if no such table exists.
+            db_schema (str, optional): The database structure in Athena is different between ResStock and ComStock
+                run. It is also different between the version in OEDI and default version from BuildStockBatch. This
+                argument controls the assumed schema. Allowed values are TOML files in the db_schema/ folder
+                (e.g. 'resstock_oedi', 'comstock_oedi_state_and_county').
             sample_weight (str, optional): Specify a custom sample_weight. Otherwise, the default is 1 for ComStock and
                 uses sample_weight in the run for ResStock.
             region_name (str, optional): the AWS region where the database exists. Defaults to 'us-west-2'.
@@ -153,29 +153,21 @@ class QueryCore:
         self._initialize_book_keeping(params.execution_history)
 
     def _initialize_tables(self):
-        self.bs_table, self.ts_table, self.up_table, self.md_table = self._get_tables(self.table_name)
+        self.md_table, self.ts_table = self._get_tables(self.table_name)
 
-        self.bs_bldgid_column = self.bs_table.c[self.building_id_column_name]
+        self.md_bldgid_column = self.md_table.c[self.building_id_column_name]
         if self.ts_table is not None:
             self.timestamp_column = self.ts_table.c[self.timestamp_column_name]
             self.ts_bldgid_column = self.ts_table.c[self.building_id_column_name]
-        self.up_bldgid_column = self.up_table.c[self.building_id_column_name]
 
-        metadata_keys = tuple(self._get_unique_keys("metadata"))
-        timeseries_keys = tuple(self._get_unique_keys("timeseries"))
-        self.bs_key: tuple[str, ...] = metadata_keys
-        self.up_key: tuple[str, ...] = metadata_keys
-        self.ts_key: tuple[str, ...] = timeseries_keys
+        self.md_key: tuple[str, ...] = tuple(self._get_unique_keys("metadata"))
+        self.ts_key: tuple[str, ...] = tuple(self._get_unique_keys("timeseries"))
 
         self.sample_wt = self._get_sample_weight(self.sample_weight)
 
     @property
-    def bs_key_cols(self) -> list[sa.Column]:
-        return [self.bs_table.c[k] for k in self.bs_key]
-
-    @property
-    def up_key_cols(self) -> list[sa.Column]:
-        return [self.up_table.c[k] for k in self.up_key]
+    def md_key_cols(self) -> list[sa.Column]:
+        return [self.md_table.c[k] for k in self.md_key]
 
     @property
     def ts_key_cols(self) -> list[sa.Column]:
@@ -210,34 +202,36 @@ class QueryCore:
 
     def _baseline_timeseries_join_condition(
         self,
-        baseline_table: AnyTableType | None = None,
-        timeseries_table: AnyTableType | None = None,
+        baseline_table: AnyTableType,
+        timeseries_table: AnyTableType,
     ) -> sa.ColumnElement:
-        bs = baseline_table if baseline_table is not None else self.bs_table
-        ts = timeseries_table if timeseries_table is not None else self.ts_table
-        return sa.and_(self._join_condition(bs, ts, "timeseries"), self._bs_upgrade_filter(bs))
+        """JOIN ON for md-baseline-alias ⋈ ts. Bakes in `baseline.upgrade=0`."""
+        return sa.and_(
+            self._join_condition(baseline_table, timeseries_table, "timeseries"),
+            self._upgrade_zero_filter(baseline_table),
+        )
 
     def _baseline_upgrade_join_condition(
         self,
-        baseline_table: AnyTableType | None = None,
-        upgrade_table: AnyTableType | None = None,
+        baseline_table: AnyTableType,
+        upgrade_table: AnyTableType,
     ) -> sa.ColumnElement:
-        bs = baseline_table if baseline_table is not None else self.bs_table
-        up = upgrade_table if upgrade_table is not None else self.up_table
-        return sa.and_(self._join_condition(bs, up, "metadata"), self._bs_upgrade_filter(bs))
+        """JOIN ON for md-baseline-alias ⋈ md-upgrade-alias. Bakes in `baseline.upgrade=0`."""
+        return sa.and_(
+            self._join_condition(baseline_table, upgrade_table, "metadata"),
+            self._upgrade_zero_filter(baseline_table),
+        )
 
-    def _bs_upgrade_filter(self, baseline_table: AnyTableType | None = None) -> sa.ColumnElement:
-        """Return `baseline_table.upgrade = 0`.
-
-        `bs_table` is an alias over the unified annual_and_metadata table,
-        which holds rows for every upgrade. Anywhere code selects through
-        the baseline alias and depends on it being baseline-only, this
-        predicate must ride the WHERE or join ON clause. Centralized so
-        every site uses the same expression.
-        """
-        tbl = baseline_table if baseline_table is not None else self.bs_table
-        upgrade_col = tbl.c["upgrade"]
+    def _upgrade_zero_filter(self, table: AnyTableType) -> sa.ColumnElement:
+        """`table.upgrade = 0` — the WHERE/ON predicate that selects baseline rows
+        on the unified annual_and_metadata table (or any alias of it)."""
+        upgrade_col = table.c["upgrade"]
         return upgrade_col == typed_literal(upgrade_col, "0")
+
+    def _md_baseline_filter(self) -> sa.ColumnElement:
+        """`md.upgrade = 0` — convenience for callers that select directly from
+        `self.md_table` and want only baseline rows."""
+        return self._upgrade_zero_filter(self.md_table)
 
     def _timeseries_pair_join_condition(
         self,
@@ -266,7 +260,7 @@ class QueryCore:
             return sa.literal(1)
         elif isinstance(sample_weight, str):
             try:
-                return self.bs_table.c[sample_weight]
+                return self.md_table.c[sample_weight]
             except ValueError:
                 logger.error("Sample weight column not found. Using weight of 1.")
                 return sa.literal(1)
@@ -312,13 +306,13 @@ class QueryCore:
 
         if not candidate_tables:
             # bs_table and up_table are aliases over the same md_table — searching
-            # both would always report "found in multiple tables". Use bs_table
-            # alone for column resolution; consumers route to up_table explicitly
-            # when they want the upgrade-side reference.
+            # md_table holds annual + characteristics columns; ts_table holds
+            # timeseries values. Annual-only column resolution looks at md
+            # alone; otherwise both.
             if annual_only:
-                candidate_tables = (self.bs_table,)
+                candidate_tables = (self.md_table,)
             else:
-                candidate_tables = (self.bs_table, self.ts_table)
+                candidate_tables = (self.md_table, self.ts_table)
 
         search_tables = [self._get_table(table) for table in candidate_tables if table is not None]
         char_prefix = self.db_schema.column_prefix.characteristics
@@ -353,15 +347,10 @@ class QueryCore:
 
         The schema is two tables: a unified `annual_and_metadata` parquet
         (one row per (bldg_id, upgrade) carrying both characteristics and
-        annual results) and a `timeseries` parquet. We expose the unified
-        table as `self.md_table` and provide two SQLAlchemy aliases over it
-        — `bs_table` (alias "bs") and `up_table` (alias "up") — so the rest
-        of the codebase can keep the baseline/upgrade distinction for join
-        construction and identity-based dispatch. The aliases produce
-        `FROM md AS bs JOIN md AS up ...` SQL — the alias names indicate
-        which side of the join each reference participates in, not that
-        the table itself is baseline-only. The `bs.upgrade = 0` predicate
-        rides the join ON clause via `_baseline_*_join_condition`.
+        annual results) and a `timeseries` parquet. Self-join sites that
+        need to compare baseline and upgrade values for the same building
+        construct local `md_table.alias("bs")` / `.alias("up")` handles
+        — there are no module-level baseline/upgrade table attributes.
 
         For tuple `table_name`, the entries are `(annual_and_metadata, timeseries)`.
         """
@@ -378,13 +367,10 @@ class QueryCore:
             md_table_name = table_name[0]
             ts_table_name = table_name[1] if len(table_name) > 1 else None
 
+        md_table = self._get_table(md_table_name)
         ts_table = self._get_table(ts_table_name, missing_ok=True) if ts_table_name else None
 
-        md_table = self._get_table(md_table_name)
-        baseline_table = md_table.alias("bs")
-        upgrade_table = md_table.alias("up")
-
-        return baseline_table, ts_table, upgrade_table, md_table
+        return md_table, ts_table
 
     def _initialize_book_keeping(self, execution_history):
         self._execution_history_file = execution_history or self.cache_folder / ".execution_history"
@@ -1205,8 +1191,8 @@ class QueryCore:
                 cols = [c for c in cols if c.name not in [self.ts_bldgid_column.name, self.timestamp_column.name]]
                 cols = [c for c in cols if fuel_type in c.name]
             return cols
-        elif table in ["baseline", "bs"]:
-            cols = [c for c in self.bs_table.columns]
+        elif table in ["baseline", "bs", "metadata", "md"]:
+            cols = [c for c in self.md_table.columns]
             if fuel_type:
                 cols = [c for c in cols if "simulation_output_report" in c.name]
                 cols = [c for c in cols if fuel_type in c.name]
@@ -1334,7 +1320,7 @@ class QueryCore:
     def _add_join(self, query, join_list):
         for new_table_name, baseline_column_name, new_column_name in join_list:
             new_tbl = self._get_table(new_table_name)
-            baseline_column = self._get_column(baseline_column_name, candidate_tables=[self.bs_table])
+            baseline_column = self._get_column(baseline_column_name, candidate_tables=[self.md_table])
             new_column = self._get_column(new_column_name, candidate_tables=[new_tbl])
             query = query.join(new_tbl, baseline_column == new_column)
         return query
@@ -1360,7 +1346,7 @@ class QueryCore:
                 tbl = self._get_table(weight_col[1])
                 total_weight *= tbl.c[weight_col[0]]
             else:
-                total_weight *= self._get_column(weight_col, [self.bs_table])
+                total_weight *= self._get_column(weight_col, [self.md_table])
         return total_weight
 
     def _get_agg_func_and_weight(self, weights, agg_func=None):

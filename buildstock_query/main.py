@@ -44,7 +44,7 @@ class BuildStockQuery(QueryCore):
         self,
         workgroup: str,
         db_name: str,
-        table_name: Union[str, tuple[str, Optional[str], Optional[str]]],
+        table_name: Union[str, tuple[str, Optional[str]]],
         db_schema: Optional[str | dict] = None,
         buildstock_type: Literal["resstock", "comstock"] = "resstock",
         sample_weight_override: Optional[Union[int, float]] = None,
@@ -61,10 +61,11 @@ class BuildStockQuery(QueryCore):
             workgroup (str): The workgroup for athena. The cost will be charged based on workgroup.
             db_name (str): The athena database name
             buildstock_type (str, optional): 'resstock' or 'comstock' runs. Defaults to 'resstock'
-            table_name (str or Union[str, tuple[str, Optional[str], Optional[str]]]): If a single string is provided,
-            say, 'mfm_run', then it must correspond to tables in athena named mfm_run_baseline and optionally
-            mfm_run_timeseries and mf_run_upgrades. Or, tuple of three elements can be provided for the table names
-            for baseline, timeseries and upgrade. Timeseries and upgrade can be None if no such table exist.
+            table_name (str or tuple[str, Optional[str]]): If a single string is provided, say, 'mfm_run', it must
+            correspond to tables in athena whose names are formed by appending the schema's
+            `[table_suffix].annual_and_metadata` and `.timeseries` to it. Or, a tuple `(annual_and_metadata_name,
+            timeseries_name)` can be provided to override that derivation. The timeseries entry may be None when no
+            timeseries table exists.
             db_schema (str | dict, optional): The database structure in Athena is different between ResStock and
                 ComStock run. It is also different between the version in OEDI and default version from
                 BuildStockBatch. This argument controls the assumed schema. Allowed values are whatever files exist
@@ -190,11 +191,11 @@ class BuildStockQuery(QueryCore):
         for every upgrade — the returned dict still has one entry per upgrade
         so downstream iteration keeps working regardless of schema.
         """
-        upgrade_col = self.up_table.c["upgrade"]
+        upgrade_col = self.md_table.c["upgrade"]
         upgrade_name_col_name = self.db_schema.column_names.upgrade_name
-        has_name_col = upgrade_name_col_name in self.up_table.c
+        has_name_col = upgrade_name_col_name in self.md_table.c
         if has_name_col:
-            upgrade_name_col = self.up_table.c[upgrade_name_col_name]
+            upgrade_name_col = self.md_table.c[upgrade_name_col_name]
             name_select = safunc.arbitrary(upgrade_name_col).label("upgrade_name")
         else:
             # Schema configures a name column but the upgrade table doesn't
@@ -259,16 +260,13 @@ class BuildStockQuery(QueryCore):
         Returns:
             pd.Series: The distinct vals.
         """
-        # bs_table is an alias ("bs") over md_table — _get_table("bs") would fail
-        # to autoload. Default to the real Athena table name when table_name is None.
+        # Default to the unified metadata table when table_name is None.
         defaulted = table_name is None
-        table_name = self.md_table.name if defaulted else table_name
-        tbl = self._get_table(table_name)
+        tbl = self.md_table if defaulted else self._get_table(table_name)
         query = sa.select(tbl.c[column]).distinct()
         if defaulted:
-            # Defaulted-table case targets the unified annual_and_metadata table —
-            # restrict to baseline rows so the result matches the legacy baseline-
-            # only contract.
+            # Restrict to baseline rows so the result matches the legacy
+            # baseline-only contract.
             query = query.where(tbl.c["upgrade"] == typed_literal(tbl.c["upgrade"], "0"))
         if get_query_only:
             return self._compile(query)
@@ -290,15 +288,15 @@ class BuildStockQuery(QueryCore):
         Returns:
             pd.Series: The distinct counts.
         """
-        tbl = self.bs_table if table_name is None else self._get_table(table_name)
+        tbl = self.md_table if table_name is None else self._get_table(table_name)
         query = sa.select(
             tbl.c[column], safunc.sum(1).label("sample_count"), safunc.sum(self.sample_wt).label("weighted_count")
         )
         if table_name is None:
-            # Default-table case targets the bs alias on the unified metadata
-            # table — restrict to baseline rows so the count matches the legacy
-            # baseline-only contract.
-            query = query.where(self._bs_upgrade_filter())
+            # Default-table case targets the unified metadata table — restrict
+            # to baseline rows so the count matches the legacy baseline-only
+            # contract.
+            query = query.where(self._md_baseline_filter())
         query = query.group_by(tbl.c[column]).order_by(tbl.c[column])
         if get_query_only:
             return self._compile(query)
@@ -348,13 +346,13 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         restrict = list(restrict) if restrict else []
-        query = sa.select("*").select_from(self.bs_table).where(self._bs_upgrade_filter())
+        query = sa.select("*").select_from(self.md_table).where(self._md_baseline_filter())
         query = self._add_restrict(query, restrict, annual_only=True)
         compiled_query = self._compile(query)
         if get_query_only:
             return compiled_query
         logger.info("Making results_csv query ...")
-        return self.execute(query).set_index(list(self.bs_key))
+        return self.execute(query).set_index(list(self.md_key))
 
     def _s3_list_all(self, bucket: str, prefix: str) -> list[dict]:
         """Return all S3 objects under `prefix` by paginating list_objects_v2."""
@@ -425,15 +423,13 @@ class BuildStockQuery(QueryCore):
         # Callers want to pd.read_parquet(folder) and get only that upgrade's rows.
         upgrade_root = folder / f"upgrade={upgrade_id_str}"
 
-        # pick the right glue-registered table for this upgrade_id
-        is_baseline = upgrade_id_str in ("0", "00")
+        # The unified annual_and_metadata parquet holds rows for every upgrade,
+        # baseline included; the per-upgrade selection happens via the file-name
+        # token filter in `_upgrade_file_variants` below.
         if isinstance(self.table_name, str):
-            suffix = (
-                self.db_schema.table_suffix.baseline if is_baseline else self.db_schema.table_suffix.upgrades
-            )
-            db_table_name = f"{self.table_name}{suffix}"
+            db_table_name = f"{self.table_name}{self.db_schema.table_suffix.annual_and_metadata}"
         else:
-            db_table_name = self.table_name[0] if is_baseline else self.table_name[2]
+            db_table_name = self.table_name[0]
 
         table_loc = self._aws_glue.get_table(DatabaseName=self.db_name, Name=db_table_name)["Table"][
             "StorageDescriptor"
@@ -522,11 +518,11 @@ class BuildStockQuery(QueryCore):
         """Returns the full results csv table. This is the same as get_results_csv without any restrictions. It uses
         the stored parquet files in s3 to download the results which is faster than querying athena.
         Returns:
-            pd.DataFrame: The full results csv, indexed by bs_key.
+            pd.DataFrame: The full results csv, indexed by md_key.
         """
         local_copy_path = self._download_results_csv()
         df = pd.read_parquet(local_copy_path)
-        index_keys = list(self.bs_key)
+        index_keys = list(self.md_key)
         if list(df.index.names) != index_keys:
             if df.index.name is not None or any(n is not None for n in df.index.names):
                 df = df.reset_index()
@@ -579,25 +575,15 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         restrict = list(restrict) if restrict else []
-        query = sa.select("*").select_from(self.up_table)
-        up_col = self.up_table.c["upgrade"]
-        if upgrade_id:
-            query = query.where(up_col == typed_literal(up_col, upgrade_id))
-        else:
-            # No specific upgrade requested: exclude baseline rows (upgrade=0) so
-            # the result set is "upgrades only" — matches the legacy 3-table
-            # contract where up_table was a separate parquet that had no
-            # upgrade=0 rows.
-            query = query.where(up_col != typed_literal(up_col, "0"))
+        up_col = self.md_table.c["upgrade"]
+        query = sa.select("*").select_from(self.md_table).where(
+            up_col == typed_literal(up_col, upgrade_id)
+        )
 
-        # Resolve restrict columns to up_table-side references when the column
-        # name exists on up_table; otherwise _add_restrict's default _get_column
-        # path returns the bs-side column, producing duplicate-named columns
-        # under SELECT *.
         rewritten_restrict = []
         for col, vals in restrict:
-            if isinstance(col, str) and col in self.up_table.c:
-                rewritten_restrict.append((self.up_table.c[col], vals))
+            if isinstance(col, str) and col in self.md_table.c:
+                rewritten_restrict.append((self.md_table.c[col], vals))
             else:
                 rewritten_restrict.append((col, vals))
         query = self._add_restrict(query, rewritten_restrict, annual_only=True)
@@ -605,7 +591,7 @@ class BuildStockQuery(QueryCore):
         if get_query_only:
             return compiled_query
         logger.info("Making results_csv query for upgrade ...")
-        return self.execute(query).set_index(list(self.up_key))
+        return self.execute(query).set_index(list(self.md_key))
 
     def _download_upgrades_csv(self, upgrade_id: Union[int, str]) -> pathlib.Path:
         """Download the upgrade-N results parquet(s). See `download_metadata_and_annual_results`."""
@@ -622,11 +608,11 @@ class BuildStockQuery(QueryCore):
     def get_upgrades_csv_full(self, upgrade_id: Union[int, str]) -> pd.DataFrame:
         """Returns the full results csv table for upgrades. This is the same as get_upgrades_csv without any
         restrictions. It uses the stored parquet files in s3 to download the results which is faster than querying
-        athena. Indexed by up_key.
+        athena. Indexed by md_key.
         """
         local_copy_path = self._download_upgrades_csv(upgrade_id)
         df = pd.read_parquet(local_copy_path)
-        index_keys = list(self.up_key)
+        index_keys = list(self.md_key)
         if list(df.index.names) != index_keys:
             if df.index.name is not None or any(n is not None for n in df.index.names):
                 df = df.reset_index()
@@ -682,20 +668,19 @@ class BuildStockQuery(QueryCore):
             get_query_only: If True, return the SQL string instead of executing.
 
         Returns:
-            DataFrame of building keys (`bs_key_cols`).
+            DataFrame of building keys (`md_key_cols`).
         """
         restrict = list(restrict) if restrict else []
-        # bs_table is an alias over the unified annual_and_metadata table —
-        # filter to baseline rows so the result is one row per (building × keys),
-        # not one per (building × upgrade × keys).
-        query = sa.select(*self.bs_key_cols).where(self._bs_upgrade_filter())
+        # md_table holds rows for every upgrade — filter to baseline so the
+        # result is one row per (building × keys), not (building × upgrade × keys).
+        query = sa.select(*self.md_key_cols).where(self._md_baseline_filter())
         query = self._add_restrict(query, restrict, annual_only=True)
         applied_subquery = self._get_applied_in_subquery(applied_in, key_kind="metadata")
         if applied_subquery is not None:
-            if len(self.bs_key_cols) == 1:
-                query = query.where(self.bs_key_cols[0].in_(applied_subquery))
+            if len(self.md_key_cols) == 1:
+                query = query.where(self.md_key_cols[0].in_(applied_subquery))
             else:
-                query = query.where(sa.tuple_(*self.bs_key_cols).in_(applied_subquery))
+                query = query.where(sa.tuple_(*self.md_key_cols).in_(applied_subquery))
         if get_query_only:
             return self._compile(query)
         return self.execute(query)
@@ -820,7 +805,10 @@ class BuildStockQuery(QueryCore):
         return resolved_col.label(self._simple_label(column_name))
 
     def _get_enduse_cols(self, enduses: Sequence[AnyColType], table="baseline") -> Sequence[DBColType]:
-        tbls_dict = {"baseline": self.bs_table, "upgrade": self.up_table, "timeseries": self.ts_table}
+        # "baseline" and "upgrade" both resolve to the unified metadata table —
+        # the columns are the same; the per-upgrade selection happens via WHERE
+        # at the call site. "timeseries" stays distinct.
+        tbls_dict = {"baseline": self.md_table, "upgrade": self.md_table, "timeseries": self.ts_table}
         tbl = tbls_dict[table]
         enduse_cols: list[DBColType] = []
         for enduse in enduses:
@@ -846,7 +834,7 @@ class BuildStockQuery(QueryCore):
         Returns:
             list[str]: List of building characteristics.
         """
-        cols = {y.removeprefix(self._char_prefix) for y in self.bs_table.c.keys() if y.startswith(self._char_prefix)}
+        cols = {y.removeprefix(self._char_prefix) for y in self.md_table.c.keys() if y.startswith(self._char_prefix)}
         return list(cols)
 
     def _validate_group_by(self, group_by: Sequence[Union[str, tuple[str, str]]]):
@@ -864,7 +852,7 @@ class BuildStockQuery(QueryCore):
         Returns:
             list: List of upgrades
         """
-        query = sa.select(self.up_table.c["upgrade"]).distinct().order_by(sa.text("1"))
+        query = sa.select(self.md_table.c["upgrade"]).distinct().order_by(sa.text("1"))
         upgrades = self.execute(query)["upgrade"].dropna().map(str).to_list()
         return list(dict.fromkeys(["0", *upgrades]))
 
@@ -878,32 +866,32 @@ class BuildStockQuery(QueryCore):
         return str(upgrade_id)
 
     def _split_restrict(self, restrict):
-        # Some cols (e.g. comstock `state`, `upgrade`) live on both bs and ts tables.
+        # Some cols (e.g. comstock `state`, `upgrade`) live on both md and ts tables.
         # When that happens, restrict BOTH sides — Athena's planner often can't push
-        # a ts-side filter back through the bldg_id join to the bs scan, so a single-
+        # a ts-side filter back through the bldg_id join to the md scan, so a single-
         # sided filter leaves the metadata subquery scanning the full table.
         #
-        # `extra_restrict` holds clauses whose column targets neither bs nor ts —
+        # `extra_restrict` holds clauses whose column targets neither md nor ts —
         # typically a join_list table (e.g. `eiaid_weights.eiaid` from the utility
-        # methods). These can't ride the inner ts/bs join ON-clause because the
+        # methods). These can't ride the inner ts/md join ON-clause because the
         # referenced table isn't in scope yet; they must go to the outer WHERE.
-        bs_restrict = []
+        md_restrict = []
         ts_restrict = []
         extra_restrict = []
         for col, restrict_vals in restrict:
             targets_ts = self._restrict_targets_ts(col)
-            targets_bs = self._restrict_targets_bs(col)
+            targets_md = self._restrict_targets_md(col)
             if targets_ts:
                 if isinstance(col, tuple):
                     ts_restrict.append([col, restrict_vals])
                 else:
                     col_name = col if isinstance(col, str) else col.name
                     ts_restrict.append([self.ts_table.c[col_name], restrict_vals])
-            if targets_bs:
-                bs_restrict.append([self._get_gcol(col, annual_only=True), restrict_vals])
-            if not targets_ts and not targets_bs:
+            if targets_md:
+                md_restrict.append([self._get_gcol(col, annual_only=True), restrict_vals])
+            if not targets_ts and not targets_md:
                 extra_restrict.append([col, restrict_vals])
-        return bs_restrict, ts_restrict, extra_restrict
+        return md_restrict, ts_restrict, extra_restrict
 
     def _restrict_targets_ts(self, col: AnyColType) -> bool:
         if self.ts_table is None:
@@ -921,17 +909,17 @@ class BuildStockQuery(QueryCore):
             )
         return False
 
-    def _restrict_targets_bs(self, col: AnyColType) -> bool:
+    def _restrict_targets_md(self, col: AnyColType) -> bool:
         if isinstance(col, str):
-            return col in self.bs_table.columns
+            return col in self.md_table.columns
         if isinstance(col, SACol):
-            return getattr(col, "table", None) is self.bs_table
+            return getattr(col, "table", None) is self.md_table
         if isinstance(col, SALabel):
             source_col = getattr(col, "element", None)
-            return isinstance(source_col, SACol) and getattr(source_col, "table", None) is self.bs_table
+            return isinstance(source_col, SACol) and getattr(source_col, "table", None) is self.md_table
         if isinstance(col, tuple) and col:
             return all(
-                isinstance(c, SACol) and getattr(c, "table", None) is self.bs_table for c in col
+                isinstance(c, SACol) and getattr(c, "table", None) is self.md_table for c in col
             )
         return False
 
@@ -1040,52 +1028,42 @@ class BuildStockQuery(QueryCore):
             Pandas dataframe consisting of the building ids belonging to the provided list of locations.
 
         """
-        bs_key_cols = self.bs_key_cols
-        # bs_table aliases the unified annual_and_metadata table — restrict to
-        # baseline rows so each (key) appears once, not once per upgrade.
-        query = sa.select(*bs_key_cols).where(self._bs_upgrade_filter())
-        query = query.where(self._get_column(location_col, [self.bs_table]).in_(locations))
-        query = self._add_order_by(query, bs_key_cols)
+        md_key_cols = self.md_key_cols
+        # md_table holds every upgrade — restrict to baseline rows so each
+        # (key) appears once, not once per upgrade.
+        query = sa.select(*md_key_cols).where(self._md_baseline_filter())
+        query = query.where(self._get_column(location_col, [self.md_table]).in_(locations))
+        query = self._add_order_by(query, md_key_cols)
         if get_query_only:
             return self._compile(query)
         res = self.execute(query)
         return res
 
     @property
-    def _bs_completed_status_col(self):
-        return self.bs_table.c[self.db_schema.column_names.completed_status]
+    def _md_completed_status_col(self):
+        return self.md_table.c[self.db_schema.column_names.completed_status]
 
     @property
-    def _up_completed_status_col(self):
-        return self.up_table.c[self.db_schema.column_names.completed_status]
-
-    @property
-    def _bs_successful_condition(self):
-        """`bs.applicability=true AND bs.upgrade=0` — bs_table is an alias over
-        the unified metadata table that holds every upgrade, so a bare
-        applicability filter would also match successful upgrade rows. The
-        upgrade-id pin keeps "successful baseline rows" the right set."""
-        col = self._bs_completed_status_col
-        return sa.and_(
-            col == typed_literal(col, self.db_schema.completion_values.success),
-            self._bs_upgrade_filter(),
-        )
-
-    @property
-    def _up_successful_condition(self):
-        """`up.applicability=true`. Callers always pin `up.upgrade=upgrade_id`
-        explicitly, which is strictly stronger than `upgrade!=0`, so we don't
-        bake an upgrade filter in here."""
-        col = self._up_completed_status_col
+    def _md_successful_condition(self):
+        """`md.applicability=true`. No upgrade filter — callers pin
+        `md.upgrade=N` explicitly when they want a specific upgrade."""
+        col = self._md_completed_status_col
         return col == typed_literal(col, self.db_schema.completion_values.success)
+
+    @property
+    def _md_baseline_successful_condition(self):
+        """`md.applicability=true AND md.upgrade=0` — combined helper for the
+        common case "successful baseline rows", matching the legacy
+        `_bs_successful_condition` semantics on the unified table."""
+        return sa.and_(self._md_successful_condition, self._md_baseline_filter())
 
     @property
     def _ts_upgrade_col(self):
         return self.ts_table.c["upgrade"]
 
     @property
-    def _up_upgrade_col(self):
-        return self.up_table.c["upgrade"]
+    def _md_upgrade_col(self):
+        return self.md_table.c["upgrade"]
 
     def _get_completed_status_col(self, table: AnyTableType):
         return table.c[self.db_schema.column_names.completed_status]
@@ -1109,17 +1087,17 @@ class BuildStockQuery(QueryCore):
             return None
 
         upgrade_ids = list(dict.fromkeys(self._validate_upgrade(upgrade_id) for upgrade_id in applied_in))
-        up_col = self._up_upgrade_col
+        up_col = self._md_upgrade_col
         typed_ids = [typed_literal(up_col, uid) for uid in upgrade_ids]
         key_names = self._get_unique_keys(key_kind)
-        up_key_cols = [self.up_table.c[name] for name in key_names]
+        md_key_cols = [self.md_table.c[name] for name in key_names]
         return (
-            sa.select(*up_key_cols)
+            sa.select(*md_key_cols)
             .where(
                 up_col.in_(typed_ids),
-                self._up_successful_condition,
+                self._md_successful_condition,
             )
-            .group_by(*up_key_cols)
+            .group_by(*md_key_cols)
             .having(sa.func.count(sa.func.distinct(up_col)) == len(upgrade_ids))
         )
 
@@ -1139,7 +1117,7 @@ class BuildStockQuery(QueryCore):
         if applied_subquery is None:
             return updated_restrict
 
-        filter_cols = self.ts_key_cols if use_ts_side else self.bs_key_cols
+        filter_cols = self.ts_key_cols if use_ts_side else self.md_key_cols
         if len(filter_cols) == 1:
             updated_restrict.append((filter_cols[0], applied_subquery))
         else:

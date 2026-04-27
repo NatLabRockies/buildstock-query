@@ -6,7 +6,7 @@ from pydantic import ConfigDict, BaseModel
 class RunParams(BaseModel):
     workgroup: str
     db_name: str
-    table_name: Union[str, tuple[str, Optional[str], Optional[str]]]
+    table_name: Union[str, tuple[str, Optional[str]]]
     buildstock_type: Literal["resstock", "comstock"] = 'resstock'
     db_schema: Optional[str | dict] = None
     sample_weight_override: Optional[Union[int, float]] = None

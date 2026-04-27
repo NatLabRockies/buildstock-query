@@ -45,7 +45,7 @@ class BuildStockAggregate:
             raise ValueError("No timeseries table found in database.")
 
         ts = self._bsq.ts_table
-        base = self._bsq.bs_table
+        base = self._bsq.md_table.alias("bs")
         ucol = self._bsq._ts_upgrade_col
 
         # Push any user-supplied bs_restrict (e.g. comstock `state='CO'`) into the
@@ -61,7 +61,10 @@ class BuildStockAggregate:
             # Single-upgrade path: aggregate only the requested upgrade's ts rows.
             # Used for the baseline (upgrade_id="0") and for upgrade-only queries
             # that need neither savings nor baseline values, so no ts_b/ts_u
-            # pairing is required.
+            # pairing is required. Both bs_tbl and up_tbl resolve to ts because
+            # there's no separate upgrade source — but the metadata alias `base`
+            # is in the FROM, so callers that need the metadata key columns
+            # (e.g. count(distinct(md_key))) can reference base.c[k] directly.
             tbljoin = ts.join(
                 base,
                 sa.and_(
@@ -71,7 +74,7 @@ class BuildStockAggregate:
                     *bs_restrict_clauses,
                 ),
             )
-            return ts, ts, tbljoin, list(group_by)
+            return ts, ts, tbljoin, list(group_by), base
 
         if self._bsq.buildstock_type == "comstock":
             raise UnsupportedQueryShape(
@@ -143,35 +146,30 @@ class BuildStockAggregate:
                 ),
             )
 
-        return ts_b, ts_u, tbljoin, remapped_group_by
+        return ts_b, ts_u, tbljoin, remapped_group_by, base
 
     @validate_arguments
     def __get_annual_bs_up_table(self, upgrade_id: str, applied_only: bool | None):
+        bs = self._bsq.md_table.alias("bs")
         if upgrade_id == "0":
-            return self._bsq.bs_table, self._bsq.bs_table, self._bsq.bs_table
+            # Baseline-only path: no join. The caller filters to baseline rows
+            # via `_md_baseline_successful_condition` in the outer WHERE.
+            return bs, bs, bs
 
-        up_col = self._bsq._up_upgrade_col
+        up = self._bsq.md_table.alias("up")
+        up_col = up.c["upgrade"]
         up_id = typed_literal(up_col, upgrade_id)
+        join_cond = sa.and_(
+            self._bsq._baseline_upgrade_join_condition(bs, up),
+            up_col == up_id,
+            self._bsq._get_success_condition(up),
+        )
         if applied_only:
-            tbljoin = self._bsq.bs_table.join(
-                self._bsq.up_table,
-                sa.and_(
-                    self._bsq._baseline_upgrade_join_condition(),
-                    up_col == up_id,
-                    self._bsq._up_successful_condition,
-                ),
-            )
+            tbljoin = bs.join(up, join_cond)
         else:
-            tbljoin = self._bsq.bs_table.outerjoin(
-                self._bsq.up_table,
-                sa.and_(
-                    self._bsq._baseline_upgrade_join_condition(),
-                    up_col == up_id,
-                    self._bsq._up_successful_condition,
-                ),
-            )
+            tbljoin = bs.outerjoin(up, join_cond)
 
-        return self._bsq.bs_table, self._bsq.up_table, tbljoin
+        return bs, up, tbljoin
 
     @validate_arguments
     def get_building_average_kws_at(
@@ -294,11 +292,12 @@ class BuildStockAggregate:
         bs_restrict_clauses = self._bsq._get_restrict_clauses(bs_restrict_split, annual_only=True)
         ts_restrict_clauses = self._bsq._get_restrict_clauses(ts_restrict_split, annual_only=False)
 
+        bs = self._bsq.md_table.alias("bs")
         query = sa.select(*ts_key_cols + grouping_metrics_selection + enduse_selection)
         query = query.join(
-            self._bsq.bs_table,
+            bs,
             sa.and_(
-                self._bsq._baseline_timeseries_join_condition(),
+                self._bsq._baseline_timeseries_join_condition(bs, ts),
                 ucol == typed_literal(ucol, upgrade_str),
                 *bs_restrict_clauses,
                 *ts_restrict_clauses,
@@ -367,16 +366,15 @@ class BuildStockAggregate:
             annual_only=params.annual_only,
             upgrade_id=upgrade_id,
         )
-        # On TS paths, `applied_only=True` must filter the surviving bs_keys to
-        # buildings where the upgrade applied — the annual flow does this via an
-        # up_table join carrying `applicability=true`, but the TS flow has no
-        # such join in the single-upgrade or upgrade-pair shapes. Synthesize an
-        # `applied_in=[upgrade_id]` to ride the existing `_get_applied_in_subquery`
-        # machinery (which already enforces `_up_successful_condition`). On
-        # OEDI-style schemas with `inapplicables_have_ts=true`, omitting this
-        # filter silently inflates totals across all `applied_only=True` TS
-        # queries; on classic schemas the inapplicable rows aren't in the TS
-        # table, so the filter is a no-op rather than wrong.
+        # On TS paths, `applied_only=True` must filter the surviving md_keys to
+        # buildings where the upgrade applied — the annual flow does this via the
+        # md self-join on (bs.bldg_id = up.bldg_id AND up.applicability=true), but
+        # the TS flow has no such join in the single-upgrade or upgrade-pair shapes.
+        # Synthesize an `applied_in=[upgrade_id]` to ride the existing
+        # `_get_applied_in_subquery` machinery (which enforces
+        # `_md_successful_condition` on the upgrade rows). Without this filter,
+        # inapplicable buildings (which have TS rows under inapplicables_have_ts)
+        # would silently inflate totals across all `applied_only=True` TS queries.
         effective_applied_in = params.applied_in
         if (
             not params.annual_only
@@ -413,6 +411,7 @@ class BuildStockAggregate:
 
         if params.annual_only:
             bs_tbl, up_tbl, tbljoin = self.__get_annual_bs_up_table(upgrade_id, params.applied_only)
+            md_alias = bs_tbl  # annual: bs_tbl IS the metadata-side handle
             extra_restrict: list = []
         else:
             bs_restrict, ts_restrict, extra_restrict = self._bsq._split_restrict(bs_restrict)
@@ -426,7 +425,7 @@ class BuildStockAggregate:
                 and not params.include_savings
                 and not params.include_baseline
             )
-            bs_tbl, up_tbl, tbljoin, group_by_selection = self.__get_timeseries_bs_up_table(
+            bs_tbl, up_tbl, tbljoin, group_by_selection, md_alias = self.__get_timeseries_bs_up_table(
                 enduse_cols, upgrade_id, params.applied_only, ts_restrict,
                 bs_restrict=bs_restrict, group_by=group_by_selection,
                 upgrade_only=upgrade_only,
@@ -543,21 +542,21 @@ class BuildStockAggregate:
             # integrity check in report.check_ts_bs_integrity is the appropriate
             # place to spend that scan; here we trust the cadence and let Athena
             # compute counts in one pass.
-            bs_key_cols = [self._bsq.bs_table.c[k] for k in self._bsq.bs_key]
-            distinct_bs_keys = self._bsq._count_distinct(bs_key_cols)
+            md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
+            distinct_md_keys = self._bsq._count_distinct(md_key_cols)
             grouping_metrics_selection = [
-                distinct_bs_keys.label("sample_count"),
-                (distinct_bs_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
-                (safunc.sum(1) / distinct_bs_keys).label("rows_per_sample"),
+                distinct_md_keys.label("sample_count"),
+                (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
+                (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
             ]
         elif params.timestamp_grouping_func:
             colname = self._bsq.timestamp_column_name
-            bs_key_cols = [self._bsq.bs_table.c[k] for k in self._bsq.bs_key]
-            distinct_bs_keys = self._bsq._count_distinct(bs_key_cols)
+            md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
+            distinct_md_keys = self._bsq._count_distinct(md_key_cols)
             grouping_metrics_selection = [
-                distinct_bs_keys.label("sample_count"),
-                (distinct_bs_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
-                (safunc.sum(1) / distinct_bs_keys).label("rows_per_sample"),
+                distinct_md_keys.label("sample_count"),
+                (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
+                (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
             ]
             sim_info = self._bsq._get_simulation_info()
             time_col = bs_tbl.c[self._bsq.timestamp_column_name]
@@ -581,7 +580,15 @@ class BuildStockAggregate:
         query = sa.select(*query_cols).select_from(tbljoin)
         query = self._bsq._add_join(query, params.join_list)
         if params.annual_only:
-            query = query.where(self._bsq._bs_successful_condition)
+            # Successful baseline rows on the bs alias that's in the FROM. For
+            # upgrade-pair queries the join's ON already enforces bs.upgrade=0
+            # — Trino dedupes the duplicate predicate at planning time.
+            query = query.where(
+                sa.and_(
+                    self._bsq._get_success_condition(bs_tbl),
+                    self._bsq._upgrade_zero_filter(bs_tbl),
+                )
+            )
         query = self._bsq._add_restrict(query, bs_restrict, annual_only=params.annual_only)
         # Restricts on join_list tables (e.g. utility eiaid_weights.eiaid) didn't
         # land on bs or ts — they go to the outer WHERE after _add_join has

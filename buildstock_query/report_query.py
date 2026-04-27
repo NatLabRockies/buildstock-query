@@ -55,8 +55,8 @@ class BuildStockReport:
     def _get_bs_success_report(self, get_query_only: bool) -> Union[DataFrame, str]: ...
 
     def _get_bs_success_report(self, get_query_only: bool = False):
-        bs_query = sa.select(*[self._bsq._bs_completed_status_col, safunc.count().label("count")])
-        bs_query = bs_query.where(self._bsq._bs_upgrade_filter())
+        bs_query = sa.select(*[self._bsq._md_completed_status_col, safunc.count().label("count")])
+        bs_query = bs_query.where(self._bsq._md_baseline_filter())
         bs_query = bs_query.group_by(sa.text("1"))
         if get_query_only:
             return self._bsq._compile(bs_query)
@@ -82,18 +82,18 @@ class BuildStockReport:
         """
         queries: list[str] = []
         chng_types = ["no-chng", "bad-chng", "ok-chng", "true-bad-chng", "true-ok-chng", "null", "any"]
-        # Exclude baseline rows from the up alias — they would self-compare with
-        # the bs side and inflate the no-change bucket.
-        up_col = self._bsq.up_table.c["upgrade"]
+        bs = self._bsq.md_table.alias("bs")
+        up = self._bsq.md_table.alias("up")
+        up_col = up.c["upgrade"]
         up_not_baseline = up_col != typed_literal(up_col, "0")
         for ch_type in chng_types:
-            up_query = sa.select(*[self._bsq.up_table.c["upgrade"], safunc.count().label("change")])
-            up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
-            conditions = self._get_change_conditions(change_type=ch_type)
+            up_query = sa.select(*[up.c["upgrade"], safunc.count().label("change")])
+            up_query = up_query.join(bs, self._bsq._baseline_upgrade_join_condition(bs, up))
+            conditions = self._get_change_conditions(change_type=ch_type, bs_alias=bs, up_alias=up)
             up_query = up_query.where(
                 sa.and_(
-                    self._bsq._bs_successful_condition,
-                    self._bsq._up_successful_condition,
+                    self._bsq._get_success_condition(bs),
+                    self._bsq._get_success_condition(up),
                     up_not_baseline,
                     conditions,
                 )
@@ -151,34 +151,34 @@ class BuildStockReport:
     def _get_upgrade_buildings(
         self, *, upgrade_id: Union[int, str], trim_missing_bs: bool = True, get_query_only: bool = False
     ):
-        up_key_cols = self._bsq.up_key_cols
+        up = self._bsq.md_table.alias("up")
+        up_key_cols = [up.c[k] for k in self._bsq.md_key]
+        up_col = up.c["upgrade"]
+        up_id = typed_literal(up_col, upgrade_id)
         up_query = sa.select(*up_key_cols)
         if trim_missing_bs:
-            up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
-            up_col = self._bsq.up_table.c["upgrade"]
-            up_id = typed_literal(up_col, upgrade_id)
+            bs = self._bsq.md_table.alias("bs")
+            up_query = up_query.join(bs, self._bsq._baseline_upgrade_join_condition(bs, up))
             up_query = up_query.where(
                 sa.and_(
-                    self._bsq._bs_successful_condition,
-                    self._bsq._up_successful_condition,
+                    self._bsq._get_success_condition(bs),
+                    self._bsq._get_success_condition(up),
                     up_col == up_id,
                 )
             )
         else:
-            up_col = self._bsq.up_table.c["upgrade"]
-            up_id = typed_literal(up_col, upgrade_id)
             up_query = up_query.where(
-                sa.and_(up_col == up_id, self._bsq._up_successful_condition)
+                sa.and_(up_col == up_id, self._bsq._get_success_condition(up))
             )
         if get_query_only:
             return self._bsq._compile(up_query)
         df = self._bsq.execute(up_query)
-        return self._rows_as_keys(df, self._bsq.up_key)
+        return self._rows_as_keys(df, self._bsq.md_key)
 
-    def _get_change_conditions(self, change_type: str):
+    def _get_change_conditions(self, change_type: str, *, bs_alias, up_alias):
         threshold = 1e-3
         fuel_cols = list(
-            c for c in self._bsq.db_schema.column_names.fuel_totals if c in self._bsq.up_table.columns
+            c for c in self._bsq.db_schema.column_names.fuel_totals if c in up_alias.c
         )  # Look at all fuel type totals
         all_cols = list(fuel_cols)
         if self._bsq.db_schema.column_names.unmet_hours_cooling_hr:
@@ -187,33 +187,33 @@ class BuildStockReport:
             all_cols += [self._bsq.db_schema.column_names.unmet_hours_heating_hr]
         null_chng_conditions = sa.and_(
             *[
-                sa.or_(self._bsq.up_table.c[col] == sa.null(), self._bsq.bs_table.c[col] == sa.null())
+                sa.or_(up_alias.c[col] == sa.null(), bs_alias.c[col] == sa.null())
                 for col in fuel_cols
             ]
         )
 
         no_chng_conditions = sa.and_(
             *[
-                safunc.coalesce(safunc.abs(self._bsq.up_table.c[col] - self._bsq.bs_table.c[col]), 0) < threshold
+                safunc.coalesce(safunc.abs(up_alias.c[col] - bs_alias.c[col]), 0) < threshold
                 for col in fuel_cols
             ]
         )
         good_chng_conditions = sa.or_(
-            *[self._bsq.bs_table.c[col] - self._bsq.up_table.c[col] >= threshold for col in fuel_cols]
+            *[bs_alias.c[col] - up_alias.c[col] >= threshold for col in fuel_cols]
         )
         opp_chng_conditions = sa.and_(
             *[
-                safunc.coalesce(self._bsq.bs_table.c[col] - self._bsq.up_table.c[col], -1) < threshold
+                safunc.coalesce(bs_alias.c[col] - up_alias.c[col], -1) < threshold
                 for col in fuel_cols
             ],
             sa.not_(no_chng_conditions),
         )
         true_good_chng_conditions = sa.or_(
-            *[self._bsq.bs_table.c[col] - self._bsq.up_table.c[col] >= threshold for col in all_cols]
+            *[bs_alias.c[col] - up_alias.c[col] >= threshold for col in all_cols]
         )
         true_opp_chng_conditions = sa.and_(
             *[
-                safunc.coalesce(self._bsq.bs_table.c[col] - self._bsq.up_table.c[col], -1) < threshold
+                safunc.coalesce(bs_alias.c[col] - up_alias.c[col], -1) < threshold
                 for col in all_cols
             ],
             sa.not_(no_chng_conditions),
@@ -279,20 +279,23 @@ class BuildStockReport:
         ] = "no-chng",
         get_query_only: bool = False,
     ):
-        bs_key_cols = self._bsq.bs_key_cols
+        bs = self._bsq.md_table.alias("bs")
+        up = self._bsq.md_table.alias("up")
+        bs_key_cols = [bs.c[k] for k in self._bsq.md_key]
+        completed_status = self._bsq.db_schema.column_names.completed_status
         up_query = sa.select(
             *bs_key_cols,
-            self._bsq._bs_completed_status_col,
-            self._bsq._up_completed_status_col,
+            bs.c[completed_status],
+            up.c[completed_status],
         )
-        up_query = up_query.join(self._bsq.up_table, self._bsq._baseline_upgrade_join_condition())
+        up_query = up_query.join(up, self._bsq._baseline_upgrade_join_condition(bs, up))
 
-        conditions = self._get_change_conditions(change_type)
-        up_col = self._bsq.up_table.c["upgrade"]
+        conditions = self._get_change_conditions(change_type, bs_alias=bs, up_alias=up)
+        up_col = up.c["upgrade"]
         up_query = up_query.where(
             sa.and_(
-                self._bsq._bs_successful_condition,
-                self._bsq._up_successful_condition,
+                self._bsq._get_success_condition(bs),
+                self._bsq._get_success_condition(up),
                 up_col == typed_literal(up_col, upgrade_id),
                 conditions,
             )
@@ -300,7 +303,7 @@ class BuildStockReport:
         if get_query_only:
             return self._bsq._compile(up_query)
         df = self._bsq.execute(up_query)
-        return self._rows_as_keys(df, self._bsq.bs_key)
+        return self._rows_as_keys(df, self._bsq.md_key)
 
     @typing.overload
     def _get_up_success_report(self, *, get_query_only: Literal[True], trim_missing_bs: bool = True) -> str: ...
@@ -326,16 +329,19 @@ class BuildStockReport:
         Returns:
             Union[str, pd.DataFrame]: If get_query_only then returns the query string. Otherwise returns the dataframe.
         """
-        up_col = self._bsq.up_table.c["upgrade"]
+        up = self._bsq.md_table.alias("up")
+        up_col = up.c["upgrade"]
+        completed_status = self._bsq.db_schema.column_names.completed_status
         up_query = sa.select(
-            *[up_col, self._bsq._up_completed_status_col, safunc.count().label("count")]
+            *[up_col, up.c[completed_status], safunc.count().label("count")]
         )
-        # Exclude baseline rows from the up alias — they're "the baseline" not
-        # "an upgrade success", so they don't belong in the per-upgrade report.
-        up_query = up_query.where(up_col != typed_literal(up_col, "0"))
+        # Exclude baseline rows — they're "the baseline" not "an upgrade
+        # success", so they don't belong in the per-upgrade report.
+        up_query = up_query.select_from(up).where(up_col != typed_literal(up_col, "0"))
         if trim_missing_bs:
-            up_query = up_query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
-            up_query = up_query.where(self._bsq._bs_successful_condition)
+            bs = self._bsq.md_table.alias("bs")
+            up_query = up_query.join(bs, self._bsq._baseline_upgrade_join_condition(bs, up))
+            up_query = up_query.where(self._bsq._get_success_condition(bs))
 
         up_query = up_query.group_by(sa.text("1"), sa.text("2"))
         up_query = up_query.order_by(sa.text("1"), sa.text("2"))
@@ -368,17 +374,18 @@ class BuildStockReport:
     def _get_full_options_report(self, *, trim_missing_bs: bool, get_query_only: bool) -> Union[pd.DataFrame, str]: ...
 
     def _get_full_options_report(self, trim_missing_bs: bool = True, get_query_only: bool = False):
+        up = self._bsq.md_table.alias("up")
         opt_name_cols = [
             c
-            for c in self._bsq.up_table.columns
+            for c in up.c
             if c.name.startswith("upgrade_costs.option_") and c.name.endswith("name")
         ]
-        up_key_cols = self._bsq.up_key_cols
+        up_key_cols = [up.c[k] for k in self._bsq.md_key]
         if len(up_key_cols) == 1:
             applied_agg = safunc.array_agg(up_key_cols[0])
         else:
             applied_agg = safunc.array_agg(sa.func.row(*up_key_cols))
-        up_col = self._bsq.up_table.c["upgrade"]
+        up_col = up.c["upgrade"]
         query = sa.select(
             *[up_col,
               *opt_name_cols,
@@ -386,10 +393,11 @@ class BuildStockReport:
               applied_agg]
         )
         # Exclude baseline rows — option names only make sense for actual upgrades.
-        query = query.where(up_col != typed_literal(up_col, "0"))
+        query = query.select_from(up).where(up_col != typed_literal(up_col, "0"))
         if trim_missing_bs:
-            query = query.join(self._bsq.bs_table, self._bsq._baseline_upgrade_join_condition())
-            query = query.where(self._bsq._bs_successful_condition)
+            bs = self._bsq.md_table.alias("bs")
+            query = query.join(bs, self._bsq._baseline_upgrade_join_condition(bs, up))
+            query = query.where(self._bsq._get_success_condition(bs))
         grouping_texts = [sa.text(str(i + 1)) for i in range(1 + len(opt_name_cols))]
         query = query.group_by(*grouping_texts)
         query = query.order_by(*grouping_texts)
@@ -688,47 +696,38 @@ class BuildStockReport:
 
     def _get_metadata_distinct_bldg_count(self) -> dict[str, int]:
         """Distinct count over the *timeseries* unique-key columns, computed on the
-        baseline/upgrade tables. Uses ts_key (not bs_key) so the count is comparable
+        unified metadata table. Uses ts_key (not md_key) so the count is comparable
         to the timeseries-side count: when metadata has more key columns than
-        timeseries (e.g. baseline fanned out by tract, timeseries by state), counting
-        on bs_key would over-count. ts_key ⊆ bs_key is enforced by the schema model.
+        timeseries (e.g. metadata fanned out by tract, timeseries by state), counting
+        on md_key would over-count. ts_key ⊆ md_key is enforced by the schema model.
         """
         bsq = self._bsq
-        bs_ts_key_cols = [bsq.bs_table.c[c] for c in bsq.ts_key]
-        distinct_expr = bsq._count_distinct(bs_ts_key_cols)
+        md = bsq.md_table
+        ts_key_cols = [md.c[c] for c in bsq.ts_key]
+        distinct_expr = bsq._count_distinct(ts_key_cols)
+        upgrade_col = md.c["upgrade"]
 
         # The unified annual_and_metadata table carries TS-eligible rows for
         # both successful and inapplicable buildings (inapplicables_have_ts is
-        # assumed True for every supported schema). We count both.
-        inapplicable_val = bsq.db_schema.completion_values.inapplicable
-        bs_status_col = bsq._bs_completed_status_col
-        bs_where = sa.and_(
-            bsq._bs_upgrade_filter(),
-            sa.or_(
-                bs_status_col == typed_literal(bs_status_col, bsq.db_schema.completion_values.success),
-                bs_status_col == typed_literal(bs_status_col, inapplicable_val),
-            ),
+        # assumed True for every supported schema). Count both.
+        status_col = bsq._md_completed_status_col
+        success_or_inapplicable = sa.or_(
+            status_col == typed_literal(status_col, bsq.db_schema.completion_values.success),
+            status_col == typed_literal(status_col, bsq.db_schema.completion_values.inapplicable),
         )
-        baseline_query = sa.select(sa.literal("0").label("upgrade"), distinct_expr.label("count")).where(bs_where)
+
+        baseline_query = sa.select(
+            sa.literal("0").label("upgrade"), distinct_expr.label("count"),
+        ).where(sa.and_(bsq._md_baseline_filter(), success_or_inapplicable))
         counts: dict[str, int] = {"0": int(bsq.execute(baseline_query)["count"].iloc[0])}
 
-        up_ts_key_cols = [bsq.up_table.c[c] for c in bsq.ts_key]
-        up_distinct_expr = bsq._count_distinct(up_ts_key_cols)
-        up_status_col = bsq._up_completed_status_col
-        # Up side: exclude upgrade=0 (those are baseline rows on the unified
-        # table, already counted above) and include both successful and
-        # inapplicable rows for each upgrade.
-        up_where = sa.and_(
-            bsq.up_table.c["upgrade"] != typed_literal(bsq.up_table.c["upgrade"], "0"),
-            sa.or_(
-                up_status_col == typed_literal(up_status_col, bsq.db_schema.completion_values.success),
-                up_status_col == typed_literal(up_status_col, inapplicable_val),
-            ),
-        )
         up_query = (
-            sa.select(bsq.up_table.c["upgrade"].label("upgrade"), up_distinct_expr.label("count"))
-            .where(up_where)
-            .group_by(bsq.up_table.c["upgrade"])
+            sa.select(upgrade_col.label("upgrade"), distinct_expr.label("count"))
+            .where(sa.and_(
+                upgrade_col != typed_literal(upgrade_col, "0"),
+                success_or_inapplicable,
+            ))
+            .group_by(upgrade_col)
         )
         up_df = bsq.execute(up_query)
         for _, row in up_df.iterrows():
@@ -780,12 +779,12 @@ class BuildStockReport:
             print_g("Baseline/upgrade and timeseries tables have matching distinct building counts.")
 
         # duplicate checks on the unified annual_and_metadata table. Baseline-side
-        # check filters to upgrade=0 since bs_table is just an alias over md_table.
-        # Upgrade-side check uses (key + upgrade) as the unique key so each
-        # upgrade's rows are validated separately against duplicates.
+        # check filters to upgrade=0. Upgrade-side check adds the upgrade column
+        # to the unique key so each upgrade's rows are validated separately.
+        md = bsq.md_table
         small_dup_specs: list[tuple[str, sa.Table, list[sa.Column], sa.ColumnElement | None]] = [
-            ("baseline", bsq.bs_table, bsq.bs_key_cols, bsq._bs_upgrade_filter()),
-            ("upgrade", bsq.up_table, bsq.up_key_cols + [bsq.up_table.c["upgrade"]], None),
+            ("baseline", md, bsq.md_key_cols, bsq._md_baseline_filter()),
+            ("upgrade", md, bsq.md_key_cols + [md.c["upgrade"]], None),
         ]
 
         for label, tbl, key_cols, where in small_dup_specs:
@@ -828,15 +827,14 @@ class BuildStockReport:
         """
         # Restrict to baseline rows on the unified annual_and_metadata table,
         # else the count would multiply by num_upgrades.
-        query = sa.select(safunc.count().label("count")).where(self._bsq._bs_upgrade_filter())
+        query = sa.select(safunc.count().label("count")).where(self._bsq._md_baseline_filter())
 
         restrict = list(restrict) if restrict else []
         restrict.insert(
             0, (self._bsq.db_schema.column_names.completed_status, [self._bsq.db_schema.completion_values.success])
         )
-        # `annual_only=True` here restricts column resolution to the baseline
-        # and upgrade tables, skipping the TS table — appropriate since this is
-        # a metadata-only count.
+        # `annual_only=True` restricts column resolution to md_table only,
+        # skipping the TS table — appropriate for a metadata-only count.
         query = self._bsq._add_restrict(query, restrict, annual_only=True)
         if get_query_only:
             return self._bsq._compile(query)

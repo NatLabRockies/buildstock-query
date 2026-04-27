@@ -135,7 +135,7 @@ class VizData:
             run_obj = self.run_obj(upgrade)
             monthly_vals = run_obj.query(
                 enduses=ts_cols,
-                group_by=[run_obj.bs_bldgid_column],
+                group_by=[run_obj.md_bldgid_column],
                 upgrade_id=upgrade,
                 annual_only=False,
                 timestamp_grouping_func='month',

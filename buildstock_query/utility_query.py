@@ -76,7 +76,7 @@ class BuildStockUtility:
     ):
         new_table = self._bsq._get_table(map_table_name)
         new_column = self._bsq._get_column(map_column_name, candidate_tables=[new_table])
-        baseline_column = self._bsq._get_column(baseline_column_name, candidate_tables=[self._bsq.bs_table])
+        baseline_column = self._bsq._get_column(baseline_column_name, candidate_tables=[self._bsq.md_table])
         params.group_by = [new_table.c[id_column], *params.group_by]
         params.weights = [*params.weights, new_table.c["weight"]]
         params.join_list = [(new_table, baseline_column, new_column), *params.join_list]
@@ -256,7 +256,7 @@ class BuildStockUtility:
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
         eiaid_map_table_name, map_baseline_column, map_eiaid_column = self.get_eiaid_map()
-        query = sa.select("*").select_from(self._bsq.bs_table).where(self._bsq._bs_upgrade_filter())
+        query = sa.select("*").select_from(self._bsq.md_table).where(self._bsq._md_baseline_filter())
         query = self._bsq._add_join(query, [(eiaid_map_table_name, map_baseline_column, map_eiaid_column)])
         query = self._bsq._add_restrict(query, [(self._bsq._get_column("eiaid", [eiaid_map_table_name]), eiaids)])
         query = query.where(self._bsq._get_column("weight", [eiaid_map_table_name]) > 0)
@@ -321,7 +321,7 @@ class BuildStockUtility:
 
         """
         eiaid_map_table_name, map_baseline_column, map_eiaid_column = self.get_eiaid_map()
-        query = sa.select(*[self._bsq.bs_bldgid_column.distinct()])
+        query = sa.select(*[self._bsq.md_bldgid_column.distinct()])
         query = self._bsq._add_join(query, [(eiaid_map_table_name, map_baseline_column, map_eiaid_column)])
         query = self._bsq._add_restrict(query, [(self._bsq._get_column("eiaid", [eiaid_map_table_name]), eiaids)])
         query = query.where(self._bsq._get_column("weight", [eiaid_map_table_name]) > 0)

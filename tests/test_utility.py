@@ -759,7 +759,81 @@ def evaluate_entries(
             SESSION_TOTALS["passed"] += 1
         else:
             SESSION_TOTALS["failed"] += 1
+
+    # Regenerate the per-(flavor, schema) example notebook when warranted:
+    # - the notebook file is missing, OR
+    # - any entry just had its data refreshed (`outcome.updated`), OR
+    # - --update-snapshot / --overwrite-snapshot was passed (data was just
+    #   reverified, even if no entries needed writethrough).
+    _maybe_regenerate_notebook(
+        entries, outcomes,
+        update_snapshot=update_snapshot, overwrite_snapshot=overwrite_snapshot,
+    )
+
     return outcomes
+
+
+def _maybe_regenerate_notebook(
+    entries: list,
+    outcomes: list,
+    *,
+    update_snapshot: bool,
+    overwrite_snapshot: bool,
+) -> None:
+    """Regenerate the per-(flavor, schema) example notebook if warranted.
+
+    The trigger is intentionally aligned with `--update-snapshot` (data was
+    just verified fresh, so embedded previews should reflect it) and with
+    "any update happened" (writethrough fired) and with "notebook is missing"
+    (first time anyone runs the suite). Otherwise we leave the file alone so
+    routine test runs produce no diff.
+    """
+    if not entries:
+        return
+    from tests.example_notebook_builder import (
+        notebook_path_for_flavor, write_notebook_for_flavor,
+        _SCHEMA_CONSTRUCTOR,
+    )
+
+    schema = entries[0].schema
+    if schema not in _SCHEMA_CONSTRUCTOR:
+        return  # unknown schema — skip silently
+    source_path = entries[0].source_path
+    flavor = source_path.stem
+
+    nb_path = notebook_path_for_flavor(
+        schema=schema, flavor=flavor, snapshots_root=SNAPSHOTS_ROOT,
+    )
+    any_updated = any(o.updated for o in outcomes)
+    needs_regen = (
+        not nb_path.exists()
+        or any_updated
+        or update_snapshot
+        or overwrite_snapshot
+    )
+    if not needs_regen:
+        return
+
+    # Collect a result df per entry. Prefer the just-executed `_actual_df`;
+    # fall back to reading the stored parquet so cells without a fresh
+    # execution still show their last-known result.
+    results: dict[str, pd.DataFrame | None] = {}
+    for outcome in outcomes:
+        df = getattr(outcome, "_actual_df", None)
+        if df is None:
+            stored = outcome.entry.stored_parquet_path
+            if stored is not None and stored.exists():
+                try:
+                    df = pd.read_parquet(stored)
+                except Exception:
+                    df = None
+        results[outcome.entry.name] = df
+
+    written = write_notebook_for_flavor(
+        schema=schema, flavor=flavor, entries=entries,
+        results_by_name=results, snapshots_root=SNAPSHOTS_ROOT,
+    )
+    _log(f"[notebook] wrote {written.relative_to(SNAPSHOTS_ROOT.parent)}")
 
 
 def resolve_update_flags(config) -> tuple[bool, bool]:

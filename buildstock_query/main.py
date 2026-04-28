@@ -1,6 +1,5 @@
 import sqlalchemy as sa
 from sqlalchemy.sql import func as safunc
-from sqlalchemy.sql import sqltypes
 from typing import Union
 from collections.abc import Sequence
 import logging
@@ -19,7 +18,6 @@ from buildstock_query.schema.utilities import validate_arguments, typed_literal
 from buildstock_query.schema.utilities import MappedColumn
 from buildstock_query.schema.query_params import Query
 
-import os
 import pathlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass

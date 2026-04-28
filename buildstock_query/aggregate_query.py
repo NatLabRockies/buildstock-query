@@ -53,7 +53,6 @@ class BuildStockAggregate:
 
         ts = self._bsq.ts_table
         base = self._bsq.bs_table  # canonical alias of md_table
-        ucol = self._bsq._ts_upgrade_col
 
         # Push any user-supplied bs_restrict (e.g. comstock `state='CO'`) into the
         # inner ts ⋈ bs join condition. Without this, Athena scans the full metadata
@@ -144,6 +143,7 @@ class BuildStockAggregate:
         def _classify(expr):
             target = expr.element if isinstance(expr, SALabel) else expr
             ts_refs, bs_refs = [], []
+
             def _visit(elem):
                 if isinstance(elem, sa.Column):
                     t = getattr(elem, "table", None)
@@ -936,7 +936,8 @@ class BuildStockAggregate:
             else:
                 sim_info = self._bsq._get_simulation_info()
                 if sim_info.offset > 0:
-                    # If timestamps are not period beginning we should make them so for timestamp_grouping_func aggregation.
+                    # If timestamps are not period beginning we should make them so
+                    # for timestamp_grouping_func aggregation.
                     new_col = sa.func.date_trunc(
                         params.timestamp_grouping_func, sa.func.date_add(sim_info.unit, -sim_info.offset, time_col)
                     ).label(colname)

@@ -814,26 +814,15 @@ def _maybe_regenerate_notebook(
     if not needs_regen:
         return
 
-    # Collect a result df per entry. Prefer the just-executed `_actual_df`;
-    # fall back to reading the stored parquet so cells without a fresh
-    # execution still show their last-known result.
-    results: dict[str, pd.DataFrame | None] = {}
-    for outcome in outcomes:
-        df = getattr(outcome, "_actual_df", None)
-        if df is None:
-            stored = outcome.entry.stored_parquet_path
-            if stored is not None and stored.exists():
-                try:
-                    df = pd.read_parquet(stored)
-                except Exception:
-                    df = None
-        results[outcome.entry.name] = df
-
+    # Render the notebook and run it through nbclient. The notebook's
+    # constructor cell wires `cache_folder` to the snapshot test cache, so
+    # query cells return cached results without paying for a fresh Athena
+    # scan during regen.
     written = write_notebook_for_flavor(
         schema=schema, flavor=flavor, entries=entries,
-        results_by_name=results, snapshots_root=SNAPSHOTS_ROOT,
+        snapshots_root=SNAPSHOTS_ROOT,
     )
-    _log(f"[notebook] wrote {written.relative_to(SNAPSHOTS_ROOT.parent)}")
+    _log(f"[notebook] wrote and executed {written.relative_to(SNAPSHOTS_ROOT.parent)}")
 
 
 def resolve_update_flags(config) -> tuple[bool, bool]:

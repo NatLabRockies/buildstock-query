@@ -32,6 +32,24 @@ import pandas as pd
 
 NOTEBOOKS_ROOT_NAME = "example_notebooks"
 
+# Methods whose cells we COMMENT OUT during regen instead of letting
+# nbclient execute them. These fan out to multiple internal Athena
+# queries that the snapshot cache only partially covers (it stores the
+# OUTER call's hash, not the inner per-upgrade probes). Determined by
+# reading each method's body — only methods that issue more than one
+# Athena query (loops, batch_query, multiple internal `_get_*` helpers
+# that themselves fire queries) appear here.
+#
+# Cross-reference for adding new entries: in the method's source, look
+# for `submit_batch_query`, multiple `self.execute(...)` calls, or
+# loops over `available_upgrades`. Single-execute methods are safe.
+_NO_EXECUTE_METHODS = frozenset({
+    "report.get_success_report",       # _get_bs/_get_up/_get_change_report
+                                       #   each fan out per-upgrade
+    "report.check_ts_bs_integrity",    # one count-distinct per upgrade
+    "agg.get_building_average_kws_at", # 3.2 TB landmine (see CLAUDE.md)
+})
+
 
 # Per-schema constructor knobs. Mirrors `tests/conftest.py:bsq_<schema>_oedi`
 # so the notebook builds the same BuildStockQuery the test fixture did.
@@ -79,23 +97,31 @@ def _code_cell(source: str, outputs: list[dict] | None = None) -> dict:
     }
 
 
-def _df_preview_output(df: pd.DataFrame, *, max_rows: int = 5) -> list[dict]:
-    """Render a small head() of the result as a stream-text output. We use
-    plain text (not text/html) so the diff is human-readable and stable."""
-    if df is None:
-        return []
-    if not isinstance(df, pd.DataFrame):
-        # Defensive: shouldn't happen because evaluate_entries normalizes.
-        df = pd.DataFrame(df)
-    head = df.head(max_rows)
-    text = f"# shape: {df.shape}\n{head.to_string(index=False)}\n"
-    return [
-        {
-            "output_type": "stream",
-            "name": "stdout",
-            "text": text.splitlines(keepends=True),
-        }
-    ]
+def _execute_notebook_in_place(path: Path) -> None:
+    """Run all cells in `path` via nbclient and write the result back.
+
+    This populates outputs with whatever Jupyter would naturally produce
+    (DataFrame HTML tables, log streams, etc.). Running the notebook in
+    place means the saved file IS the runnable artifact AND the source of
+    truth for what the demo currently outputs.
+
+    `allow_errors=True` so a single bad cell (e.g. one rendered with an
+    unrecoverable `<MappedColumn ...>` placeholder) doesn't abort the whole
+    notebook — error output gets embedded in the cell, the rest still run.
+    """
+    import nbformat
+    from nbclient import NotebookClient
+
+    nb = nbformat.read(path, as_version=4)
+    # Run from the notebook's directory so its `_dh[0]`-based cache path
+    # resolves to the sibling `tests/query_snapshots/` tree.
+    client = NotebookClient(
+        nb, timeout=300, kernel_name="python3",
+        resources={"metadata": {"path": str(path.parent)}},
+        allow_errors=True,
+    )
+    client.execute()
+    nbformat.write(nb, path)
 
 
 def _format_arg_value(v: Any) -> str:
@@ -106,6 +132,28 @@ def _format_arg_value(v: Any) -> str:
         return repr(v)
     cls = type(v).__name__
     return f"<{cls} ...>"
+
+
+def _has_unroundtrippable_placeholder(call_src: str) -> bool:
+    """Detect args rendered as object reprs that aren't valid Python. Two
+    sources:
+      - `_format_arg_value`'s fallback: literal `<ClassName ...>` token
+        (e.g. `<MappedColumn ...>`).
+      - `repr(list_with_SA)`: when an arg is a `list` (e.g.
+        `enduses=[label_obj]`), `_format_arg_value` returns `repr(v)` which
+        per-element calls `repr(SA_obj)`, producing strings like
+        `<sqlalchemy.sql.elements.Label at 0x...; name>` — also not valid
+        Python. Such cells can't run as written; the user must construct
+        the SA object inline."""
+    # Match three repr shapes that indicate an unrunnable arg:
+    #   - SA Label:   `<sqlalchemy.sql.elements.Label at 0x...; name>`
+    #   - object():   `<buildstock_query.main.BuildStockQuery object at 0x...>`
+    #   - fallback:   `<MappedColumn ...>` from _format_arg_value
+    # The common shape is "<dotted.Name ... at 0x..." or "<ClassName ...>".
+    import re
+    if re.search(r"\bat\s+0x[0-9A-Fa-f]+", call_src):
+        return True
+    return bool(re.search(r"<[A-Z][A-Za-z_]+\s\.\.\.>", call_src))
 
 
 def _render_call(method_path: str, args: Mapping[str, Any]) -> str:
@@ -124,7 +172,6 @@ def _build_notebook(
     schema: str,
     flavor: str,
     entries: Iterable,  # list[SnapshotEntry]
-    results_by_name: Mapping[str, pd.DataFrame | None],
 ) -> dict:
     """Build the notebook dict (Jupyter v4 format)."""
     knobs = _SCHEMA_CONSTRUCTOR[schema]
@@ -186,13 +233,38 @@ def _build_notebook(
         cells.append(_markdown_cell(header))
 
         call_src = _render_call(method_name, first_variant)
-        result_df = results_by_name.get(entry.name)
-        outputs = _df_preview_output(result_df) if result_df is not None else []
-        # Wrap with `result = <call>; result.head()` so the preview lines up
-        # with what we embed (head of returned df). When result is missing we
-        # still emit the call cell so users can run it interactively.
-        full_src = f"result = {call_src}\nresult.head() if hasattr(result, 'head') else result\n"
-        cells.append(_code_cell(full_src, outputs=outputs))
+        unsafe = method_name in _NO_EXECUTE_METHODS
+        not_roundtrippable = _has_unroundtrippable_placeholder(call_src)
+        if unsafe or not_roundtrippable:
+            # Comment-out cases:
+            #   - `unsafe`: this method fans out to internal queries that
+            #     aren't covered by the snapshot cache and would fire
+            #     fresh Athena scans during nbclient execution.
+            #   - `not_roundtrippable`: the call contains a `<Label ...>`
+            #     or `<MappedColumn ...>` placeholder because the arg
+            #     was an SA expression that couldn't be rendered as a
+            #     Python literal. The user must construct it inline.
+            commented = "\n".join("# " + line for line in call_src.splitlines())
+            if unsafe:
+                why = (
+                    f"# NOTE: cell intentionally not executed — `{method_name}` issues\n"
+                    f"# additional Athena queries beyond the snapshot test cache.\n"
+                    f"# Uncomment to run live (incurs scan cost):\n"
+                )
+            else:
+                why = (
+                    f"# NOTE: cell intentionally not executed — call contains a\n"
+                    f"# placeholder (`<Label ...>` or `<MappedColumn ...>`) that\n"
+                    f"# can't be auto-generated. To run, replace the placeholder\n"
+                    f"# with a live `bsq.get_calculated_column(...)` or\n"
+                    f"# `MappedColumn(...)` construction:\n"
+                )
+            full_src = f"{why}{commented}\n"
+        else:
+            # Cell ends with `result.head()` so Jupyter emits a DataFrame
+            # preview as the cell's `execute_result` when the notebook is run.
+            full_src = f"result = {call_src}\nresult.head() if hasattr(result, 'head') else result\n"
+        cells.append(_code_cell(full_src))
 
     return {
         "cells": cells,
@@ -210,25 +282,30 @@ def write_notebook_for_flavor(
     schema: str,
     flavor: str,
     entries: list,  # list[SnapshotEntry]
-    results_by_name: Mapping[str, pd.DataFrame | None],
     snapshots_root: Path,
+    execute: bool = True,
 ) -> Path:
-    """Render and write `tests/example_notebooks/<flavor>_<schema>.ipynb`."""
+    """Render and write `tests/example_notebooks/<flavor>_<schema>.ipynb`.
+
+    When `execute=True` (the default), the notebook is run through nbclient
+    after writing so its outputs reflect actual query results. Set False to
+    write source-only notebooks (faster regen, but cells appear "never run").
+    """
     if schema not in _SCHEMA_CONSTRUCTOR:
         raise ValueError(f"Unknown schema for notebook generation: {schema}")
     if not entries:
         # Don't write an empty notebook.
         return snapshots_root.parent / NOTEBOOKS_ROOT_NAME / f"{flavor}_{schema}.ipynb"
 
-    nb = _build_notebook(
-        schema=schema, flavor=flavor,
-        entries=entries, results_by_name=results_by_name,
-    )
+    nb = _build_notebook(schema=schema, flavor=flavor, entries=entries)
 
     out_dir = snapshots_root.parent / NOTEBOOKS_ROOT_NAME
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{flavor}_{schema}.ipynb"
     out_path.write_text(json.dumps(nb, indent=1, sort_keys=False) + "\n")
+
+    if execute:
+        _execute_notebook_in_place(out_path)
     return out_path
 
 

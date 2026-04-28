@@ -158,3 +158,57 @@ pytest -s -v tests/test_invariants.py
 
 Tolerance: `rtol=1e-3, atol=1.0` (looser than the snapshot data check because
 aggregate sums accumulate float error).
+
+## Cleaning up stale cache entries
+
+Each `<schema>_cache/` accumulates `<hash>.sql` / `<hash>.parquet` /
+`<hash>.json` triples over time. When SQL generation evolves, old hashes
+linger on disk even after their JSON entries point at new ones — the
+update path writes the new pair but doesn't always know the old hash is
+truly orphaned (the same hash might still be referenced by an invariant
+test that bypasses the snapshot JSONs).
+
+To resolve that ambiguity, `SqlCache` appends every read/write hash to
+`.cache_usage_log` inside its `cache_folder`. The log is **append-only**
+across BSQ constructions and pytest sessions, so multiple test runs
+(snapshot suite + invariants) pool their hashes into a single record of
+"what the test suite actually exercised". Truncate it explicitly when
+you want to start a fresh tracking window — usually right before the
+test runs you'll feed into cleanup.
+
+`tests/cleanup_stale_caches.py` combines the JSON-referenced hashes with
+the `.cache_usage_log` hashes to compute the set of cache files that are
+still needed; everything else is stale.
+
+```bash
+# Step 1 — start a fresh tracking window.
+python tests/cleanup_stale_caches.py --clear
+
+# Step 2 — run the test sessions that should populate the log. Order
+# doesn't matter; snapshot/invariants/etc. all append to the same log.
+pytest -s -v tests/test_query_snapshots.py --check-data
+pytest -s -v tests/test_invariants.py
+
+# Step 3a — dry-run report.
+python tests/cleanup_stale_caches.py
+# Step 3b — actually remove stale files.
+python tests/cleanup_stale_caches.py --delete
+```
+
+A wrapper script automates the whole flow:
+
+```bash
+# Clear → run snapshot+invariants → cleanup --delete.
+python tests/refresh_caches.py
+
+# Same, but report only (don't actually remove).
+python tests/refresh_caches.py -n
+```
+
+**When to run:** after a behavioral fix or SQL refactor that changed
+many hashes — those old `.parquet` files are megabyte-scale, so pruning
+them keeps the repo from bloating. Always run the **invariants** suite
+before cleanup, otherwise any cache entry that backs only an invariant
+(not a snapshot JSON entry) will be classified stale and deleted; the
+next invariants run will then have to re-execute those queries against
+Athena.

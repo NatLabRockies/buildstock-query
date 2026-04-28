@@ -1,1 +1,0 @@
-SELECT count(*) AS n FROM resstock_2024_amy2018_release_2_metadata WHERE upgrade=0 AND "in.state"='CO'

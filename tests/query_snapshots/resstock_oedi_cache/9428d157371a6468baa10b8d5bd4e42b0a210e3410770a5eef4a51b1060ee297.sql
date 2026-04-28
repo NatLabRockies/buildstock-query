@@ -1,1 +1,0 @@
-SELECT CAST(up.upgrade AS INTEGER) AS upgrade, CAST(NULL AS VARCHAR) AS upgrade_name FROM resstock_2024_amy2018_release_2_metadata AS up GROUP BY 1 ORDER BY 1

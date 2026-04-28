@@ -1,1 +1,0 @@
-SELECT applicability, count(*) as count FROM resstock_2024_amy2018_release_2_metadata WHERE upgrade=0 GROUP BY 1 LIMIT 10

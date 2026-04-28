@@ -1,1 +1,0 @@
-SELECT count(*) AS count FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.applicability = true AND bs."in.state" = 'CO'

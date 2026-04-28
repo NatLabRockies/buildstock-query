@@ -154,14 +154,12 @@ def _build_notebook(
     ))
 
     cells.append(_code_cell(
-        f'# Cache folder: resolve `tests/query_snapshots/{schema}_cache` regardless\n'
-        f'# of which directory Jupyter was launched from.\n'
-        f'_CANDIDATES = [\n'
-        f'    Path.cwd() / "tests/query_snapshots/{schema}_cache",            # repo root\n'
-        f'    Path.cwd() / "../query_snapshots/{schema}_cache",               # tests/example_notebooks/\n'
-        f'    Path.cwd() / "query_snapshots/{schema}_cache",                  # tests/\n'
-        f']\n'
-        f'_CACHE = next((p.resolve() for p in _CANDIDATES if p.exists()), _CANDIDATES[0].resolve())\n'
+        f'# This notebook lives in `tests/example_notebooks/`; the snapshot test\n'
+        f'# cache is its sibling `tests/query_snapshots/{schema}_cache/`. Resolve\n'
+        f'# the path relative to the notebook directory (`_dh[0]` is set by\n'
+        f'# IPython at kernel startup; falls back to CWD outside Jupyter).\n'
+        f'_NB_DIR = Path(_dh[0] if "_dh" in globals() else ".").resolve()\n'
+        f'_CACHE = (_NB_DIR / "../query_snapshots/{schema}_cache").resolve()\n'
         f'bsq = BuildStockQuery(\n'
         f'    "rescore",\n'
         f'    "buildstock_sdr",\n'

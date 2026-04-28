@@ -40,7 +40,7 @@
   {
     "name": "calculated_column_ts_pivot_with_baseline",
     "sql_hash": {
-      "resstock_oedi": "7c9426169d7fb7863282989eddb8bf3859f51486a4e7cc1821ace2ea266d091e",
+      "resstock_oedi": "8bebdba59c1e820cebbc239331c2c982edfb0d1d48ba8240593a4b72183d7d10",
       "comstock_oedi": "f5dc895e08d596da3191d1e419bb4cbb91458cdf29a05f019063e5bc9e084850"
     },
     "description": "TS calculated column on the pivot path with include_baseline=True + applied_only=True. This combination forces the pivot subquery (upgrade_only short-circuit only fires when both include_baseline and include_savings are False) AND exercises the applied_in synthesis path that filters to applicable buildings. Together with the upgrade_pair entry above, these two pin both branches of the TS pivot's calculated-column handling.",

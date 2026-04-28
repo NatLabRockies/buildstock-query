@@ -30,8 +30,8 @@
   {
     "name": "ts_monthly_two_fuels_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "594d2f09a5253504899775731e1d794a862a7dd558d92e614d9835b6bcd86f3b",
-      "comstock_oedi": "2ac56e5a42621df4b1640f5c8e5e44c12b7170ea2f4ccf8c46acb18a402d16aa"
+      "resstock_oedi": "f7652a19a42889ec0ad977b38e0970417c60bc8804eff771ca139d6f9973f171",
+      "comstock_oedi": "effff253ec3695b6453b912f9ed6e4843de35e2644a6e719123e1ec2fb9f0216"
     },
     "description": "Monthly electricity + natural gas grouped by building type and time, CO only.",
     "args": {
@@ -58,8 +58,8 @@
   {
     "name": "ts_year_collapse_electricity",
     "sql_hash": {
-      "resstock_oedi": "a2d3047a8fdbdb2a5905c1d6ca169ea92c04e3d0c1a293412a3922c48bdbff5b",
-      "comstock_oedi": "e984c095adb33c18bbe224ffa725a0e4115c548e09fb0fb084effbad413fe487"
+      "resstock_oedi": "40179da4f5d864923c4131dac861c05b6705c816b8f8e8f614b326d3ed41baf1",
+      "comstock_oedi": "5ec3d5fa0517f977fa0e390ae6c706293c1a9332989fa86d4526e9bd456ce548"
     },
     "description": "Year-collapsed timeseries electricity, grouped by building type, CO only.",
     "args": {
@@ -139,8 +139,8 @@
   {
     "name": "ts_hourly_electricity_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "021ca6dcf5c17f542930e36e0c9559e71b1b5bedb06dc3b2803d37f3331b50a5",
-      "comstock_oedi": "a4b9f2be51592eccd094e3383014d8fc9e4f968b03ddcc9413539cc14b759082"
+      "resstock_oedi": "a9f33b02fb2c9c9a9974b214df7cfcdb3fbe54d03091d92f2be22d536a1fc063",
+      "comstock_oedi": "8a6f42200de058e3773407213d3774df1eafdcaee05126bfe49492a86c3988b4"
     },
     "description": "Hourly-grouped timeseries electricity, CO + single building type. Exercises date_trunc('hour', ...) \u2014 the smallest grouping_func granularity.",
     "args": {
@@ -173,8 +173,8 @@
   {
     "name": "ts_monthly_multi_attribute_group_by",
     "sql_hash": {
-      "resstock_oedi": "29eb44f0acc86166d6ad91fb2f0256313bc968b359dd601413bcf8a5f55b96a6",
-      "comstock_oedi": "c894112dfd27c8c9dc2df23e69f7e166c27c4bf161d9093b9a9be1dd2ba1bd44"
+      "resstock_oedi": "5b6c15fe1defa8e408e296135c4227031776a2ab6dee2112cc9d26adb066d173",
+      "comstock_oedi": "f885f5d1a69627950a992c111d259dad97f33b4036bcc21cdb71597d46a4a0d3"
     },
     "description": "Monthly TS electricity grouped by [building_type, state, time] — multi-attribute group_by combined with the time axis. Every other TS entry uses single-attribute + time; this pins the SQL shape for the more general case.",
     "args": {
@@ -217,6 +217,84 @@
         "state",
         "time"
       ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_year_by_county_co",
+    "schemas": ["comstock_oedi"],
+    "sql_hash": {
+      "comstock_oedi": "506bf5a3f646d625013c9c44b3f59511b0ea0c7815ab203c2208d65509777740"
+    },
+    "description": "TS year-collapse grouped by county, CO only. Comstock-only because comstock's metadata is denormalized at (bldg_id, tract, state) granularity and a building's tracts can map to different counties; resstock's md is one row per bldg, so the dis-aggregation behavior under test is structurally absent. Pins the bs_per_bldg shape that carries bs-side group_by columns as TRUE GROUP BY keys (not arbitrary()) so per-tract weight slices land in the right county. Sum across counties must equal the no-county-group total \u2014 see test_ts_year_county_disaggregation in test_invariants.py.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "year",
+      "group_by": [
+        "in.county_name"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_year_by_tract_co",
+    "schemas": ["comstock_oedi"],
+    "sql_hash": {
+      "comstock_oedi": "edd2817c1587d427bbafea96c1839b55567144046303e5a45581404597ac8712"
+    },
+    "description": "TS year-collapse grouped by tract (in.nhgis_tract_gisjoin), CO only. Comstock-only \u2014 exercises the finest-grained bs-side group_by, where bs_per_bldg's GROUP BY (bldg, state, tract) restores 1:1 row-to-tract mapping. Cross-checks: sum across tracts must equal the by-county total (a tract belongs to exactly one county) and the no-group total. Smallest-meaningful unit at which the tract fan-out manifests; if bs_per_bldg collapses tract via arbitrary() we'd see 1 row per (bldg, state) instead of 1 per metadata row.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "year",
+      "group_by": [
+        "in.nhgis_tract_gisjoin"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_year_overall_co",
+    "schemas": ["comstock_oedi"],
+    "sql_hash": {
+      "comstock_oedi": "24c7ba1e70306cb694b49b3a138729bb8611b26ca4c2e0fb412a8bc4a71367c5"
+    },
+    "description": "TS year-collapse with NO bs-side group_by, CO only. Comstock-only sibling to the by-county / by-tract variants; serves as the cross-check baseline (sum-across-county and sum-across-tract must equal this value within rtol=1e-3). Without this anchor, a bug that silently dropped tract-fractional weight would still produce by-county and by-tract totals that agreed WITH EACH OTHER (both equally wrong) \u2014 only against the no-group total can we distinguish the right answer.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "year",
       "restrict": [
         [
           "state",

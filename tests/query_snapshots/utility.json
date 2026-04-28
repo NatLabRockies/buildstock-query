@@ -31,12 +31,12 @@
     "name": "utility_ts_by_eiaid",
     "schemas": ["resstock_oedi"],
     "sql_hash": {
-      "resstock_oedi": "a47a17796647b1b3c4fefbbb0d4fc675a74be33941734659718bc1e8d0f192c3"
+      "resstock_oedi": "035dfa5ef9c8e9def5f70eec6751c0ba89c04ea27555770f7e9ebfcbad367646"
     },
-    "description": "utility.aggregate_ts_by_eiaid for two utilities. Returns a list of SQL (one per query_group_size batch); the harness joins with MULTI_SQL_SEPARATOR. Pinned only after the _split_restrict 3-bucket fix that routes eiaid_weights.eiaid restricts to the outer WHERE instead of the bs JOIN ON-clause. State-restricted to keep Athena cost bounded — every TS-side join must be partition-filtered (CLAUDE.md cost guardrail).",
+    "description": "utility.aggregate_ts_by_eiaid for one utility (eiaid=15466 = Xcel Energy Colorado, ~9.3k samples / ~1.3M units in CO — by far the largest CO utility). Pinned only after the _split_restrict 3-bucket fix that routes eiaid_weights.eiaid restricts to the outer WHERE instead of the bs JOIN ON-clause. State-restricted to keep Athena cost bounded — every TS-side join must be partition-filtered (CLAUDE.md cost guardrail). Eiaid was changed from 4110 (no CO coverage → empty result) to 15466 to exercise the bs_per_bldg eiaid-disaggregation path with actual data.",
     "args": {
       "_method": "utility.aggregate_ts_by_eiaid",
-      "eiaid_list": ["4110"],
+      "eiaid_list": ["15466"],
       "enduses": [
         "out.site_energy.total.energy_consumption"
       ],

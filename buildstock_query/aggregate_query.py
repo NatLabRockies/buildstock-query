@@ -259,20 +259,23 @@ class BuildStockAggregate:
         # bound to bs_table; we pass it in here so its multipliers are
         # baked into bldg_weight before the outer SELECT references it.
         bs_per_bldg_cols = [base.c[k].label(k) for k in ts_unique_keys]
-        # Pass through bs-side group-by columns (per-bldg constants).
-        # `bs_group_by` items are labeled SA expressions from _get_gcol; the
-        # label name is the simple form (no `in.` prefix), but the underlying
-        # column reference is on `base`. Project them by the underlying
-        # expression (via `arbitrary()` since they're per-bldg constants
-        # being collapsed across tract rows) labeled with the simple name
-        # so the outer code's `g.name` lookups on bs_per_bldg resolve.
-        bs_group_by_extras = []
+        # Carry bs-side group-by columns as TRUE GROUP BY keys of bs_per_bldg
+        # — NOT as `arbitrary()` collapsed values. ComStock's md is partitioned
+        # at (bldg_id, tract, state) granularity with `weight` divided across
+        # tract rows; a building's tracts can map to different counties. If we
+        # collapse to one row per (bldg, state) and pick `arbitrary(county)`,
+        # the outer SUM(weight × value) would attribute the FULL building to
+        # whichever county was picked — silently dropping the tract-fractional
+        # disaggregation that the data model encodes. Grouping bs_per_bldg by
+        # (bldg, state, <user_group_bys>) preserves per-tract slices: each
+        # county/region a building straddles gets its proportional weight.
+        bs_per_bldg_extra_group_exprs = []
         for g in bs_group_by:
             if g.name in ts_unique_keys:
                 continue
             underlying = g.element if isinstance(g, SALabel) else g
-            bs_per_bldg_cols.append(safunc.arbitrary(underlying).label(g.name))
-            bs_group_by_extras.append(g)
+            bs_per_bldg_cols.append(underlying.label(g.name))
+            bs_per_bldg_extra_group_exprs.append(underlying)
         weight_expr = total_weight if total_weight is not None else base.c["weight"]
         bs_per_bldg_cols.append(safunc.sum(weight_expr).label("bldg_weight"))
         bs_per_bldg_cols.append(safunc.count(sa.text("*")).label("tract_count"))
@@ -329,12 +332,20 @@ class BuildStockAggregate:
                 *bs_restrict_clauses,
                 *join_list_restrict_clauses,
             )
-            .group_by(*(base.c[k] for k in ts_unique_keys))
+            .group_by(
+                *(base.c[k] for k in ts_unique_keys),
+                *bs_per_bldg_extra_group_exprs,
+            )
             .subquery("bs_per_bldg")
         )
 
-        # Outer JOIN: ts_aggr ⋈ bs_per_bldg (one row per bldg) on the ts
-        # unique keys. No tract fan-out post-join.
+        # Outer JOIN: ts_aggr ⋈ bs_per_bldg on the ts unique keys.
+        # bs_per_bldg has one row per (bldg, state, <bs-side group_by cols>).
+        # When the user groups by a tract-derived dimension (e.g. county), a
+        # building straddling counties produces N rows here — each with its
+        # proportional bldg_weight slice — so the outer SUM correctly
+        # disaggregates the building across the user's groups. No tract
+        # fan-out: the inner GROUP BY collapsed equal-county rows already.
         bs_join_cond = sa.and_(
             *(bs_per_bldg.c[k] == ts_aggr_subq.c[k] for k in ts_unique_keys),
         )

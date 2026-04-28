@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "1bd35fd0-f12d-41ef-8201-178ab8c22b12",
+  "Query": "UNLOAD (SELECT bs_per_bldg.geometry_building_type_recs, sum(bs_per_bldg.tract_count) AS sample_count, sum(bs_per_bldg.bldg_weight) AS units_count, sum(ts_aggr._inner_rows) / CAST(count(distinct(ts_aggr.bldg_id)) AS DECIMAL) AS rows_per_sample, sum(ts_aggr.\"bs__out.electricity.total.energy_consumption\" * bs_per_bldg.bldg_weight) AS \"electricity.total.energy_consumption\", sum(ts_aggr.\"bs__out.natural_gas.total.energy_consumption\" * bs_per_bldg.bldg_weight) AS \"natural_gas.total.energy_consumption\" FROM (SELECT ts_flat.bldg_id AS bldg_id, sum(ts_flat.\"_v__out.electricity.total.energy_consumption\") AS \"bs__out.electricity.total.energy_consumption\", sum(ts_flat.\"_v__out.natural_gas.total.energy_consumption\") AS \"bs__out.natural_gas.total.energy_consumption\", count(*) AS _inner_rows FROM (SELECT resstock_2024_amy2018_release_2_by_state_vu.bldg_id AS bldg_id, resstock_2024_amy2018_release_2_by_state_vu.\"out.electricity.total.energy_consumption\" AS \"_v__out.electricity.total.energy_consumption\", resstock_2024_amy2018_release_2_by_state_vu.\"out.natural_gas.total.energy_consumption\" AS \"_v__out.natural_gas.total.energy_consumption\" FROM resstock_2024_amy2018_release_2_by_state_vu WHERE resstock_2024_amy2018_release_2_by_state_vu.upgrade IN (0) AND resstock_2024_amy2018_release_2_by_state_vu.state = 'CO') AS ts_flat GROUP BY ts_flat.bldg_id) AS ts_aggr JOIN (SELECT bs.bldg_id AS bldg_id, bs.\"in.geometry_building_type_recs\" AS geometry_building_type_recs, sum(bs.weight) AS bldg_weight, count(*) AS tract_count FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.upgrade = 0 AND bs.\"in.state\" = 'CO' GROUP BY bs.bldg_id, bs.\"in.geometry_building_type_recs\") AS bs_per_bldg ON bs_per_bldg.bldg_id = ts_aggr.bldg_id GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/09458ab06208f2780ba540e4b89c89046463a1f13438b8f4f4e3dbfe8e4ccce2/ad963518-4c1b-425a-ba30-7844bd06234b/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/1bd35fd0-f12d-41ef-8201-178ab8c22b12"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-28 15:50:46.772000-05:00",
+    "CompletionDateTime": "2026-04-28 15:50:50.288000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 3295,
+    "DataScannedInBytes": 1127769274,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/1bd35fd0-f12d-41ef-8201-178ab8c22b12-manifest.csv",
+    "TotalExecutionTimeInMillis": 3516,
+    "QueryQueueTimeInMillis": 52,
+    "ServicePreProcessingTimeInMillis": 66,
+    "QueryPlanningTimeInMillis": 634,
+    "ServiceProcessingTimeInMillis": 103,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

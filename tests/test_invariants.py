@@ -589,6 +589,110 @@ def test_group_by_sum_equals_overall(request, bsq_fixture, schema):
             )
 
 
+# --- TS bs-side group_by disaggregation: by-county and by-tract sum to total --
+#
+# Comstock-only invariant. Comstock's metadata is denormalized at
+# (bldg_id, in.nhgis_tract_gisjoin, state) granularity with `weight` divided
+# across tract rows; a building's tracts can map to different counties. The
+# TS code path's `bs_per_bldg` subquery used to wrap bs-side group_by columns
+# (county, tract) in `arbitrary()` and group only on (bldg_id, state),
+# silently attributing the FULL building weight to whichever value
+# `arbitrary()` happened to pick. The fix carries those columns as TRUE
+# GROUP BY keys of bs_per_bldg, preserving per-tract weight slices.
+#
+# This invariant pins the fix: sum across counties (and across tracts) of the
+# year-collapsed TS query must equal the no-bs-group-by total. A regression
+# of the bs_per_bldg subquery would only affect by-county / by-tract totals
+# (the no-group-by total uses a different code path), so the cross-check
+# distinguishes the right answer from "by-county and by-tract agree but are
+# both wrong by the same amount" — the only failure mode that would slip
+# through if we only compared by-county to by-tract.
+#
+# Resstock is excluded: its md is one row per bldg, so bs-side group_by under
+# bs_per_bldg has no fan-out to disaggregate, and the bug under test is
+# structurally absent.
+def test_ts_year_county_and_tract_disaggregation_matches_overall_comstock(request):
+    """Comstock TS year-collapse: sum across counties = sum across tracts =
+    no-group-by overall, all on the same restrict (CO). Pins the bs_per_bldg
+    GROUP BY (bldg, state, <bs_group_by>) shape that disaggregates per-tract
+    weight correctly when buildings straddle counties."""
+    bsq = request.getfixturevalue("bsq_comstock_oedi")
+    enduse = resolve_placeholder("comstock_oedi", "electricity_total", annual=False)
+    enduse_col = _strip_out_prefix(enduse)
+    restrict = [("state", ["CO"])]
+
+    overall_df = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        timestamp_grouping_func="year", restrict=restrict,
+    )
+    by_county_df = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        timestamp_grouping_func="year",
+        group_by=["in.county_name"], restrict=restrict,
+    )
+    by_tract_df = bsq.query(
+        enduses=[enduse], annual_only=False, upgrade_id=0,
+        timestamp_grouping_func="year",
+        group_by=["in.nhgis_tract_gisjoin"], restrict=restrict,
+    )
+
+    overall_kwh = float(overall_df[enduse_col].iloc[0])
+    by_county_kwh = float(by_county_df[enduse_col].sum())
+    by_tract_kwh = float(by_tract_df[enduse_col].sum())
+
+    if not np.isclose(by_county_kwh, overall_kwh, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+        pytest.fail(
+            f"sum(by-county) ({by_county_kwh:.2f}) != overall ({overall_kwh:.2f}); "
+            f"diff={by_county_kwh - overall_kwh:.2f} — bs_per_bldg likely collapsing "
+            f"county via arbitrary() and dropping tract-fractional weight"
+        )
+    if not np.isclose(by_tract_kwh, overall_kwh, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+        pytest.fail(
+            f"sum(by-tract) ({by_tract_kwh:.2f}) != overall ({overall_kwh:.2f}); "
+            f"diff={by_tract_kwh - overall_kwh:.2f}"
+        )
+
+    # Counts also must reconcile. units_count is a weight sum; sum across the
+    # bs-side group equals the overall (each tract row's weight is counted
+    # exactly once). sample_count counts metadata rows: tract-grouped sum =
+    # county-grouped sum = overall (no bs-side group still counts every md
+    # row via `count(*)` inside bs_per_bldg).
+    overall_units = float(overall_df["units_count"].iloc[0])
+    by_county_units = float(by_county_df["units_count"].sum())
+    by_tract_units = float(by_tract_df["units_count"].sum())
+    if not np.isclose(by_county_units, overall_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+        pytest.fail(
+            f"units_count: sum(by-county) ({by_county_units:.4f}) != overall "
+            f"({overall_units:.4f})"
+        )
+    if not np.isclose(by_tract_units, overall_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+        pytest.fail(
+            f"units_count: sum(by-tract) ({by_tract_units:.4f}) != overall "
+            f"({overall_units:.4f})"
+        )
+
+    overall_samples = int(overall_df["sample_count"].iloc[0])
+    by_county_samples = int(by_county_df["sample_count"].sum())
+    by_tract_samples = int(by_tract_df["sample_count"].sum())
+    if by_county_samples != overall_samples:
+        pytest.fail(
+            f"sample_count: sum(by-county)={by_county_samples} != overall={overall_samples}"
+        )
+    if by_tract_samples != overall_samples:
+        pytest.fail(
+            f"sample_count: sum(by-tract)={by_tract_samples} != overall={overall_samples}"
+        )
+
+    # by-tract must be at least as granular as by-county (each tract belongs
+    # to exactly one county, but a county contains many tracts). If we ever
+    # see fewer tract rows than county rows, the bs_per_bldg GROUP BY isn't
+    # honoring the tract dimension.
+    assert len(by_tract_df) >= len(by_county_df), (
+        f"by-tract row count ({len(by_tract_df)}) < by-county row count "
+        f"({len(by_county_df)}) — bs_per_bldg may be collapsing tract"
+    )
+
+
 # --- restrict subset: CO rows of CO+WY equal single-state CO -----------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)

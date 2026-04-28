@@ -139,13 +139,29 @@ def _build_notebook(
     ))
 
     cells.append(_code_cell(
+        "from pathlib import Path\n"
         "from buildstock_query import BuildStockQuery\n"
         "import pandas as pd\n"
     ))
 
-    cells.append(_markdown_cell("## Construct the BuildStockQuery object\n"))
+    cells.append(_markdown_cell(
+        "## Construct the BuildStockQuery object\n"
+        "\n"
+        "`cache_folder` points at the snapshot test cache directory so this\n"
+        "notebook reuses parquets that the test suite has already downloaded\n"
+        "from Athena. Queries that are already cached return immediately;\n"
+        "anything new still hits Athena.\n"
+    ))
 
     cells.append(_code_cell(
+        f'# Cache folder: resolve `tests/query_snapshots/{schema}_cache` regardless\n'
+        f'# of which directory Jupyter was launched from.\n'
+        f'_CANDIDATES = [\n'
+        f'    Path.cwd() / "tests/query_snapshots/{schema}_cache",            # repo root\n'
+        f'    Path.cwd() / "../query_snapshots/{schema}_cache",               # tests/example_notebooks/\n'
+        f'    Path.cwd() / "query_snapshots/{schema}_cache",                  # tests/\n'
+        f']\n'
+        f'_CACHE = next((p.resolve() for p in _CANDIDATES if p.exists()), _CANDIDATES[0].resolve())\n'
         f'bsq = BuildStockQuery(\n'
         f'    "rescore",\n'
         f'    "buildstock_sdr",\n'
@@ -153,6 +169,7 @@ def _build_notebook(
         f'    buildstock_type="{knobs["buildstock_type"]}",\n'
         f'    db_schema="{knobs["db_schema"]}",\n'
         f'    skip_reports=True,\n'
+        f'    cache_folder=str(_CACHE),\n'
         f')\n'
     ))
 

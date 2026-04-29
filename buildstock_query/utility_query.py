@@ -360,7 +360,10 @@ class BuildStockUtility:
         if get_query_only:
             return self._bsq._compile(query)
         res = self._bsq.execute(query)
-        return list(res[map_eiaid_column].values)
+        # Athena UNLOAD names the projection positionally (e.g. "value") when
+        # the SELECT-DISTINCT column carries no alias, so look up by position
+        # rather than by `map_eiaid_column`.
+        return list(res.iloc[:, 0].values)
 
     def get_rate_map(self, weekend_csv_path: str, weekday_csv_path: str) -> dict[tuple[int, int, int], float]:
         def read_rate_file(file_path: str) -> pd.DataFrame:

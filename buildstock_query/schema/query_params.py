@@ -7,13 +7,6 @@ from pydantic import model_validator
 from typing_extensions import Self
 
 
-def _normalize_applied_in(applied_in: Optional[Sequence[Union[str, int]]]) -> Optional[list[str]]:
-    if applied_in is None:
-        return None
-    normalized = list(dict.fromkeys(str(upgrade) for upgrade in applied_in))
-    return normalized or None
-
-
 class BaseQuery(BaseModel):
     enduses: Sequence[AnyColType]
     group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list)
@@ -48,12 +41,10 @@ class Query(BaseQuery):
     timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = None
     partition_by: Sequence[str] = Field(default_factory=list)
     applied_only: Optional[bool] = Field(default=None)
-    applied_in: Optional[Sequence[Union[str, int]]] = None
     unload_to: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_consistency(self) -> Self:
-        self.applied_in = _normalize_applied_in(self.applied_in)
         effective_applied_only = self.upgrade_id != "0" if self.applied_only is None else self.applied_only
         if self.include_savings and self.upgrade_id == "0":
             raise ValueError("include_savings cannot be True when upgrade_id is '0'")
@@ -63,8 +54,6 @@ class Query(BaseQuery):
             raise ValueError("annual_only must be False when timestamp_grouping_func is provided")
         if effective_applied_only and self.upgrade_id == "0":
             raise ValueError("applied_only cannot be set when upgrade_id is '0'")
-        if self.applied_in and self.upgrade_id != "0" and not effective_applied_only:
-            raise ValueError("applied_in cannot be set when applied_only is False")
         if self.get_nonzero_count and not self.annual_only:
             raise ValueError("get_nonzero_count cannot be True when annual_only is False")
         if self.get_quartiles and not self.annual_only:

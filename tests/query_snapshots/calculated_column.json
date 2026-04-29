@@ -46,7 +46,7 @@
       "comstock_oedi": "f5dc895e08d596da3191d1e419bb4cbb91458cdf29a05f019063e5bc9e084850",
       "comstock_oedi_agg": "e6fde917a28b08029cd601639be4ad9957a9e210be525e9b0e8b8d3bbac649c9"
     },
-    "description": "TS calculated column on the pivot path with include_baseline=True + applied_only=True. This combination forces the pivot subquery (upgrade_only short-circuit only fires when both include_baseline and include_savings are False) AND exercises the applied_in synthesis path that filters to applicable buildings. Together with the upgrade_pair entry above, these two pin both branches of the TS pivot's calculated-column handling.",
+    "description": "TS calculated column on the pivot path with include_baseline=True + applied_only=True. This combination forces the pivot subquery (upgrade_only short-circuit only fires when both include_baseline and include_savings are False) AND exercises the internal applied-buildings filter synthesis (TS path appends `_build_applied_subquery(all_of=[upgrade_id])` to filter to applicable buildings). Together with the upgrade_pair entry above, these two pin both branches of the TS pivot's calculated-column handling.",
     "args": {
       "column_name": "elec_minus_gas",
       "column_expr": "$ELECTRICITY_TOTAL - $NATURAL_GAS_TOTAL",

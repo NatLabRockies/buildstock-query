@@ -177,11 +177,13 @@ SCHEMA_CASES = [
 # - upgrade1: upgrade 1, with applied_only=False (count both applied and unapplied
 #   rows; without this explicit False, the schema validator would silently flip to
 #   True and collapse this scenario onto the next one).
-# - upgrade1_applied: upgrade 1, applied_only=True. Pins the fix that synthesizes
-#   `applied_in=[upgrade_id]` on TS paths so the TS flow filters inapplicable
-#   buildings the same way the annual flow does (via up.applicability=true).
+# - upgrade1_applied: upgrade 1, applied_only=True. Pins the fix where the TS
+#   path internally appends a `_build_applied_subquery(all_of=[upgrade_id])`
+#   restrict so the TS flow filters inapplicable buildings the same way the
+#   annual flow does (via up.applicability=true).
 # - upgrade1_applied_in_1_2: upgrade 1, applied_only=True, restricted further to
-#   buildings to which both upgrades 1 and 2 applied.
+#   buildings to which both upgrades 1 and 2 applied (composed via
+#   `get_applied_buildings_filter(all_of=[1, 2])`).
 SCENARIOS = [
     pytest.param({"upgrade_id": "0"}, id="baseline"),
     pytest.param({"upgrade_id": "1", "applied_only": False}, id="upgrade1"),
@@ -190,7 +192,7 @@ SCENARIOS = [
         id="upgrade1_applied",
     ),
     pytest.param(
-        {"upgrade_id": "1", "applied_only": True, "applied_in": [1, 2]},
+        {"upgrade_id": "1", "applied_only": True, "_applied_filter_all_of": [1, 2]},
         id="upgrade1_applied_in_1_2",
     ),
 ]
@@ -251,31 +253,41 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
         else {"include_baseline": True, "include_upgrade": True, "include_savings": True}
     )
 
+    # _applied_filter_all_of is a test-only sentinel: pull it out and replace
+    # with a live get_applied_buildings_filter prepended to restrict.
+    scenario_args = dict(scenario_extra)
+    applied_all_of = scenario_args.pop("_applied_filter_all_of", None)
+    scenario_restrict = list(restrict)
+    if applied_all_of:
+        applied_filter = bsq.get_applied_buildings_filter(all_of=applied_all_of)
+        if applied_filter is not None:
+            scenario_restrict = [applied_filter, *scenario_restrict]
+
     try:
         annual_df = bsq.query(
             enduses=annual_enduses,
             group_by=[group_col],
-            restrict=restrict,
+            restrict=scenario_restrict,
             **savings_kwargs,
-            **scenario_extra,
+            **scenario_args,
         )
         ts_year_df = bsq.query(
             enduses=ts_enduses,
             annual_only=False,
             timestamp_grouping_func="year",
             group_by=[group_col],
-            restrict=restrict,
+            restrict=scenario_restrict,
             **savings_kwargs,
-            **scenario_extra,
+            **scenario_args,
         )
         ts_monthly_df = bsq.query(
             enduses=ts_enduses,
             annual_only=False,
             timestamp_grouping_func="month",
             group_by=[group_col, "time"],
-            restrict=restrict,
+            restrict=scenario_restrict,
             **savings_kwargs,
-            **scenario_extra,
+            **scenario_args,
         )
     except UnsupportedQueryShape as exc:
         pytest.skip(f"query shape unsupported on {schema}: {exc}")
@@ -425,7 +437,8 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
 #   - upgrade1 (applied_only=False): single-scan path under the widened
 #     upgrade_only predicate.
 #   - upgrade1_applied (applied_only=True): single-scan path with the
-#     synthesized applied_in subquery.
+#     internally-appended applied-buildings filter (filters inapplicable
+#     buildings via _build_applied_subquery(all_of=[upgrade_id])).
 # The pivot path proper is exercised by include_baseline=True scenarios in
 # the snapshot suite (calculated_column_ts_pivot_with_baseline).
 CALC_SCENARIOS = [
@@ -1151,7 +1164,8 @@ def test_savings_equals_independent_baseline_minus_upgrade(request, bsq_fixture,
     aggregation would surface as a mismatch.
 
     Recipe:
-      b_only = bsq.query(upgrade_id="0", applied_in=[1], ...)
+      filt   = bsq.get_applied_buildings_filter(all_of=[1])
+      b_only = bsq.query(upgrade_id="0", restrict=[filt, ...], ...)
       u_only = bsq.query(upgrade_id="1", applied_only=True, ...)
       full   = bsq.query(upgrade_id="1", applied_only=True,
                          include_baseline + include_upgrade + include_savings, ...)
@@ -1174,9 +1188,11 @@ def test_savings_equals_independent_baseline_minus_upgrade(request, bsq_fixture,
     restrict = [("state", ["CO"])]
 
     try:
+        applied_filter = bsq.get_applied_buildings_filter(all_of=[1])
+        b_only_restrict = [applied_filter, *restrict] if applied_filter else list(restrict)
         b_only = bsq.query(
             enduses=enduses, upgrade_id="0",
-            applied_in=[1], group_by=[group_col], restrict=restrict,
+            group_by=[group_col], restrict=b_only_restrict,
         )
         u_only = bsq.query(
             enduses=enduses, upgrade_id="1",
@@ -1708,22 +1724,23 @@ def test_two_fuel_electricity_equals_single_fuel(request, bsq_fixture, schema):
         pytest.fail("electricity column differs between two-fuel and single-fuel query:\n" + "\n".join(diffs))
 
 
-# --- applied_in intersection: applied_in=[1,2] equals (applied_in=[1] ∩ applied_in=[2]) --
+# --- applied-buildings intersection: all_of=[1,2] equals (all_of=[1] ∩ all_of=[2]) --
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
-def test_applied_in_intersection(request, bsq_fixture, schema):
-    """The set of buildings returned by `applied_in=[1, 2]` must equal the intersection
-    of `applied_in=[1]` (buildings that applied to upgrade 1) and `applied_in=[2]`
-    (buildings that applied to upgrade 2). Asserts the `_get_applied_in_subquery`
-    HAVING-count machinery actually computes a set intersection rather than something
-    weaker (e.g. union, or a wrong join semantic).
+def test_applied_buildings_intersection(request, bsq_fixture, schema):
+    """The set of buildings returned by `get_applied_buildings(all_of=[1, 2])` must
+    equal the intersection of `all_of=[1]` (buildings that applied to upgrade 1)
+    and `all_of=[2]` (buildings that applied to upgrade 2). Asserts the
+    `_build_applied_subquery` HAVING-count machinery actually computes a set
+    intersection rather than something weaker (e.g. union, or a wrong join
+    semantic).
 
     Run for two restrict scopes:
       - single state (CO): the original case.
       - multi-state from MULTI_STATE_PAIR: validates that the intersection logic
         composes correctly with multi-state restricts. Catches bugs where the
-        applied_in subquery accidentally restricts to one state, drops state
-        from the IN-tuple, or where the multi-state restrict is applied
+        applied-buildings subquery accidentally restricts to one state, drops
+        state from the IN-tuple, or where the multi-state restrict is applied
         inconsistently across the three queries.
     """
     bsq = request.getfixturevalue(bsq_fixture)
@@ -1734,15 +1751,21 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
     ]
     group_col = resolve_placeholder(schema, "building_type_col")
 
+    def _ids_with_filter(all_of, state_list):
+        """Project applied-buildings to (md_keys ∩ state-restricted)."""
+        applied = bsq.get_applied_buildings_filter(all_of=all_of)
+        restrict = [applied, ("state", state_list)] if applied else [("state", state_list)]
+        return bsq.get_building_ids(restrict=restrict)
+
     for restrict_label, state_list in (
         ("single state (CO)", ["CO"]),
         (f"multi-state ({'+'.join(state_pair)})", state_pair),
     ):
         restrict = [("state", state_list)]
 
-        df_1 = bsq.get_building_ids(applied_in=[1], restrict=restrict)
-        df_2 = bsq.get_building_ids(applied_in=[2], restrict=restrict)
-        df_12 = bsq.get_building_ids(applied_in=[1, 2], restrict=restrict)
+        df_1 = _ids_with_filter([1], state_list)
+        df_2 = _ids_with_filter([2], state_list)
+        df_12 = _ids_with_filter([1, 2], state_list)
 
         # Each row of get_building_ids is a unique-key tuple. For resstock that's
         # (bldg_id,); for comstock it's (bldg_id, in.nhgis_tract_gisjoin, state)
@@ -1757,8 +1780,8 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
             only_in_actual = keys_12 - expected
             only_in_expected = expected - keys_12
             msg = [
-                f"[{restrict_label}] applied_in=[1,2] returned {len(keys_12)} keys, "
-                f"intersection of applied_in=[1] ({len(keys_1)}) and applied_in=[2] "
+                f"[{restrict_label}] all_of=[1,2] returned {len(keys_12)} keys, "
+                f"intersection of all_of=[1] ({len(keys_1)}) and all_of=[2] "
                 f"({len(keys_2)}) has {len(expected)} keys.",
             ]
             if only_in_actual:
@@ -1773,16 +1796,18 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
         # the invariant snapshot. The number of unique-key tuples here should
         # equal the `sample_count` reported there (which is COUNT(DISTINCT bs_key)
         # at the SQL level).
+        applied_filter_12 = bsq.get_applied_buildings_filter(all_of=[1, 2])
+        inv_restrict = [applied_filter_12, *restrict] if applied_filter_12 else list(restrict)
         inv_df = bsq.query(
-            enduses=enduses, upgrade_id="1", applied_only=True, applied_in=[1, 2],
-            group_by=[group_col], restrict=restrict,
+            enduses=enduses, upgrade_id="1", applied_only=True,
+            group_by=[group_col], restrict=inv_restrict,
         )
         aggregated_sample_count = int(inv_df["sample_count"].sum())
         if aggregated_sample_count != len(keys_12):
             pytest.fail(
                 f"[{restrict_label}] sample_count mismatch: get_building_ids "
                 f"returned {len(keys_12)} unique keys, but the aggregated "
-                f"applied_in=[1,2] query reports total "
+                f"all_of=[1,2] query reports total "
                 f"sample_count={aggregated_sample_count} (sum across building types)."
             )
 
@@ -1793,9 +1818,9 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
     # be exactly the sum of the per-state intersections in cardinality and
     # exactly the union as sets.
     s1, s2 = state_pair[0], state_pair[1]
-    df_12_s1 = bsq.get_building_ids(applied_in=[1, 2], restrict=[("state", [s1])])
-    df_12_s2 = bsq.get_building_ids(applied_in=[1, 2], restrict=[("state", [s2])])
-    df_12_both = bsq.get_building_ids(applied_in=[1, 2], restrict=[("state", state_pair)])
+    df_12_s1 = _ids_with_filter([1, 2], [s1])
+    df_12_s2 = _ids_with_filter([1, 2], [s2])
+    df_12_both = _ids_with_filter([1, 2], state_pair)
     keys_s1 = set(map(tuple, df_12_s1.itertuples(index=False, name=None)))
     keys_s2 = set(map(tuple, df_12_s2.itertuples(index=False, name=None)))
     keys_both = set(map(tuple, df_12_both.itertuples(index=False, name=None)))
@@ -1804,7 +1829,7 @@ def test_applied_in_intersection(request, bsq_fixture, schema):
         only_in_both = keys_both - expected_union
         only_in_union = expected_union - keys_both
         msg = [
-            f"applied_in=[1,2] over multi-state ({s1}+{s2}) returned {len(keys_both)} "
+            f"all_of=[1,2] over multi-state ({s1}+{s2}) returned {len(keys_both)} "
             f"keys, expected union of per-state ({s1}: {len(keys_s1)}, {s2}: "
             f"{len(keys_s2)}) = {len(expected_union)} keys.",
         ]
@@ -2390,9 +2415,9 @@ def test_comstock_oedi_equals_comstock_oedi_agg_building_ids(
         )
 
 
-# --- applied_in × TS flow × group_by interaction ----------------------------
+# --- applied-buildings × TS flow × group_by interaction ----------------------
 #
-# Existing invariants cover applied_in intersection, TS group-by, and
+# Existing invariants cover applied-buildings intersection, TS group-by, and
 # cross-schema equivalence — but never the three together. The county/
 # arbitrary() bug (commit 182ff21) lived precisely in this intersection:
 # wide separate coverage, untested combination. Pin all four flows
@@ -2409,14 +2434,15 @@ _COMSTOCK_SCHEMA_CASES = [
 
 @pytest.mark.parametrize("group_by_col", ["comstock_building_type", "county"])
 @pytest.mark.parametrize("bsq_fixture, schema", _COMSTOCK_SCHEMA_CASES)
-def test_applied_in_intersection_ts_group_by_consistency(
+def test_applied_buildings_ts_group_by_consistency(
     request,
     bsq_fixture,
     schema,
     group_by_col,
 ):
-    """For ComStock with `applied_in=[1, 2]` (buildings where both upgrades
-    applied), the per-group totals must agree across:
+    """For ComStock filtered to buildings where both upgrades 1 and 2 applied
+    (`get_applied_buildings_filter(all_of=[1, 2])`), the per-group totals must
+    agree across:
 
       1. annual
       2. ts-year-collapse
@@ -2441,23 +2467,17 @@ def test_applied_in_intersection_ts_group_by_consistency(
     ]
     # CO restrict keeps the test cheap; cross-schema equivalence is
     # already tested over multi-state in the standalone cross-schema
-    # invariant. Here the focus is the applied_in × TS × group_by
+    # invariant. Here the focus is the applied-buildings × TS × group_by
     # interaction, which doesn't depend on state cardinality.
-    restrict = [("state", ["CO"])]
-    applied_in = [1, 2]
+    applied_filter = bsq.get_applied_buildings_filter(all_of=[1, 2])
+    restrict = [applied_filter, ("state", ["CO"])] if applied_filter else [("state", ["CO"])]
     upgrade_id = "1"
 
-    # Args mirror the existing `inv_upgrade1_applied_in_1_2_*_by_building_type`
-    # entries in invariants_three_way.json (applied_only=true is required to
-    # match the snapshot SQL hash for the building-type axis). The county
-    # axis adds three new snapshot entries; both sets resolve to populated
-    # caches once --update-snapshot has run.
     try:
         annual_df = bsq.query(
             enduses=annual_enduses,
             upgrade_id=upgrade_id,
             applied_only=True,
-            applied_in=applied_in,
             group_by=[group_by_col],
             restrict=restrict,
         )
@@ -2465,7 +2485,6 @@ def test_applied_in_intersection_ts_group_by_consistency(
             enduses=ts_enduses,
             upgrade_id=upgrade_id,
             applied_only=True,
-            applied_in=applied_in,
             annual_only=False,
             timestamp_grouping_func="year",
             group_by=[group_by_col],
@@ -2475,7 +2494,6 @@ def test_applied_in_intersection_ts_group_by_consistency(
             enduses=ts_enduses,
             upgrade_id=upgrade_id,
             applied_only=True,
-            applied_in=applied_in,
             annual_only=False,
             timestamp_grouping_func="month",
             group_by=[group_by_col, "time"],

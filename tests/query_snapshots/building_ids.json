@@ -6,19 +6,23 @@
       "comstock_oedi": "90dc0c9633bbe613fef08d96769c4df07ccd6d43d8d28f06ad8428e3bd7fc41f",
       "comstock_oedi_agg": "53e82780a3603e91f5db58599958e1c100a1d9f2288f9d575bc0c225eb1f4f04"
     },
-    "description": "Building keys that applied to upgrade 1, CO. Used for the applied_in intersection invariant.",
+    "description": "Building keys that applied to upgrade 1, CO. Used for the applied-buildings intersection invariant. Migrated from the legacy `applied_in` flag to the new `get_applied_buildings_filter` composition; SQL is byte-stable (same shape as before).",
     "args": {
       "_method": "get_building_ids",
-      "applied_in": [
-        1
-      ],
       "restrict": [
         [
           "state",
           [
             "CO"
           ]
-        ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        }
       ]
     }
   },
@@ -29,19 +33,23 @@
       "comstock_oedi": "592053ab53eccf025add6ba479efeffb1b81872f58fe062d38a299e99cd57494",
       "comstock_oedi_agg": "d210b9e528b3d7396bacee09d84465d1ede527a3912439c0c7da2c48ccfa5c40"
     },
-    "description": "Building keys that applied to upgrade 2, CO. Used for the applied_in intersection invariant.",
+    "description": "Building keys that applied to upgrade 2, CO. Used for the applied-buildings intersection invariant.",
     "args": {
       "_method": "get_building_ids",
-      "applied_in": [
-        2
-      ],
       "restrict": [
         [
           "state",
           [
             "CO"
           ]
-        ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              2
+            ]
+          }
+        }
       ]
     }
   },
@@ -55,17 +63,21 @@
     "description": "Building keys that applied to BOTH upgrade 1 and upgrade 2, CO. Equals the intersection of applied_in_1 and applied_in_2.",
     "args": {
       "_method": "get_building_ids",
-      "applied_in": [
-        1,
-        2
-      ],
       "restrict": [
         [
           "state",
           [
             "CO"
           ]
-        ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        }
       ]
     }
   }

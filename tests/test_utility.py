@@ -567,9 +567,12 @@ def _dispatch_method(bsq, args: dict[str, Any]):
 
     `_method` may be a dotted path like "utility.aggregate_ts_by_eiaid" — each
     segment is followed via getattr. Defaults to `bsq.query` when absent.
+    Also resolves any `_applied_filter` sentinels inside `restrict`/`avoid`
+    into live `bsq.get_applied_buildings_filter(...)` tuples.
     Returns (method, args_without_method).
     """
     args = {k: v for k, v in args.items() if k != "get_query_only"}
+    args = _resolve_applied_filters(bsq, args)
     method_name = args.pop("_method", None)
     if method_name is None:
         return bsq.query, args
@@ -577,6 +580,34 @@ def _dispatch_method(bsq, args: dict[str, Any]):
     for segment in method_name.split("."):
         target = getattr(target, segment)
     return target, args
+
+
+def _resolve_applied_filters(bsq, args: dict[str, Any]) -> dict[str, Any]:
+    """Replace `{"_applied_filter": {...}}` dicts inside restrict/avoid with the
+    live tuple returned by `bsq.get_applied_buildings_filter(**kwargs)`.
+
+    Lets snapshot JSON express applied-buildings filters declaratively, since
+    the live call returns a SA Select that can't be serialized.
+    """
+    out = dict(args)
+    for key in ("restrict", "avoid"):
+        clauses = out.get(key)
+        if not clauses:
+            continue
+        resolved: list[Any] = []
+        for clause in clauses:
+            if isinstance(clause, dict) and "_applied_filter" in clause:
+                spec = clause["_applied_filter"] or {}
+                tup = bsq.get_applied_buildings_filter(
+                    any_of=spec.get("any_of"),
+                    all_of=spec.get("all_of"),
+                )
+                if tup is not None:
+                    resolved.append(tup)
+            else:
+                resolved.append(clause)
+        out[key] = resolved
+    return out
 
 
 def _flatten_sql_result(result: Any) -> str:
@@ -596,6 +627,26 @@ def _flatten_sql_result(result: Any) -> str:
     raise TypeError(f"get_query_only returned unexpected type {type(result).__name__}: {result!r}")
 
 
+def expand_rate_map_flat(variant: dict[str, Any]) -> dict[str, Any]:
+    """Expand the JSON-storage marker `rate_map_flat: <rate>` into the
+    canonical 12*2*24 dict that `utility.calculate_tou_bill` expects.
+
+    JSON can't represent (month, weekend, hour) tuple keys directly, so the
+    snapshot entries store `rate_map_flat` and the harness — and the example
+    notebook builder — expand it before invocation. Mutates a copy and
+    returns it; the input is left intact so callers can safely re-render.
+    """
+    if "rate_map_flat" not in variant:
+        return variant
+    out = dict(variant)
+    flat_rate = out.pop("rate_map_flat")
+    out["rate_map"] = {
+        (m, w, h): flat_rate
+        for m in range(1, 13) for w in (0, 1) for h in range(24)
+    }
+    return out
+
+
 def run_query_sql(bsq, args: dict[str, Any]) -> str:
     """Generate SQL without execution for a single args-variant."""
     method, args = _dispatch_method(bsq, args)
@@ -607,17 +658,31 @@ def run_query_data(bsq, args: dict[str, Any]):
     `get_distinct_vals` returns a pd.Series, `report.get_buildings_by_change`
     returns a list[int], `report.get_success_report` returns a tuple of frames,
     `get_upgrade_names` returns a dict. Normalize all of those into DataFrames
-    so the harness's parquet round-trip works uniformly."""
+    so the harness's parquet round-trip works uniformly.
+
+    Wrapped returns are flagged via `df.attrs["_was_wrapped"] = True` so the
+    writethrough path can avoid clobbering the SqlCache parquet that the inner
+    `bsq.execute()` already wrote with the canonical multi-column shape.
+    Without that flag, the harness's wrapped DataFrame (e.g. `{"value": [...]}`)
+    overwrites the canonical parquet under the same SQL hash, and any live
+    caller that re-invokes the same method later receives the wrong shape.
+    """
     method, args = _dispatch_method(bsq, args)
     result = method(**args, get_query_only=False)
     if isinstance(result, pd.Series):
-        return result.to_frame()
+        df = result.to_frame()
+        df.attrs["_was_wrapped"] = True
+        return df
     if isinstance(result, list):
-        return pd.DataFrame({"value": result})
+        df = pd.DataFrame({"value": result})
+        df.attrs["_was_wrapped"] = True
+        return df
     if isinstance(result, dict):
         # Two-column DataFrame: keys + values. Column names match the historical
         # `get_upgrade_names`-shaped parquet that's been the only consumer.
-        return pd.DataFrame({"upgrade": list(result.keys()), "upgrade_name": list(result.values())})
+        df = pd.DataFrame({"upgrade": list(result.keys()), "upgrade_name": list(result.values())})
+        df.attrs["_was_wrapped"] = True
+        return df
     return result
 
 
@@ -830,11 +895,20 @@ def _maybe_regenerate_notebook(
     # Render the notebook and run it through nbclient. The notebook's
     # constructor cell wires `cache_folder` to the snapshot test cache, so
     # query cells return cached results without paying for a fresh Athena
-    # scan during regen.
-    written = write_notebook_for_flavor(
-        schema=schema, flavor=flavor, entries=entries,
-        snapshots_root=SNAPSHOTS_ROOT,
-    )
+    # scan during regen. Cell errors propagate (the builder no longer uses
+    # allow_errors=True) so the snapshot test fails if any cell fails.
+    import pytest
+    try:
+        written = write_notebook_for_flavor(
+            schema=schema, flavor=flavor, entries=entries,
+            snapshots_root=SNAPSHOTS_ROOT,
+        )
+    except Exception as exc:
+        pytest.fail(
+            f"notebook regeneration/execution failed for {flavor}/{schema}: "
+            f"{type(exc).__name__}: {exc}",
+            pytrace=False,
+        )
     _log(f"[notebook] wrote and executed {written.relative_to(SNAPSHOTS_ROOT.parent)}")
 
 
@@ -1061,7 +1135,12 @@ def _maybe_update(
             if old_sql_path.exists() and old_sql_path != cache.root / f"{new_hash}.sql":
                 old_sql_path.unlink()
         else:
-            cache.put(new_sql, getattr(outcome, "_actual_df", None) or pd.DataFrame())
+            df_to_put = getattr(outcome, "_actual_df", None)
+            if df_to_put is None or not df_to_put.attrs.get("_was_wrapped"):
+                # Skip the cache write when the harness wrapped a non-DataFrame
+                # method return — bsq.execute() during run_query_data already
+                # wrote the canonical multi-column shape under this hash.
+                cache.put(new_sql, df_to_put if df_to_put is not None else pd.DataFrame())
         _patch_hash(outcome.entry.source_path, outcome.entry.name, outcome.entry.schema, new_hash)
         outcome.updated = True
         outcome.update_note = f"renamed parquet {old_hash[:12] if old_hash else '<empty>'} → {new_hash[:12]}; patched JSON"
@@ -1127,7 +1206,8 @@ def _maybe_update(
         return
 
     if ds in {"equivalent", "missing"} and actual_df is not None:
-        cache.put(new_sql, actual_df)
+        if not actual_df.attrs.get("_was_wrapped"):
+            cache.put(new_sql, actual_df)
         if old_hash and old_hash != new_hash:
             (cache.root / f"{old_hash}.parquet").unlink(missing_ok=True)
             (cache.root / f"{old_hash}.sql").unlink(missing_ok=True)
@@ -1138,7 +1218,8 @@ def _maybe_update(
         return
 
     if ds == "mismatch" and overwrite_snapshot and actual_df is not None:
-        cache.put(new_sql, actual_df)
+        if not actual_df.attrs.get("_was_wrapped"):
+            cache.put(new_sql, actual_df)
         if old_hash and old_hash != new_hash:
             (cache.root / f"{old_hash}.parquet").unlink(missing_ok=True)
             (cache.root / f"{old_hash}.sql").unlink(missing_ok=True)

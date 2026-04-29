@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "7d31b72a-d4cd-4c5a-bc4d-d348ff89e1ac",
+  "Query": "UNLOAD (SELECT bs_per_bldg.comstock_building_type, ts_aggr.timestamp AS timestamp, sum(bs_per_bldg.tract_count) AS sample_count, sum(bs_per_bldg.bldg_weight) AS units_count, sum(ts_aggr._inner_rows) / CAST(count(DISTINCT (ts_aggr.bldg_id, ts_aggr.state)) AS DECIMAL) AS rows_per_sample, sum(ts_aggr.\"bs__out.electricity.total.energy_consumption\" * bs_per_bldg.bldg_weight) AS \"electricity.total.energy_consumption\", sum(ts_aggr.\"bs__out.natural_gas.total.energy_consumption\" * bs_per_bldg.bldg_weight) AS \"natural_gas.total.energy_consumption\" FROM (SELECT ts_flat.state AS state, ts_flat.timestamp AS timestamp, ts_flat.bldg_id AS bldg_id, sum(ts_flat.\"_v__out.electricity.total.energy_consumption\") AS \"bs__out.electricity.total.energy_consumption\", sum(ts_flat.\"_v__out.natural_gas.total.energy_consumption\") AS \"bs__out.natural_gas.total.energy_consumption\", count(*) AS _inner_rows FROM (SELECT comstock_amy2018_r2_2025_ts_by_state.state AS state, comstock_amy2018_r2_2025_ts_by_state.bldg_id AS bldg_id, date_trunc('month', date_add('second', -900, comstock_amy2018_r2_2025_ts_by_state.timestamp)) AS timestamp, comstock_amy2018_r2_2025_ts_by_state.\"out.electricity.total.energy_consumption\" AS \"_v__out.electricity.total.energy_consumption\", comstock_amy2018_r2_2025_ts_by_state.\"out.natural_gas.total.energy_consumption\" AS \"_v__out.natural_gas.total.energy_consumption\" FROM comstock_amy2018_r2_2025_ts_by_state WHERE comstock_amy2018_r2_2025_ts_by_state.upgrade IN (1) AND comstock_amy2018_r2_2025_ts_by_state.state = 'CO') AS ts_flat GROUP BY ts_flat.state, ts_flat.timestamp, ts_flat.bldg_id) AS ts_aggr JOIN (SELECT bs.bldg_id AS bldg_id, bs.state AS state, bs.\"in.comstock_building_type\" AS comstock_building_type, sum(bs.weight) AS bldg_weight, count(*) AS tract_count FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND bs.state = 'CO' AND (bs.bldg_id, bs.state) IN (SELECT bs.bldg_id, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1) AND bs.applicability = true GROUP BY bs.bldg_id, bs.state HAVING count(distinct(bs.upgrade)) = 1) GROUP BY bs.bldg_id, bs.state, bs.\"in.comstock_building_type\") AS bs_per_bldg ON bs_per_bldg.bldg_id = ts_aggr.bldg_id AND bs_per_bldg.state = ts_aggr.state GROUP BY 1, 2 ORDER BY 1, 2) \n TO 's3://resstock-core/bsq_athena_unload_results/dad652807961037c3ac457b0827b909a738d22f2cd74ab4926d1dd8788bfc9c5/081c0720-ee45-412d-9707-df2c6295090d/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/7d31b72a-d4cd-4c5a-bc4d-d348ff89e1ac"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-29 07:52:57.242000-05:00",
+    "CompletionDateTime": "2026-04-29 07:53:57.923000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 60462,
+    "DataScannedInBytes": 560951405,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/7d31b72a-d4cd-4c5a-bc4d-d348ff89e1ac-manifest.csv",
+    "TotalExecutionTimeInMillis": 60681,
+    "QueryQueueTimeInMillis": 49,
+    "ServicePreProcessingTimeInMillis": 102,
+    "QueryPlanningTimeInMillis": 11970,
+    "ServiceProcessingTimeInMillis": 68,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

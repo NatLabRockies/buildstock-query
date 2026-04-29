@@ -24,7 +24,6 @@ import toml
 
 from buildstock_query.main import BuildStockQuery
 from buildstock_query.db_schema.db_schema_model import DBSchema
-from buildstock_query.schema.query_params import Query
 
 
 _PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -244,15 +243,16 @@ def test_get_building_ids_returns_all_metadata_keys(monkeypatch: pytest.MonkeyPa
 
 
 # ---------------------------------------------------------------------------
-# applied_in subquery shape — tuple-IN vs scalar-IN branches
+# applied-buildings subquery shape — tuple-IN vs scalar-IN branches
 
 
-def test_applied_in_uses_tuple_filter_for_multi_metadata_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_applied_filter_uses_tuple_filter_for_multi_metadata_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     bsq = _custom_join_key_bsq(monkeypatch)
+    applied_filter = bsq.get_applied_buildings_filter(all_of=["1"])
     query = bsq.query(
         upgrade_id="1", annual_only=True,
         enduses=["out.electricity.total.energy_consumption"],
-        applied_in=["1"],
+        restrict=[applied_filter] if applied_filter else [],
         get_query_only=True,
     )
     # Outer LHS uses the bs alias (canonical metadata-side handle).
@@ -261,15 +261,16 @@ def test_applied_in_uses_tuple_filter_for_multi_metadata_keys(monkeypatch: pytes
     assert "SELECT bs.bldg_id, bs.county, bs.state" in query
 
 
-def test_applied_in_single_key_preserves_scalar_in_clause(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_applied_filter_single_key_preserves_scalar_in_clause(monkeypatch: pytest.MonkeyPatch) -> None:
     bsq = _custom_join_key_bsq(monkeypatch)
     bsq.db_schema.unique_keys.metadata = None
     bsq.db_schema.unique_keys.timeseries = None
     bsq._initialize_tables()
+    applied_filter = bsq.get_applied_buildings_filter(all_of=["1"])
     query = bsq.query(
         upgrade_id="1", annual_only=True,
         enduses=["out.electricity.total.energy_consumption"],
-        applied_in=["1"],
+        restrict=[applied_filter] if applied_filter else [],
         get_query_only=True,
     )
     # Single-key form: no tuple-IN; scalar IN.
@@ -482,20 +483,17 @@ def test_timeseries_query_supports_subquery_restrict_with_ts_column(
     assert f"FROM {bsq.md_table.name} WHERE" in query
 
 
-def test_query_model_rejects_applied_in_without_applied_only() -> None:
-    """The Query Pydantic model rejects applied_in on non-baseline upgrades
-    when applied_only is False — applied_in semantics require the applicable-
-    buildings filter to be active. Note: applied_in IS allowed on baseline
-    queries (upgrade_id='0') as of 2026-04-26 (commit e85e741)."""
-    with pytest.raises(ValueError, match="applied_in cannot be set when applied_only is False"):
-        Query.model_validate(
-            {
-                "upgrade_id": "1",
-                "enduses": ["fuel_use__electricity__total__kwh"],
-                "applied_only": False,
-                "applied_in": ["1", "2"],
-            }
-        )
+def test_get_applied_buildings_filter_rejects_baseline_upgrade(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The get_applied_buildings_filter helper rejects upgrade id 0 in either
+    list — `applied` is meaningful only for upgrades, not baseline. Both
+    `get_applied_buildings_filter` and `get_applied_buildings` go through the
+    same `_normalize_applied_list` validator."""
+    bsq = _custom_join_key_bsq(monkeypatch)
+    monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1", "2"])
+    with pytest.raises(ValueError, match="0 .baseline. is not a valid applied upgrade"):
+        bsq.get_applied_buildings_filter(all_of=[0])
+    with pytest.raises(ValueError, match="0 .baseline. is not a valid applied upgrade"):
+        bsq.get_applied_buildings_filter(any_of=[0, 1])
 
 
 def test_timeseries_upgrade_restrict_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -516,32 +514,40 @@ def test_timeseries_upgrade_restrict_is_rejected(monkeypatch: pytest.MonkeyPatch
         )
 
 
-def test_timeseries_query_applied_in_adds_subquery_restrict(
+def test_query_applied_filter_adds_subquery_restrict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """applied_in=[1,2,3,4] on a TS query should produce a subquery restrict
-    with a HAVING count(distinct(upgrade)) clause that ensures the building
-    appears in ALL listed upgrades (set intersection semantics).
+    """`get_applied_buildings_filter(all_of=[1,2,3,4])` composed into a query's
+    restrict should produce a subquery with a HAVING count(distinct(upgrade))
+    clause that ensures the building appears in ALL listed upgrades (set
+    intersection semantics).
 
-    For composite-key schemas the LHS of the IN is the tuple of TS unique keys
-    `(bldg_id, state)`, and the subquery selects the same tuple from the bs
-    alias of the metadata table — mirrors the applied_in shape used by
-    snapshot tests against the OEDI schemas."""
+    The public helper always projects md_key_cols (the metadata-side unique
+    keys); for composite-key schemas the LHS is the tuple of those columns
+    on the bs alias and the subquery selects the same tuple — _split_restrict
+    routes this to the bs-side WHERE.
+    """
     bsq = _custom_join_key_bsq(monkeypatch, buildstock_type="resstock")
     monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1", "2", "3", "4"])
+    applied_filter = bsq.get_applied_buildings_filter(all_of=["1", "2", "3", "4"])
+    # annual_only=True keeps the test scoped to the user-supplied filter
+    # shape; the TS path also internally synthesizes its own applied filter
+    # for applied_only=True queries (which is exercised by the TS-path
+    # snapshots and invariants).
     query = bsq.query(
-        annual_only=False, upgrade_id="1",
+        annual_only=True, upgrade_id="1",
         enduses=["out.electricity.total.energy_consumption"],
-        applied_in=["1", "2", "3", "4"],
+        restrict=[applied_filter] if applied_filter else [],
         get_query_only=True,
     )
     assert "IN (SELECT" in query
     assert "HAVING count(distinct(bs.upgrade)) = 4" in query
     assert "bs.upgrade IN ('1', '2', '3', '4')" in query
-    # Composite-key form: tuple-IN on the TS unique keys.
-    assert "(custom_run_by_state.bldg_id, custom_run_by_state.state) IN" in query
-    assert "SELECT bs.bldg_id, bs.state" in query
-    # The applied-in subquery filters by applicability, not completed_status,
-    # because the unified metadata table uses applicability for upgrade-applied
-    # filtering (was completed_status='Success' on the legacy 3-table shape).
+    # Composite-key form: tuple-IN on the metadata unique keys.
+    assert "(bs.bldg_id, bs.county, bs.state) IN" in query
+    assert "SELECT bs.bldg_id, bs.county, bs.state" in query
+    # The applied-buildings subquery filters by applicability, not
+    # completed_status, because the unified metadata table uses applicability
+    # for upgrade-applied filtering (was completed_status='Success' on the
+    # legacy 3-table shape).
     assert "applicability = 'true'" in query

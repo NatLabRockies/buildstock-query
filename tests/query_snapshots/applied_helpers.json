@@ -1,0 +1,84 @@
+[
+  {
+    "name": "applied_buildings_all_of_1_2",
+    "sql_hash": {
+      "resstock_oedi": "",
+      "comstock_oedi": "",
+      "comstock_oedi_agg": ""
+    },
+    "description": "get_applied_buildings(all_of=[1, 2]) — buildings where both upgrades 1 and 2 applied successfully. Pins the all_of-only branch SQL: WHERE upgrade IN (1,2) AND applicability GROUP BY <md_keys> HAVING count(distinct(upgrade))=2. Same shape as the prior `applied_in=[1,2]` form.",
+    "args": {
+      "_method": "get_applied_buildings",
+      "all_of": [
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "name": "applied_buildings_any_of_1_2",
+    "sql_hash": {
+      "resstock_oedi": "",
+      "comstock_oedi": "",
+      "comstock_oedi_agg": ""
+    },
+    "description": "get_applied_buildings(any_of=[1, 2]) — buildings where at least one of upgrades 1 or 2 applied successfully. Pins the any_of-only branch SQL: WHERE upgrade IN (1,2) AND applicability GROUP BY <md_keys> (no HAVING — GROUP BY dedupes).",
+    "args": {
+      "_method": "get_applied_buildings",
+      "any_of": [
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "name": "applied_buildings_all_of_1_any_of_2_3",
+    "sql_hash": {
+      "resstock_oedi": "",
+      "comstock_oedi": "",
+      "comstock_oedi_agg": ""
+    },
+    "description": "get_applied_buildings(all_of=[1], any_of=[2, 3]) — buildings where upgrade 1 applied AND at least one of upgrades 2 or 3 also applied. Pins the both-lists branch SQL with the CASE-WHEN HAVING form.",
+    "args": {
+      "_method": "get_applied_buildings",
+      "all_of": [
+        1
+      ],
+      "any_of": [
+        2,
+        3
+      ]
+    }
+  },
+  {
+    "name": "query_with_applied_buildings_filter",
+    "sql_hash": {
+      "resstock_oedi": "",
+      "comstock_oedi": "",
+      "comstock_oedi_agg": ""
+    },
+    "description": "Annual baseline restricted via `restrict=[get_applied_buildings_filter(all_of=[1,2]), (state, [CO])]`. Confirms the filter-tuple composes cleanly into the standard restrict pipeline (composite-key tuple-IN on multi-key schemas).",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "0",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  }
+]

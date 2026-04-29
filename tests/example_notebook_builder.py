@@ -110,9 +110,11 @@ def _execute_notebook_in_place(path: Path) -> None:
     place means the saved file IS the runnable artifact AND the source of
     truth for what the demo currently outputs.
 
-    `allow_errors=True` so a single bad cell (e.g. one rendered with an
-    unrecoverable `<MappedColumn ...>` placeholder) doesn't abort the whole
-    notebook — error output gets embedded in the cell, the rest still run.
+    Cells that legitimately can't execute (the `_NO_EXECUTE_METHODS` set,
+    `_has_unroundtrippable_placeholder`) are rendered comment-only by the
+    builder, so nbclient never sees them. Anything that does execute must
+    succeed — a `CellExecutionError` propagates up so the caller (and
+    pytest) can surface it.
     """
     import nbformat
     from nbclient import NotebookClient
@@ -123,17 +125,38 @@ def _execute_notebook_in_place(path: Path) -> None:
     client = NotebookClient(
         nb, timeout=300, kernel_name="python3",
         resources={"metadata": {"path": str(path.parent)}},
-        allow_errors=True,
     )
-    client.execute()
-    nbformat.write(nb, path)
+    try:
+        client.execute()
+    finally:
+        # Persist outputs even on failure so the user can inspect the
+        # crash trace in the notebook itself.
+        nbformat.write(nb, path)
 
 
 def _format_arg_value(v: Any) -> str:
     """Render an arg value as a Python literal string. SA-built objects
     (Label, MappedColumn) get a placeholder string — those aren't JSON-safe
-    and the user has to construct them inline anyway."""
-    if isinstance(v, (str, int, float, bool, list, tuple, dict)) or v is None:
+    and the user has to construct them inline anyway. The `_applied_filter`
+    sentinel inside lists is rendered as a `bsq.get_applied_buildings_filter(
+    ...)` call so the notebook produces runnable Python."""
+    if isinstance(v, list):
+        return "[" + ", ".join(_format_arg_value(item) for item in v) + "]"
+    if isinstance(v, tuple):
+        if len(v) == 1:
+            return "(" + _format_arg_value(v[0]) + ",)"
+        return "(" + ", ".join(_format_arg_value(item) for item in v) + ")"
+    if isinstance(v, dict):
+        if "_applied_filter" in v:
+            spec = v["_applied_filter"] or {}
+            kwargs: list[str] = []
+            if spec.get("any_of") is not None:
+                kwargs.append(f"any_of={_format_arg_value(spec['any_of'])}")
+            if spec.get("all_of") is not None:
+                kwargs.append(f"all_of={_format_arg_value(spec['all_of'])}")
+            return f"bsq.get_applied_buildings_filter({', '.join(kwargs)})"
+        return repr(v)
+    if isinstance(v, (str, int, float, bool)) or v is None:
         return repr(v)
     cls = type(v).__name__
     return f"<{cls} ...>"
@@ -223,12 +246,14 @@ def _build_notebook(
         f')\n'
     ))
 
+    from tests.test_utility import expand_rate_map_flat
+
     for entry in entries:
         # The entry has been placeholder-resolved already by load_entries(),
         # so entry.args is a list[dict] of fully-concrete kwargs.
         if not entry.args:
             continue
-        first_variant = dict(entry.args[0])  # copy — we mutate
+        first_variant = expand_rate_map_flat(dict(entry.args[0]))  # copy — we mutate
         method_name = first_variant.pop("_method", None) or "query"
 
         # Header for this entry.

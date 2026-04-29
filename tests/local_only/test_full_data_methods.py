@@ -30,7 +30,8 @@ import pytest
 
 # Three known-good resstock bldg_ids that have upgrade 1 applied in CO.
 # Verified at test-design time via:
-#   bsq.get_building_ids(applied_in=[1], restrict=[("state", ["CO"])])[:3]
+#   filt = bsq.get_applied_buildings_filter(all_of=[1])
+#   bsq.get_building_ids(restrict=[filt, ("state", ["CO"])])[:3]
 KNOWN_BLDG_IDS = [13, 16, 33]
 
 

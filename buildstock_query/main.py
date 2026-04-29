@@ -649,8 +649,7 @@ class BuildStockQuery(QueryCore):
     def get_building_ids(
         self,
         *,
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
-        applied_in: Optional[Sequence[Union[str, int]]] = None,
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: Literal[False] = False,
     ) -> pd.DataFrame: ...
 
@@ -658,8 +657,7 @@ class BuildStockQuery(QueryCore):
     def get_building_ids(
         self,
         *,
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
-        applied_in: Optional[Sequence[Union[str, int]]] = None,
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: Literal[True],
     ) -> str: ...
 
@@ -667,28 +665,26 @@ class BuildStockQuery(QueryCore):
     def get_building_ids(
         self,
         *,
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
-        applied_in: Optional[Sequence[Union[str, int]]] = None,
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: bool,
     ) -> Union[pd.DataFrame, str]: ...
 
     @validate_arguments
     def get_building_ids(
         self,
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
-        applied_in: Optional[Sequence[Union[str, int]]] = None,
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: bool = False,
     ) -> Union[str, pd.DataFrame]:
-        """Return the list of building keys, optionally restricted to buildings to which
-        a specified set of upgrades all applied.
+        """Return the list of building keys.
+
+        For applied-buildings filtering, compose with `get_applied_buildings_filter`:
+            f = bsq.get_applied_buildings_filter(all_of=[1, 2])
+            ids = bsq.get_building_ids(restrict=[f] if f else [])
 
         Args:
-            restrict: Standard restrict list of (column, value(s)) tuples. Filters on the
-                baseline metadata table only.
-            applied_in: Optional list of upgrade ids. When provided, the result is further
-                restricted to buildings for which every listed upgrade satisfied the run's
-                success/applicability condition. With a single-element list (e.g. [1]), this
-                is equivalent to `applied_only=True` for that upgrade.
+            restrict: Standard restrict list. Each entry is either a `(column, value)`
+                scalar/list comparison, a `(column, subquery)` IN-subquery, or a
+                `(tuple-of-columns, tuple-subquery)` composite-key membership.
             get_query_only: If True, return the SQL string instead of executing.
 
         Returns:
@@ -699,15 +695,90 @@ class BuildStockQuery(QueryCore):
         # result is one row per (building × keys), not (building × upgrade × keys).
         query = sa.select(*self.md_key_cols).select_from(self.bs_table).where(self._md_baseline_filter())
         query = self._add_restrict(query, restrict, annual_only=True)
-        applied_subquery = self._get_applied_in_subquery(applied_in, key_kind="metadata")
-        if applied_subquery is not None:
-            if len(self.md_key_cols) == 1:
-                query = query.where(self.md_key_cols[0].in_(applied_subquery))
-            else:
-                query = query.where(sa.tuple_(*self.md_key_cols).in_(applied_subquery))
         if get_query_only:
             return self._compile(query)
         return self.execute(query)
+
+    @typing.overload
+    def get_applied_buildings(
+        self,
+        *,
+        any_of: Optional[Sequence[Union[str, int]]] = None,
+        all_of: Optional[Sequence[Union[str, int]]] = None,
+        get_query_only: Literal[False] = False,
+    ) -> pd.DataFrame: ...
+
+    @typing.overload
+    def get_applied_buildings(
+        self,
+        *,
+        any_of: Optional[Sequence[Union[str, int]]] = None,
+        all_of: Optional[Sequence[Union[str, int]]] = None,
+        get_query_only: Literal[True],
+    ) -> str: ...
+
+    @typing.overload
+    def get_applied_buildings(
+        self,
+        *,
+        any_of: Optional[Sequence[Union[str, int]]] = None,
+        all_of: Optional[Sequence[Union[str, int]]] = None,
+        get_query_only: bool,
+    ) -> Union[pd.DataFrame, str]: ...
+
+    @validate_arguments
+    def get_applied_buildings(
+        self,
+        *,
+        any_of: Optional[Sequence[Union[str, int]]] = None,
+        all_of: Optional[Sequence[Union[str, int]]] = None,
+        get_query_only: bool = False,
+    ) -> Union[pd.DataFrame, str]:
+        """Return building keys for buildings matching an applied-upgrade predicate.
+
+        - `all_of`: must have applicability=true rows for every listed upgrade.
+        - `any_of`: must have applicability=true rows for at least one listed upgrade.
+        - Both: AND of the two predicates.
+        - At least one of `any_of` or `all_of` must be provided.
+        - Passing 0 (baseline) in either list raises ValueError.
+
+        Args:
+            any_of: list of upgrade ids — building must have applied to at least one.
+            all_of: list of upgrade ids — building must have applied to all listed.
+            get_query_only: If True, return the SQL string instead of executing.
+
+        Returns:
+            DataFrame of `md_key_cols` for matching buildings.
+        """
+        if not any_of and not all_of:
+            raise ValueError("get_applied_buildings: must provide any_of or all_of")
+        select = self._build_applied_subquery(any_of=any_of, all_of=all_of, key_kind="metadata")
+        # _build_applied_subquery returns a Select; with at least one list non-empty
+        # it cannot be None (empty-list case returns None and is rejected above).
+        assert select is not None
+        if get_query_only:
+            return self._compile(select)
+        return self.execute(select)
+
+    def get_applied_buildings_filter(
+        self,
+        *,
+        any_of: Optional[Sequence[Union[str, int]]] = None,
+        all_of: Optional[Sequence[Union[str, int]]] = None,
+    ) -> Optional[RestrictTuple]:
+        """Return a `(cols_or_col, subquery)` tuple to drop into `restrict=[...]` or
+        `avoid=[...]`. Returns None when both lists are empty/None.
+
+        Typical use:
+            f = bsq.get_applied_buildings_filter(all_of=[1, 2])
+            df = bsq.query(..., restrict=[f, ("state", ["CO"])] if f else [("state", ["CO"])])
+
+        See `get_applied_buildings` for predicate semantics.
+        """
+        select = self._build_applied_subquery(any_of=any_of, all_of=all_of, key_kind="metadata")
+        if select is None:
+            return None
+        return self._make_applied_filter_tuple(select, key_kind="metadata")
 
     @typing.overload
     def _get_simulation_info(self, get_query_only: Literal[False] = False) -> SimInfo: ...
@@ -914,7 +985,10 @@ class BuildStockQuery(QueryCore):
                     col_name = col if isinstance(col, str) else col.name
                     ts_restrict.append([self.ts_table.c[col_name], restrict_vals])
             if targets_md:
-                md_restrict.append([self._get_gcol(col, annual_only=True), restrict_vals])
+                if isinstance(col, tuple):
+                    md_restrict.append([col, restrict_vals])
+                else:
+                    md_restrict.append([self._get_gcol(col, annual_only=True), restrict_vals])
             if not targets_ts and not targets_md:
                 extra_restrict.append([col, restrict_vals])
         return md_restrict, ts_restrict, extra_restrict
@@ -1112,57 +1186,100 @@ class BuildStockQuery(QueryCore):
         col = self._get_completed_status_col(table)
         return col == typed_literal(col, self.db_schema.completion_values.success)
 
-    def _get_applied_in_subquery(
+    def _build_applied_subquery(
         self,
-        applied_in: Optional[Sequence[str | int]],
         *,
+        any_of: Optional[Sequence[str | int]] = None,
+        all_of: Optional[Sequence[str | int]] = None,
         key_kind: Literal["metadata", "timeseries"] = "metadata",
     ):
-        """Return a unique-key subquery for rows where all listed upgrades applied successfully.
+        """Return a unique-key subquery for buildings matching the applied predicate.
 
-        `key_kind` selects which unique-key columns to project — use "timeseries" when the
-        subquery will filter the timeseries table (whose key may be narrower than metadata's).
+        - `all_of`: must have applicability=true rows for every listed upgrade.
+        - `any_of`: must have applicability=true rows for at least one listed upgrade.
+        - Both: AND of the two predicates.
+        - Neither: returns None.
+        - 0 in either list: ValueError. Baseline isn't an "applied" upgrade.
+
+        `key_kind` selects which unique-key columns to project — use "timeseries" when
+        the subquery will filter the timeseries table (whose key may be narrower).
         """
-        if not applied_in:
+        all_ids = self._normalize_applied_list(all_of) if all_of else []
+        any_ids = self._normalize_applied_list(any_of) if any_of else []
+        if not all_ids and not any_ids:
             return None
 
-        upgrade_ids = list(dict.fromkeys(self._validate_upgrade(upgrade_id) for upgrade_id in applied_in))
         up_col = self._md_upgrade_col
-        typed_ids = [typed_literal(up_col, uid) for uid in upgrade_ids]
+        union_ids = list(dict.fromkeys(all_ids + any_ids))
+        typed_union = [typed_literal(up_col, uid) for uid in union_ids]
         key_names = self._get_unique_keys(key_kind)
         md_key_cols = [self.bs_table.c[name] for name in key_names]
-        return (
+
+        select = (
             sa.select(*md_key_cols)
             .where(
-                up_col.in_(typed_ids),
+                up_col.in_(typed_union),
                 self._md_successful_condition,
             )
             .group_by(*md_key_cols)
-            .having(sa.func.count(sa.func.distinct(up_col)) == len(upgrade_ids))
         )
 
-    def _add_applied_in_restrict(
-        self,
-        restrict: Sequence[RestrictTuple],
-        *,
-        applied_in: Optional[Sequence[str | int]],
-        annual_only: bool,
-    ) -> list[RestrictTuple]:
-        """Append the applied-in filter to the existing restrict list when requested."""
-        updated_restrict = list(restrict) if restrict else []
-        use_ts_side = not (annual_only or self.ts_table is None)
-        applied_subquery = self._get_applied_in_subquery(
-            applied_in, key_kind="timeseries" if use_ts_side else "metadata"
-        )
-        if applied_subquery is None:
-            return updated_restrict
-
-        filter_cols = self.ts_key_cols if use_ts_side else self.md_key_cols
-        if len(filter_cols) == 1:
-            updated_restrict.append((filter_cols[0], applied_subquery))
+        if all_ids and not any_ids:
+            # all_of-only: identical SQL shape to the prior `applied_in` form.
+            select = select.having(sa.func.count(sa.func.distinct(up_col)) == len(all_ids))
+        elif any_ids and not all_ids:
+            # any_of-only: GROUP BY + WHERE upgrade IN (...) is sufficient. A
+            # surviving row means at least one matching applicable upgrade
+            # existed; GROUP BY collapses to one row per key.
+            pass
         else:
-            updated_restrict.append((tuple(filter_cols), applied_subquery))
-        return updated_restrict
+            # Both lists: AND the two predicates via CASE-filtered counts.
+            typed_all = [typed_literal(up_col, uid) for uid in all_ids]
+            typed_any = [typed_literal(up_col, uid) for uid in any_ids]
+            all_case = sa.case((up_col.in_(typed_all), up_col), else_=None)
+            any_case = sa.case((up_col.in_(typed_any), up_col), else_=None)
+            select = select.having(
+                sa.and_(
+                    sa.func.count(sa.func.distinct(all_case)) == len(all_ids),
+                    sa.func.count(sa.func.distinct(any_case)) >= 1,
+                )
+            )
+        return select
+
+    def _normalize_applied_list(self, upgrades: Sequence[str | int]) -> list[str]:
+        """Validate and normalize an upgrade-id list. Rejects 0 (baseline)."""
+        normalized: list[str] = []
+        for raw in upgrades:
+            uid = self._validate_upgrade(raw)
+            if str(uid) == "0":
+                raise ValueError(
+                    "0 (baseline) is not a valid applied upgrade — applicability is "
+                    "meaningful only for upgrades"
+                )
+            if uid not in normalized:
+                normalized.append(uid)
+        return normalized
+
+    def _make_applied_filter_tuple(
+        self,
+        select,
+        *,
+        key_kind: Literal["metadata", "timeseries"] = "metadata",
+    ) -> RestrictTuple:
+        """Wrap a Select into the `(cols_or_col, subquery)` shape used by restrict/avoid.
+
+        When `key_kind="timeseries"`, the LHS columns are bound to ts_table so
+        that `_split_restrict` routes the filter to the TS-side WHERE (where
+        `inapplicables_have_ts` rows would otherwise inflate totals).
+        """
+        key_names = self._get_unique_keys(key_kind)
+        if key_kind == "timeseries" and self.ts_table is not None:
+            cols = [self.ts_table.c[name] for name in key_names]
+        else:
+            cols = [self.bs_table.c[name] for name in key_names]
+        if len(cols) == 1:
+            return (cols[0], select)
+        return (tuple(cols), select)
 
     @typing.overload
     def query(
@@ -1182,7 +1299,6 @@ class BuildStockQuery(QueryCore):
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         applied_only: bool = False,
-        applied_in: Sequence[str | int] | None = None,
         get_quartiles: bool = False,
         get_nonzero_count: bool = False,
         unload_to: str = "",
@@ -1210,7 +1326,6 @@ class BuildStockQuery(QueryCore):
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         applied_only: bool = False,
-        applied_in: Sequence[str | int] | None = None,
         get_quartiles: bool = False,
         get_nonzero_count: bool = False,
         unload_to: str = "",
@@ -1238,7 +1353,6 @@ class BuildStockQuery(QueryCore):
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         applied_only: bool = False,
-        applied_in: Sequence[str | int] | None = None,
         get_quartiles: bool = False,
         get_nonzero_count: bool = False,
         unload_to: str = "",
@@ -1266,9 +1380,6 @@ class BuildStockQuery(QueryCore):
                         where baseline_column_name and new_column_name are the columns on which the new_table
                         should be joined to baseline table.
             applied_only: Calculate savings shape based on only buildings to which the upgrade applied
-            applied_in: Optional list of upgrade ids. When set alongside `applied_only=True`, the query is further
-                        restricted to buildings for which all listed upgrades satisfy the run's success/applicability
-                        condition.
             weights: The additional columns to use as weight. The "build_existing_model.sample_weight" is already used.
                      It is specified as either list of string or list of tuples. When only string is used, the string
                      is the column name, when tuple is passed, the second element is the table name.

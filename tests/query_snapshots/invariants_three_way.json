@@ -213,7 +213,7 @@
       "comstock_oedi": "0c857d9acb648783b57af6e198700683fd4dd51b3f4d511f1378d66a5ad0d24a",
       "comstock_oedi_agg": "02d83c62462f92be925bee83cf424ed168e6118d3f8b846060f2128e3d9fd0bb"
     },
-    "description": "Three-way invariant: annual leg, upgrade 1, applied_only=True, applied_in=[1,2]. Two fuels.",
+    "description": "Three-way invariant: annual leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied. Two fuels. Migrated from legacy applied_in=[1,2] to get_applied_buildings_filter(all_of=[1,2]).",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL",
@@ -221,10 +221,6 @@
       ],
       "upgrade_id": "1",
       "applied_only": true,
-      "applied_in": [
-        1,
-        2
-      ],
       "group_by": [
         "$BUILDING_TYPE_COL"
       ],
@@ -234,18 +230,26 @@
           [
             "CO"
           ]
-        ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        }
       ]
     }
   },
   {
     "name": "inv_upgrade1_applied_in_1_2_ts_year_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "908e7b71662467ab77f1ab38eccfa452d5ed3b104b46a7b01133853a64dfd5d1",
-      "comstock_oedi": "099fa6ab1909cd3a176095ba40785ac305705957fc32fae2a82dc57a28d1790a",
-      "comstock_oedi_agg": "d8ed4812b4ca07e920a953141850de17a73050c843f775bf655b753431eae589"
+      "resstock_oedi": "",
+      "comstock_oedi": "",
+      "comstock_oedi_agg": ""
     },
-    "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True, applied_in=[1,2]. Two fuels.",
+    "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied. Two fuels. SQL drift expected after applied_in\u2192helper refactor (extra redundant auto-synthesized applied filter); data verified equivalent.",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL",
@@ -253,10 +257,6 @@
       ],
       "upgrade_id": "1",
       "applied_only": true,
-      "applied_in": [
-        1,
-        2
-      ],
       "annual_only": false,
       "timestamp_grouping_func": "year",
       "group_by": [
@@ -268,18 +268,26 @@
           [
             "CO"
           ]
-        ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        }
       ]
     }
   },
   {
     "name": "inv_upgrade1_applied_in_1_2_ts_monthly_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "7862c01b530348effa769bf514ccef685ebaf9a597274d493ed9175c3597d3cc",
-      "comstock_oedi": "40e2f812a42e988fd05c7105d690c1932de17abd5cbbbd31d923cf9e4b2d4418",
-      "comstock_oedi_agg": "1fc864f10ece63f942cdc634c2ffed5cac9972d457aeaa4352a2872efdf0e783"
+      "resstock_oedi": "",
+      "comstock_oedi": "",
+      "comstock_oedi_agg": ""
     },
-    "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True, applied_in=[1,2]. Two fuels.",
+    "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied. Two fuels. SQL drift expected after applied_in\u2192helper refactor (extra redundant auto-synthesized applied filter); data verified equivalent.",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL",
@@ -287,10 +295,6 @@
       ],
       "upgrade_id": "1",
       "applied_only": true,
-      "applied_in": [
-        1,
-        2
-      ],
       "annual_only": false,
       "timestamp_grouping_func": "month",
       "group_by": [
@@ -303,18 +307,29 @@
           [
             "CO"
           ]
-        ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        }
       ]
     }
   },
   {
     "name": "inv_upgrade1_applied_in_1_2_annual_by_county",
-    "schemas": ["comstock_oedi", "comstock_oedi_agg"],
+    "schemas": [
+      "comstock_oedi",
+      "comstock_oedi_agg"
+    ],
     "sql_hash": {
       "comstock_oedi": "0325b2def3cf31eabc4c29dd2dfdb2e80d59f1577b56646beec669bd733e34ae",
       "comstock_oedi_agg": "212b06cae824bd40e2f750b08ab12731fac879c1574f8766b6c322de61274cce"
     },
-    "description": "Three-way invariant: annual leg, upgrade 1, applied_only=True, applied_in=[1,2], grouped by county. Comstock-only — exercises the county group-by axis (the column whose arbitrary()-collapse silently broke before commit 182ff21). Pairs with the ts_year and ts_monthly siblings to verify the recent bs_per_bldg group-by fix interacts correctly with applied_in's HAVING-count subquery on a partition-key column.",
+    "description": "Three-way invariant: annual leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied, grouped by county. Comstock-only \u2014 exercises the county group-by axis (the column whose arbitrary()-collapse silently broke before commit 182ff21). Pairs with the ts_year and ts_monthly siblings to verify the recent bs_per_bldg group-by fix interacts correctly with the applied-buildings HAVING-count subquery on a partition-key column.",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL",
@@ -322,10 +337,6 @@
       ],
       "upgrade_id": "1",
       "applied_only": true,
-      "applied_in": [
-        1,
-        2
-      ],
       "group_by": [
         "county"
       ],
@@ -335,18 +346,29 @@
           [
             "CO"
           ]
-        ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        }
       ]
     }
   },
   {
     "name": "inv_upgrade1_applied_in_1_2_ts_year_by_county",
-    "schemas": ["comstock_oedi", "comstock_oedi_agg"],
+    "schemas": [
+      "comstock_oedi",
+      "comstock_oedi_agg"
+    ],
     "sql_hash": {
-      "comstock_oedi": "d78152224223758af603888fdbfed9841efddf0f22ecdc340e8520a284bca1c7",
-      "comstock_oedi_agg": "d1a916121e071fa01a4ef62a0168433bf9fa68ff8da4006174a20a6f1551e01e"
+      "comstock_oedi": "",
+      "comstock_oedi_agg": ""
     },
-    "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True, applied_in=[1,2], grouped by county. Pairs with annual and ts_monthly siblings.",
+    "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied, grouped by county. Pairs with annual and ts_monthly siblings. SQL drift expected after applied_in\u2192helper refactor (extra redundant auto-synthesized applied filter); data verified equivalent.",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL",
@@ -354,10 +376,6 @@
       ],
       "upgrade_id": "1",
       "applied_only": true,
-      "applied_in": [
-        1,
-        2
-      ],
       "annual_only": false,
       "timestamp_grouping_func": "year",
       "group_by": [
@@ -369,18 +387,29 @@
           [
             "CO"
           ]
-        ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        }
       ]
     }
   },
   {
     "name": "inv_upgrade1_applied_in_1_2_ts_monthly_by_county",
-    "schemas": ["comstock_oedi", "comstock_oedi_agg"],
+    "schemas": [
+      "comstock_oedi",
+      "comstock_oedi_agg"
+    ],
     "sql_hash": {
-      "comstock_oedi": "fe235e2cdc1b2b6724257eb5e9e64e32d5be0045faad55ef01c7a554809e0261",
-      "comstock_oedi_agg": "9cfc11546c781a9ce5d65c28cef949cfccfff859e458f170e3a777ddac8ffd01"
+      "comstock_oedi": "",
+      "comstock_oedi_agg": ""
     },
-    "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True, applied_in=[1,2], grouped by county. Pairs with annual and ts_year siblings.",
+    "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied, grouped by county. Pairs with annual and ts_year siblings. SQL drift expected after applied_in\u2192helper refactor (extra redundant auto-synthesized applied filter); data verified equivalent.",
     "args": {
       "enduses": [
         "$ELECTRICITY_TOTAL",
@@ -388,10 +417,6 @@
       ],
       "upgrade_id": "1",
       "applied_only": true,
-      "applied_in": [
-        1,
-        2
-      ],
       "annual_only": false,
       "timestamp_grouping_func": "month",
       "group_by": [
@@ -404,7 +429,15 @@
           [
             "CO"
           ]
-        ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        }
       ]
     }
   }

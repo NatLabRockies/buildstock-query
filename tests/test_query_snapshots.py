@@ -18,6 +18,7 @@ from buildstock_query.schema.utilities import MappedColumn
 from tests.test_utility import (
     SNAPSHOTS_ROOT,
     EntryOutcome,
+    expand_rate_map_flat,
     resolve_update_flags,
     evaluate_entries,
     format_failures,
@@ -43,6 +44,7 @@ SCHEMA_FIXTURES = [
         "timeseries",
         "savings",
         "applied_only",
+        "applied_helpers",
         "restrict_avoid",
         "invariants_three_way",
         "building_ids",
@@ -132,16 +134,7 @@ def _rewrite_utility_entries(json_path, bsq, config, *, schema):
         pytest.skip(f"{json_path.name} has no entries for schema={schema} (all entries filtered out by their 'schemas' allowlist — utility queries require map_eiaid_column, which only resstock TOMLs define)")
 
     for entry in entries:
-        rewritten = []
-        for variant in entry.args:
-            if "rate_map_flat" in variant:
-                flat_rate = variant.pop("rate_map_flat")
-                variant["rate_map"] = {
-                    (m, w, h): flat_rate
-                    for m in range(1, 13) for w in (0, 1) for h in range(24)
-                }
-            rewritten.append(variant)
-        entry.args = rewritten
+        entry.args = [expand_rate_map_flat(variant) for variant in entry.args]
 
     check_data = config.getoption("--check-data")
     update_snapshot, overwrite_snapshot = resolve_update_flags(config)

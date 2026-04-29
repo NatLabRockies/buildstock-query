@@ -7,7 +7,7 @@ from buildstock_query import main
 from buildstock_query.schema.query_params import Query
 import pandas as pd
 from buildstock_query.schema.helpers import gather_params
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 from collections.abc import Sequence
 from buildstock_query.schema.utilities import DBColType, RestrictTuple, SALabel, typed_literal, validate_arguments
 from pydantic import Field
@@ -349,9 +349,9 @@ class BuildStockAggregate:
         bs_join_cond = sa.and_(
             *(bs_per_bldg.c[k] == ts_aggr_subq.c[k] for k in ts_unique_keys),
         )
-        # applied_only=True for the upgrade_only path is enforced upstream via
-        # _add_applied_in_restrict (synthesizes applied_in=[upgrade_id] →
-        # routes into ts_restrict at ts_flat WHERE).
+        # applied_only=True for the upgrade_only path is enforced upstream by
+        # _query, which appends a `_build_applied_subquery(all_of=[upgrade_id])`
+        # filter to bs_restrict (routed into ts_restrict at ts_flat WHERE).
 
         tbljoin = ts_aggr_subq.join(bs_per_bldg, bs_join_cond)
 
@@ -623,24 +623,22 @@ class BuildStockAggregate:
         # buildings where the upgrade applied — the annual flow does this via the
         # md self-join on (bs.bldg_id = up.bldg_id AND up.applicability=true), but
         # the TS flow has no such join in the single-upgrade or upgrade-pair shapes.
-        # Synthesize an `applied_in=[upgrade_id]` to ride the existing
-        # `_get_applied_in_subquery` machinery (which enforces
-        # `_md_successful_condition` on the upgrade rows). Without this filter,
-        # inapplicable buildings (which have TS rows under inapplicables_have_ts)
-        # would silently inflate totals across all `applied_only=True` TS queries.
-        effective_applied_in = params.applied_in
-        if (
-            not params.annual_only
-            and params.applied_only
-            and upgrade_id != "0"
-            and not effective_applied_in
-        ):
-            effective_applied_in = [upgrade_id]
-        bs_restrict = self._bsq._add_applied_in_restrict(
-            params.restrict,
-            applied_in=effective_applied_in,
-            annual_only=params.annual_only,
-        )
+        # Append a `_build_applied_subquery(all_of=[upgrade_id])` filter to the
+        # restrict list (which enforces `_md_successful_condition` on the upgrade
+        # rows). Without this filter, inapplicable buildings (which have TS rows
+        # under inapplicables_have_ts) would silently inflate totals across all
+        # `applied_only=True` TS queries.
+        bs_restrict: list[RestrictTuple] = list(params.restrict) if params.restrict else []
+        if not params.annual_only and params.applied_only and upgrade_id != "0":
+            use_ts_side = self._bsq.ts_table is not None
+            key_kind: Literal["metadata", "timeseries"] = "timeseries" if use_ts_side else "metadata"
+            applied_select = self._bsq._build_applied_subquery(
+                all_of=[upgrade_id], any_of=None, key_kind=key_kind
+            )
+            assert applied_select is not None  # all_of=[upgrade_id] is non-empty
+            bs_restrict.append(
+                self._bsq._make_applied_filter_tuple(applied_select, key_kind=key_kind)
+            )
         enduse_cols = self._bsq._get_enduse_cols(
             params.enduses, table="baseline" if params.annual_only else "timeseries"
         )

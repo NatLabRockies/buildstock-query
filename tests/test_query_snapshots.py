@@ -52,6 +52,7 @@ SCHEMA_FIXTURES = [
         "report",
         "utility",
         "building_kws",
+        "from_invariants",
     ],
 )
 def test_snapshot_flavor(request, schema, fixture_name, flavor):

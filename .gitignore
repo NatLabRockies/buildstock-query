@@ -27,6 +27,9 @@ build/
 # Per-session SqlCache hash log — populated by SqlCache.get/put, consumed by
 # tests/cleanup_stale_caches.py to identify orphaned cache entries.
 .cache_usage_log
+# Per-session record_query JSONL log — populated by tests/snapshot_recorder.py,
+# consumed by tests/normalize_invariant_snapshot.py to update from_invariants.json.
+.from_invariants_log.jsonl
 # Local-only test cache: full metadata parquets downloaded from S3 (~hundreds
 # of MB) for pure-pandas methods like get_applied_options. Tests that use this
 # cache require --include-local; default behavior is to skip them in CI.

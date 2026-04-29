@@ -1,17 +1,27 @@
 """End-to-end cache refresh: clear usage logs → run tests → drop stale entries.
 
-This is the convenience wrapper around `cleanup_stale_caches.py`. It does:
+This is the convenience wrapper around `cleanup_stale_caches.py` and
+`normalize_invariant_snapshot.py`. It does:
 
-  1. Clear `.cache_usage_log` in every schema cache.
+  1. Clear `.cache_usage_log` in every schema cache, and clear the
+     `.from_invariants_log.jsonl` recorder log.
   2. Run the snapshot suite (default: SQL-hash check; pass `--check-data`
      to also fall through to Athena/cache and compare DataFrames).
-  3. Run the invariants suite (so its hashes get added to the log).
-  4. Run `cleanup_stale_caches.py --delete` (or `--dry-run` if `-n`).
+  3. Run the invariants suite (populates the usage log AND the recorder
+     JSONL via `record_query()` calls inside the invariant tests).
+  4. Normalize `.from_invariants_log.jsonl` into `from_invariants.json`
+     with `--prune` (adds newly-recorded shapes with blank `sql_hash`,
+     deletes entries no longer recorded plus their cache files).
+  5. Run `cleanup_stale_caches.py --delete` (or `--dry-run` if `-n`).
 
 Each step can be skipped individually if you only want a partial run, but
 the order matters: clear must come before any test that should populate
 the log, and cleanup must come after every such test. The defaults run
 all steps in order.
+
+After this completes, any new `from_invariants.json` entries have blank
+`sql_hash` values. Populate them via:
+    pytest tests/test_query_snapshots.py -k from_invariants --update-snapshot
 
 Examples
 --------
@@ -73,18 +83,28 @@ def main() -> int:
         help="Skip step 3 (don't run the invariants suite).",
     )
     parser.add_argument(
+        "--skip-normalize",
+        action="store_true",
+        help="Skip step 4 (don't run normalize_invariant_snapshot.py).",
+    )
+    parser.add_argument(
         "--skip-cleanup",
         action="store_true",
-        help="Skip step 4 (don't run cleanup_stale_caches.py).",
+        help="Skip step 5 (don't run cleanup_stale_caches.py).",
     )
     args = parser.parse_args()
 
     cleanup = ["python", str(HERE / "cleanup_stale_caches.py")]
+    normalize = ["python", str(HERE / "normalize_invariant_snapshot.py")]
+    invariants_log = HERE / "query_snapshots" / ".from_invariants_log.jsonl"
 
     if not args.skip_clear:
         rc = _run(cleanup + ["--clear"])
         if rc != 0:
             return rc
+        if invariants_log.exists():
+            invariants_log.unlink()
+            print(f"cleared {invariants_log.relative_to(REPO_ROOT)}")
 
     pytest = [sys.executable, "-m", "pytest", "-s", "-v"]
 
@@ -101,6 +121,16 @@ def main() -> int:
         rc = _run(pytest + ["tests/test_invariants.py"])
         if rc != 0:
             print("invariants suite failed; aborting before cleanup", file=sys.stderr)
+            return rc
+
+    if not args.skip_normalize:
+        # Prune-mode is only safe after a FULL invariant run. If the user
+        # skipped invariants this session, fall back to add-only.
+        cmd = list(normalize)
+        if not args.skip_invariants:
+            cmd.append("--prune")
+        rc = _run(cmd)
+        if rc != 0:
             return rc
 
     if not args.skip_cleanup:

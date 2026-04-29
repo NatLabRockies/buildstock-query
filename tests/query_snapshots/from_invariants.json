@@ -1,0 +1,5858 @@
+[
+  {
+    "name": "query__resstock_oedi__v1",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "29fbc6f18f2b90a9a5b151581ca266afa246499c1077feb93b1ac2b2170ac73e"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__resstock_oedi__by_geometry_building_type_recs__v2",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "3c91713f4983576320a8af4c4d32b84fb8ac6199df41da75e49341f3e232708d"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__v3",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "a37af3c91c7a91f54a1dc6a8aa4e2f5ccb38136eb327500e9e1a0beb2e7c35ec"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__by_comstock_building_type__v4",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "f119ed58780d7d80a4dff53956368305c6db8d245b673208f06476e48b315ada"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__v5",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "0df24aa3c5a31c9ac2e7087df92a6dcdd12e7f4583385522565185a6fe556891"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__by_comstock_building_type__v6",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "2fbebaf8e5603b8bf5c350ce587e10840d2aebf3c031106d62bb81ca11eda07d"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__resstock_oedi__baseline__by_geometry_building_type_recs__v7",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "07b8ea50a0590cdce3b137b774d5fda3d53a95ff90529e5cf3798d4a93519fc4"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__baseline__ts_year__by_geometry_building_type_recs__v8",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "c4d31eba45bdc3840954a5b65665d05b538def4b8eadb95d10b53d7a7dacef06"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__baseline__ts_month__by_geometry_building_type_recs_time__v9",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "4cf6f6d3ec998e67e11351061cc260926af51ad50b13188868015d2a594601e4"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__by_geometry_building_type_recs__v10",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "82556b6ad7dce1892640f96b1ccbd79f8f2c62f5c7532ab42d5b43430e708e0f"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__ts_year__by_geometry_building_type_recs__v11",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "18e0295ef12526cbff8c2469840c4cfca3e8a4f3b535962f6803d0f5b7e8a05f"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__ts_month__by_geometry_building_type_recs_time__v12",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "b30857700277561b5c3ff9cc75cdb07fdd61b64d1e0d0369f472136dc024f4c7"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs",
+        "time"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__by_geometry_building_type_recs__v13",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "0b537987355ce14b2d33a9e972867ca10b8b8530e230613387bcc63bbf3edcbf"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__ts_year__by_geometry_building_type_recs__v14",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "ccb1d51e2cf3111e0b266e4e03116708335950105088a76cc813b65132c36cb2"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__ts_month__by_geometry_building_type_recs_time__v15",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "7eda4d9d3160f2e9e5360f0d6fe1bb696efdf52a74521b104c81d7b360f0761c"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs",
+        "time"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__by_geometry_building_type_recs__v16",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "28a5d0e4e894d434f0eebf3681b76f13bb0536ad42ede00c8278347d8ffff7e1"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__ts_year__by_geometry_building_type_recs__v17",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "59d9cc0d98765167013ccd89f549c4b9b4534dd0668588603e080ae723c68324"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__ts_month__by_geometry_building_type_recs_time__v18",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "67488b61f8b53f99da110ca0efb3e9b894bfb4c6d5fa00c1d9dfd38149e521c6"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs",
+        "time"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__baseline__by_comstock_building_type__v19",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "9ee201bb39aba613ce35d8836e7a1e3ed1a7ad6ff94829e7142f6541de2ab388"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__baseline__ts_year__by_comstock_building_type__v20",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "99dc16e29457f5ac6b62e1da549cd0ceaaa8376afea44e5afbbcd74e12e9b2c6"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__baseline__ts_month__by_comstock_building_type_time__v21",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "d515f0e4855852a38685c01fb7baf3baaeda8593fd1878941bc4ccaefa409a3a"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__by_comstock_building_type__v22",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "cb1f272a6e86fdfc26b48e4f8a0535203478695ca89e8d79ebb0d7cc8d5165d7"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__ts_year__by_comstock_building_type__v23",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "450af0f7449f9d51364273b321fb71087b9a9a5d2943bdeeca84bf6d3d98579e"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__ts_month__by_comstock_building_type_time__v24",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "b3a985bd7020ab3560103b80d869f1c9b90a18e7f25403ab4cd5eaa246cf071f"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_comstock_building_type__v25",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "b97aaadd8187528676976fd08aea8f5b4edd8591901c61290f67e8472bd6a50d"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_year__by_comstock_building_type__v26",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "a03b2dea8ff64c32193d0471f31e9bc7b6f30c760e076330e8de0691d3c3a327"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_month__by_comstock_building_type_time__v27",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "3fc7d71e5dcb71bf97abe520418b9ee9e249bb083698610d9d4dd778f66fe33d"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_comstock_building_type__v28",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "1cf1b25da7735c1cf66c17ffd7619e042385fb9fdb032a24cf3b47850f8cf017"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_year__by_comstock_building_type__v29",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "4e9200a42297c2cf2fefbc867385d344f2f81e949af50c1fadf78fd5285dc735"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_month__by_comstock_building_type_time__v30",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "bbeb6c14c58dce524c4e0f96cf165722e966bd32ed3b75a8813043833f8cf62a"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__baseline__by_comstock_building_type__v31",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "1da3733ee7011cbc994a30471fd2c89288d8681430c80b7d4c71d8bd1aef429a"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__baseline__ts_year__by_comstock_building_type__v32",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "84865d3f6f8a7cac880d14bed4018f01d940107824a7ae8c5ff50075b8c3a7f3"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__baseline__ts_month__by_comstock_building_type_time__v33",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "877273af3c24b369b88543d6c43c97380fa7143ac56f10447b392b206acfc700"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__by_comstock_building_type__v34",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "cf762bcd8df49687a5257c4be0b7728c113d479468834f966b45410eb213eeba"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__ts_year__by_comstock_building_type__v35",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "96c2bd95d2742b32fc862bf9d7d1ba32362d874ac07de083e2c48dda383fe48b"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__ts_month__by_comstock_building_type_time__v36",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "e6402084078159e70b8bdf1e0659d22c38d326af38709ae9768a6caaf0ef7c20"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__by_comstock_building_type__v37",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "ba7b74e2ad52ac8015b13d97fadce5f86b2646e04868865c902bfcd7bc9d701a"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_year__by_comstock_building_type__v38",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "a936195d1bc365d19b6fe3815cacc8f2e2c3555b18add6ddc704304013a3b6fe"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_month__by_comstock_building_type_time__v39",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "1ad87a3c8cb018a7985e244b5c3c02144a76cab798e00d7d1a3284b296bacdb1"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__by_comstock_building_type__v40",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "c4aabdd94b43aa8e0c601348dfd608fd413160944957ae3dce1df29eb1df8063"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_year__by_comstock_building_type__v41",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "03280db942e0cf68e36aa31980180c2853ad4e836bd07953c17afe6cae400cb3"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_month__by_comstock_building_type_time__v42",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "2d28a06dedb664f13e073a6930f483c0ac74e415baf3ab06a116af5d497b9e7a"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__by_geometry_building_type_recs__v43",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "f2f533f7a6cbf0e28022793815c78dab301ea93337a2e4d6133b267eeae135a2"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__ts_year__by_geometry_building_type_recs__v44",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "3aa19a37b828f7424eaf31c594d97163d46f1b4e4157462173e31130fc116ef6"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__ts_month__by_geometry_building_type_recs_time__v45",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "d6ff7f05b867ec911b7cbbf82e7463b42a7e04fba962698e778771e42b74469d"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__by_geometry_building_type_recs__v46",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "c6335b1ae97ce8b54651ced0938d1cc3f4aae2c48183afcf42a8642efd258978"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__ts_year__by_geometry_building_type_recs__v47",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "acd486e0a1b7539c03d811f5ab230d92fa9d87b2f6375e01c0d240e40df829d5"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__ts_month__by_geometry_building_type_recs_time__v48",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "15a94d0ab05648b39f1b0064b990677441309ae462876bc8632fe7080c0c8d71"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__by_comstock_building_type__v49",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "eec272edd7fb6bab343a7b492cfbc9c5623c867c363fb39cc8e46b4fdb2d6dc4"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__ts_year__by_comstock_building_type__v50",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "6ca82b0d792e1e4b77c585c3e0f285aba4e532ee0a9c2be9b1f1c202e0a21f66"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__ts_month__by_comstock_building_type_time__v51",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "ab8cf5a8eb8748d8a766b07a6f94bd5baf3427f4ea59144b479055a6d23e55fe"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_comstock_building_type__v52",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "6cd5fbdd08e1e9949bb033129ba56519a72a08c7b4f7823111d5c2c2e0bdde24"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_year__by_comstock_building_type__v53",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "764438ae09718bc2a3ef3022e7fca90d34e64aeaef745d443aaa151ef451c479"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_month__by_comstock_building_type_time__v54",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "7cbfd9faac6e031e8f76b7fd27e53de78a6b1e0e0d587f68d1ce19a33567f7e2"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__by_comstock_building_type__v55",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "78dfdf224e0770666cb273947bd66f08471f00e7f8432ead5cfa5e5d16be709f"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__ts_year__by_comstock_building_type__v56",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "15b4fbfe1a35b2f94025d3249d0f4eeb365fa392286520130c3d21548eb89fc9"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__ts_month__by_comstock_building_type_time__v57",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "86a60be02ab8b388da03d22839f92e65c6fb4c2d549eba129ee264eafdd60fbe"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__by_comstock_building_type__v58",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "5e89f22ef585682225e3e770ce8c64ff6843e3dc7808260b4fb967f1ccc14b0c"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_year__by_comstock_building_type__v59",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "12355c0c9f2ca11c247c860b2c3937ddfb5c11e595a9cf690c06653fd5f481cf"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_month__by_comstock_building_type_time__v60",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "6d29d01468612658981e0e804069bccc6c3692d7c4ad2ab1b8d969f0c654076e"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__ts_year__v61",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "24c7ba1e70306cb694b49b3a138729bb8611b26ca4c2e0fb412a8bc4a71367c5"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__comstock_oedi__ts_year__by_in.county_name__v62",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "506bf5a3f646d625013c9c44b3f59511b0ea0c7815ab203c2208d65509777740"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "in.county_name"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__comstock_oedi__ts_year__by_in.nhgis_tract_gisjoin__v63",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "edd2817c1587d427bbafea96c1839b55567144046303e5a45581404597ac8712"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "in.nhgis_tract_gisjoin"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__resstock_oedi__by_geometry_building_type_recs__v64",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "254fdf8a1007b902e64a2d16a73e9be239b8a4b849555a9db1a806c4cc1da845"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__resstock_oedi__by_state__v65",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "95112dddfe598ae8530b86ad543f48c14ce15a40afeb7c092236f1ab96de7d3f"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__by_comstock_building_type__v66",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "f5a29b6e8f9623599d8ef45aa602f84eab98a8189e85614d250e5d28f57824e9"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__by_state__v67",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "ab883b24682f8a2cb62550086c8646bb8abe144959d8f2b7875bc8eefcc27066"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "state"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__by_comstock_building_type__v68",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "150d537ca01597cdcbb58c3f04148a0a4cdfc6b3c32d10aa2d6bfac84bbce268"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__by_state__v69",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "8a1ccc6ebc6867826beab4e1f2b093bb17ef41f178bffade0515325f94937423"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "state"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__resstock_oedi__by_geometry_building_type_recs__v70",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "1ce5149faefbb95c888b2f71a5976156fa586ec3c2eae4ba88428054970a6f90"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "avoid": [
+        [
+          "geometry_building_type_recs",
+          [
+            "Mobile Home"
+          ]
+        ]
+      ],
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__by_comstock_building_type__v71",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "a0914e766b7d28f982e0f457e57510dc8bc90312817bc75ecd66da30afadea77"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "avoid": [
+        [
+          "comstock_building_type",
+          [
+            "Warehouse"
+          ]
+        ]
+      ],
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__by_comstock_building_type__v72",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "d45e761f9c4f375548b2cf4addd08d97911bcc094d2415f4d42ef890db5aa026"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "avoid": [
+        [
+          "comstock_building_type",
+          [
+            "Warehouse"
+          ]
+        ]
+      ],
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__resstock_oedi__ts__by_state_time__v73",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "83ad28ec29290eca3739654883276f3a48298c6b3a5820736d76888f368819a5"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__resstock_oedi__ts_month__by_state_time__v74",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "5a44db15568986c857f1d8d36c6dbe203d36bc46b6c783ef16b21b72984e2e97"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__comstock_oedi__ts__by_state_time__v75",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "f45afba34183811ddb982d97de7d67dde079a0ac5fa250bb5439c4629ba89ed2"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__comstock_oedi__ts_month__by_state_time__v76",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "80026f6ca4154f9d7eb9f2b86df3e94471eccd60e740c2f04c84209eb80f0343"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__ts__by_state_time__v77",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "d599dfbe7301aa34db2290d6eba434aea3592f16a63f3293d8c38e4fd1bce24f"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__ts_month__by_state_time__v78",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "427c464f6d1f7a8e1a0043a1d9ec59ddd9610e02dde27e959bf72053ed302cf4"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__resstock_oedi__ts_hour__by_state_time__v79",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "d8334dd7b46dcca62dc303d2a8635cc45e66d784f7267495519c4588f89448df"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "hour",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__comstock_oedi__ts_hour__by_state_time__v80",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "290ed9aec7334bbb1d706a222241639fd5edd2eb122e5d896bbc2b6a4d9ccdff"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "hour",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__ts_hour__by_state_time__v81",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "b435709a975b2db60d1ed874bee6b7cb28a33cb98f1f3baa0f0c63bb07ef7187"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "hour",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__resstock_oedi__ts_day__by_state_time__v82",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "b0b250dc16cb6f35aa662727c3c9f749eabd4b757e3916b270e077c9e5d97300"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "day",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__comstock_oedi__ts_day__by_state_time__v83",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "f7fbb43ad35f336993759649228195260c1187efd12f56e0fbce8fa27a53e2dc"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "day",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__ts_day__by_state_time__v84",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "4740ab9f8715150a5e3d0ff42a5cbe6a2ed6070a51f7ffea4caa3263a8f55656"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "day",
+      "upgrade_id": 0
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__by_geometry_building_type_recs__v85",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "e5d383d0c45da3200316ea0f9e6943b32be7ed16a7fd19fcda072523d0aabfae"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__by_geometry_building_type_recs__v86",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "1254f5e9a07f873e6b560f80561807effbc8a288a71b775b73d75c86396b4ca9"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": false,
+      "include_savings": true,
+      "include_upgrade": false,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__by_comstock_building_type__v87",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "4a3a9aff76a1217c0c0e99dc1924abcfd8ac8b89c2fc0e07875a8ba808da205f"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__by_comstock_building_type__v88",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "6291d4f1810fcd410debdfedec88a43ae35382e8df40862c53ffa2b6bfdfa098"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": false,
+      "include_savings": true,
+      "include_upgrade": false,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__by_comstock_building_type__v89",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "3e09730b811d53279bbf2ed683dcb1d0a17bc0652034943c9ba021aba90c0024"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__by_comstock_building_type__v90",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "26a7550d665e3417447b3ec863f5b0493428dfb94c311eb1c401282980cb0ab6"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": false,
+      "include_savings": true,
+      "include_upgrade": false,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__baseline__by_geometry_building_type_recs__v91",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "bfb7f6b9aaa0d6a1369e766e766e2330680af27a91ab99b1e4e8697700e52a7f"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__by_geometry_building_type_recs__v92",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "f9e7d25c3d30325d7f657a6a16d9807bd6a764d4e6cf319b929660606751109d"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__by_geometry_building_type_recs__v93",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "77c6ec50e93303cd4b018f2302351613193bef04adf6af5ea5a50004fd36780b"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__baseline__by_comstock_building_type__v94",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "e932a7f337a96dde9724c888565a961d1d0cdb02040978f6d020e4d4e2237858"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_comstock_building_type__v95",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "0ff150815e2382f3dad922da58df2f1b35b25e70e1c8f1b546ccb16fe632df93"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_comstock_building_type__v96",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "6267e4f49ffb0b2d67e1bb537e58a7f40f38e7ff909eaaa607e595dd6bf2a46e"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__baseline__by_comstock_building_type__v97",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "7d8bf46eb2cbc32456f53fc9cb12963b38e75d74ef34d2c86ac946d271a7baac"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__by_comstock_building_type__v98",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "bdd0f134e3f870fb8c46e904b8ef93495a067e13628bd6fe7ff1e76f68669794"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__by_comstock_building_type__v99",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "b0feb56e75341b331b5161a930f612cf86497c3164826330cd6a6a3aac7db5a5"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__by_geometry_building_type_recs__v100",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "77c6ec50e93303cd4b018f2302351613193bef04adf6af5ea5a50004fd36780b"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__by_comstock_building_type__v101",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "6267e4f49ffb0b2d67e1bb537e58a7f40f38e7ff909eaaa607e595dd6bf2a46e"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__by_comstock_building_type__v102",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "b0feb56e75341b331b5161a930f612cf86497c3164826330cd6a6a3aac7db5a5"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__by_geometry_building_type_recs__v103",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "7613b7265f84dfe31fcd625a6a3d28072e34ed9a2b77cb22dd78ea9486a3e95a"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "WY"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_comstock_building_type__v104",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "f398bf2f0bc7fd066c2ed61943c3c02f20bf6305c3340e920eb7f7ce203e53db"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__by_comstock_building_type__v105",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "b4ae2e911e9ac2718855d92d11e4ef26006412d067d790434241924de385efb7"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "state",
+          [
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__baseline__by_state__v106",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "587a880d9ab11e5552211dd7a97c5366c220bb5324a2c84c68393eddb9b0b925"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "state"
+      ],
+      "restrict": [
+        [
+          "bldg_id",
+          [
+            51037
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__baseline__v107",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "bb4f094510ac084e2e78b826848e36b29a7d955beb5a040a2a08fa05a3496550"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "restrict": [
+        [
+          "bldg_id",
+          [
+            51037
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__baseline__v108",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "1250dffb75db626e0a5882d96a571da6674c73639f1ecb6473fd16769c305d87"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "restrict": [
+        [
+          "bldg_id",
+          [
+            51037
+          ]
+        ],
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__baseline__by_state_in.nhgis_tract_gisjoin__v109",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "7ed173efbc69c11da0e58d3df0b35d64fdde4342a35e79df319cf6e7747af0cc"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "state",
+        "in.nhgis_tract_gisjoin"
+      ],
+      "restrict": [
+        [
+          "bldg_id",
+          [
+            51037
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__baseline__by_state_in.county_name__v110",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "29a3beeed1fd76125e9785e734a7bc3012a6cd2ba7067015186c98418d52bbce"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "state",
+        "in.county_name"
+      ],
+      "restrict": [
+        [
+          "bldg_id",
+          [
+            51037
+          ]
+        ]
+      ],
+      "upgrade_id": "0"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_state__v111",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "f75d5bedc3d84327dc4b94176167a7c32c4e355ad9a5792156ee5aa36ce572b4"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "state"
+      ],
+      "include_baseline": true,
+      "include_savings": true,
+      "include_upgrade": true,
+      "restrict": [
+        [
+          "bldg_id",
+          [
+            51037
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "get_building_ids__resstock_oedi__v112",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "86e94bec86e3c4c890e15501730b52eca694275ecf555d4b6737295b3b4e51c3"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, resstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__resstock_oedi__v113",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "672ceea3fe514e1d3251b599de281a7c74bb8a85eb8d6dc7dd7b6247a72ae9a4"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, resstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__resstock_oedi__v114",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "dcc9c8223291277831efa59fe2ad606700e31ec5f233889ef3256543740a0fbb"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, resstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__by_geometry_building_type_recs__v115",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "d4f1712e6a6249234aa46d4bd8fb384c8ca0a3570dbb64d9c6e5137be645d085"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "get_building_ids__resstock_oedi__v116",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "57f45f20cb93445c50aaa5a3186882e48e1e933ccb10a68ff420a1e307a060e9"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, resstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__resstock_oedi__v117",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "bcdb8d80a9e23f9b8f249af4e2964477781ca89d8c53f9e882a45efd213661ed"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, resstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__resstock_oedi__v118",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "da33549bb007db03b52e0b98d1704a30941e1f2a8e7d27a98d2dd0ac4f8f282f"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, resstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__by_geometry_building_type_recs__v119",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "8f96e7d7c2e805f2f7f5ba64c96cd5d62dc8ba4411872d37397d72000420c9f0"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "get_building_ids__resstock_oedi__v120",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "8947770f5caddf7d97710e7a92ce37ad755d014b6b2ddff038ea48ab13195401"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, resstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "WY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi__v121",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "c157da9caafb454a7a9d308aa1700b290ee9fb0957b70c4666055da589f91687"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi__v122",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "4258a04bcd61d4e763220468c888c2c0ac371df23c52a98f2021e7b5d6dec749"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi__v123",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "130e9c8f0d07a64eada2aa26a1e49f4490baa58671b1acdaac6b943424007c03"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_comstock_building_type__v124",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "4a205af1b63d2d58c6c4d77743158cd0345293f5b0c80b664d308877a14c50e8"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi__v125",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "43813abdf07674ac7994ac831bc3d0f289221eb7b60916d5984ae35618bfd5e5"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi__v126",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "4d6e711218c15868583490db148ff55335463dbd9318874b2b2ce4ec3c8aa878"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi__v127",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "0533803da4e82dd5da5e8493439bac4c8698638c0572dceda507f04d77fc086f"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_comstock_building_type__v128",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "140d3fc0d8d952ab881a7de859d5eb20b27127200aa461853d45908483797529"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi__v129",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "3a86e29a4ac959e2bc9d1b34eb79d259c1ff4beec91eb3aa5f2239f31525ef04"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "NM"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi_agg__v130",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "5591413bf3a717b56cd9fbd69c10de117042d6a945f2413918a7b7151c59c474"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi_agg).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi_agg__v131",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "119d211fa61997ca59b9eb62a9a00ec84fe05cd055f855f8f593f4731666dfe8"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi_agg).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi_agg__v132",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "888eeea2b8eff9889a218a5c73606cf70c5111c5dc243fcdf3a62be8084407ea"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi_agg).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__by_comstock_building_type__v133",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "2c66c2b89f9bdfd01ac445306d14c4bef66d31abc1d50bb4a6388c152261e24c"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi_agg__v134",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "2a7ee2988917be6d853bef7dc427886e672ba572e132b905c43712ebd0ee2570"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi_agg).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi_agg__v135",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "8a69e4e5a1af07a32804b5d21d91801da9cc95d38cd615feaa80cb8ee68addfa"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi_agg).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi_agg__v136",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "56cde37ea3ca43f82e0eb943af6c9adf831a808588bb14841d6df228e28ed64f"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi_agg).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__by_comstock_building_type__v137",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "6c08528e10efb4b5ceded2224da66172e3d3308d3e169eb4090ab77a858799ad"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi_agg__v138",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "1b6aad112d66a1cf65edbd3f000cce430fa136737e84717821df280f49fe5559"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi_agg).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "NM"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__resstock_oedi__v139",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "cc0aee7dc6903a946be098395ce5adcfd5633e58bf2361d3d39beb3fd0234226"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, resstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi__v140",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "f48ae9b7ff4c9d5fa12e4a27d3564c26ac30df85afb21d8fdc7c7710a26d701e"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "get_building_ids__comstock_oedi_agg__v141",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "d9acb0ef7ca10a2c07fc3734da0bc77cc77b668948143881d99770dfaf6d82fb"
+    },
+    "description": "Auto-recorded from test_invariants (get_building_ids, comstock_oedi_agg).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__resstock_oedi__by_geometry_building_type_recs__v142",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "f45af37ecf23e6565c3a4b2125ad0bcdae0dd0f4f2dce477335b059b20e0df0d"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "get_nonzero_count": true,
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__by_comstock_building_type__v143",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "cf00cfd0775a7322ce225ce3aa5b0d219be5af735198a562b0c1cc9368cae951"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "get_nonzero_count": true,
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__by_comstock_building_type__v144",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "0dade342c2d618ab0d0d5630b50f6ec80ff2d9a6288fc2f96d4ce508125ba9b6"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "get_nonzero_count": true,
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__resstock_oedi__by_vintage__v145",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "bc0e114f778b935b8f457fecd26e34ef49ac38c3329e97956404a456a41dd6d4"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "vintage"
+      ],
+      "limit": 5,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "sort": true
+    }
+  },
+  {
+    "name": "query__comstock_oedi__by_vintage__v146",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "bd4923c5cc1f3b290529fe44e80b22134c513bd3d30ebe9756317cb7220aaa44"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "vintage"
+      ],
+      "limit": 5,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "sort": true
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__by_vintage__v147",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "6448022d1f3b64a9b6baf3304d93f7837d546d24824ae32d288e187418a6dea1"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "vintage"
+      ],
+      "limit": 5,
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "sort": true
+    }
+  },
+  {
+    "name": "query__resstock_oedi__by_geometry_building_type_recs__v148",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "66bdd433dc8cce2c3a4896cf169f1054c3b0afa08b1e04ee9d83e71c555c4be8"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "agg_func": "mean",
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__by_comstock_building_type__v149",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "00e4367d612c6595f832c75ba98e6fb61a6b871a1b6bbacf08db3b10b6434ae7"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "agg_func": "mean",
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__by_comstock_building_type__v150",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "a1edd3519ca958b3f067edda1678facedbcbc1f5fc76a6a090c3bf0940513f4e"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "agg_func": "mean",
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_year__by_comstock_building_type__v151",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "cab665063321e02478d6f1e39070a006416eb20e40afc548e4943066c80461cd"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_month__by_comstock_building_type_time__v152",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "d8c2c9e6244192e93d896fc3c788ecdcc60728ef3d7412e3af70667b45580ed9"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_county__v153",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "7434772e96eb094ed05f9880b829004de35587c3592601d9dfd968eddb19a4dd"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "county"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_year__by_county__v154",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "beb0ae18ca5120a7b16bf12b0d9fdb176b3e94bf8823c0f19522819e43e6edf3"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "county"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_month__by_county_time__v155",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "8984f86f60e5e0f70ee43dc6a9e792f4f326d6bc925afb42a04313cbb0b345eb"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "county",
+        "time"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_year__by_comstock_building_type__v156",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "e68977e04c4346bfbd7f7f8d47b9bc3a6fae4d45baa602531c61a698606f6999"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_month__by_comstock_building_type_time__v157",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "209380d03850faed5f69accd77dd8cb261341dfb4e1335427f1f0eb6c0127227"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__by_county__v158",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "846926806609d802707ced2e205ff3241ff5a4f584140675bb8b3f067a013a27"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh",
+        "out.natural_gas.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        "county"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_year__by_county__v159",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "ef0300c1423fb3ac8ea2d9ade875b14a2ccde03ba1f0b8a5a954ae3a17dc06c2"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "county"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_month__by_county_time__v160",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "b61f5662139a4f9419a7b6dc349dfecaf96fe1219af21d9d17616eba6ec40bb0"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        "out.electricity.total.energy_consumption",
+        "out.natural_gas.total.energy_consumption"
+      ],
+      "group_by": [
+        "county",
+        "time"
+      ],
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__by_geometry_building_type_recs__v161",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "d0bbc38271fb282420ef841325ff3b7d2163b8139620e2e601549815afd4f41d"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": false,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "baseline"
+          }
+        }
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__ts_year__by_geometry_building_type_recs__v162",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "fec3f63ab7cdf84333351e7d6bc01f2c50997e74bfa1da42598cc3ea215fda0c"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__u1__ts_month__by_geometry_building_type_recs_time__v163",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "990f8f405ffc745af56552849602bd28f5ef9eb94e52537ddcb9fa632530ae41"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "geometry_building_type_recs",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__by_geometry_building_type_recs__v164",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "47c8c8894e6d52064a30dcf8073399ecc5b30cb68a7e2a1612fbd8595c04487f"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "baseline"
+          }
+        }
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__ts_year__by_geometry_building_type_recs__v165",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "bd6b0895d332e1245df4b96c5fbbf59be9c99b2d4d598a7ecd5b171abdc9cc26"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "geometry_building_type_recs"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__applied__u1__ts_month__by_geometry_building_type_recs_time__v166",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "f8d0eb3dde140be08cfc99ceea97441e341d03473c757610d44b4ed998200976"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "geometry_building_type_recs",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__by_comstock_building_type__v167",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "145630e7697061a2c166edc79b6af15f940de3572b098ac62b6320ce564ce141"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": false,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption..kwh - out.natural_gas.total.energy_consumption..kwh",
+            "name": "elec_minus_gas",
+            "table": "baseline"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__ts_year__by_comstock_building_type__v168",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "e8e0705cc3f54c914b59c57e3ff51461161a0c0c75e76ca8c08f1181f5b3ff3c"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__u1__ts_month__by_comstock_building_type_time__v169",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "8853ecb4d2bf37c6fbbe7c2a1c5199d5855855cfd38036ac0fd8e0e7c9616dd9"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__by_comstock_building_type__v170",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "56c99f121bc784fee9dd05902aeccc90578421b52b7976b1af0ad073195f121d"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption..kwh - out.natural_gas.total.energy_consumption..kwh",
+            "name": "elec_minus_gas",
+            "table": "baseline"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_year__by_comstock_building_type__v171",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "6ef2729e8ee7366a78328481e25c2c0b1d4c58b8aff0501f1ec292918cedd002"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi__applied__u1__ts_month__by_comstock_building_type_time__v172",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "b8f1744b886274cd8f8044fe0cf9b24a1f8b66ea0a1c6b83a11929347ce4fffa"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__by_comstock_building_type__v173",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "5a516bafeb0420eba049c0866f5d8232be7763478ed0679f8f005c990a360474"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": false,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption..kwh - out.natural_gas.total.energy_consumption..kwh",
+            "name": "elec_minus_gas",
+            "table": "baseline"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__ts_year__by_comstock_building_type__v174",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "033511610c6f39e7da1a6f194b3a956b48493a7cff58adfd7b9f1b334ca885fe"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__u1__ts_month__by_comstock_building_type_time__v175",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "51fb9a11dcb71325e545e7711d1c7855be37678c588516eac74cb563fbcd0edb"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": false,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__by_comstock_building_type__v176",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "39dadbe49ae3dbac95ccfaca30ef5013bcc38d9b5c5681fc006c784034365c6b"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "applied_only": true,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption..kwh - out.natural_gas.total.energy_consumption..kwh",
+            "name": "elec_minus_gas",
+            "table": "baseline"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_year__by_comstock_building_type__v177",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "8a16c09113f0eea534bede868081076dda2284a7a32e252b92d309a3b6e6f080"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "year",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__applied__u1__ts_month__by_comstock_building_type_time__v178",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "87d20f68fb02e809397f31e4bc7bc0ea6b6ae754a72df81dfdf15eee0e77a912"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "annual_only": false,
+      "applied_only": true,
+      "enduses": [
+        {
+          "_calc_column": {
+            "expr": "out.electricity.total.energy_consumption - out.natural_gas.total.energy_consumption",
+            "name": "elec_minus_gas",
+            "table": "timeseries"
+          }
+        }
+      ],
+      "group_by": [
+        "comstock_building_type",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "NM"
+          ]
+        ]
+      ],
+      "timestamp_grouping_func": "month",
+      "upgrade_id": "1"
+    }
+  },
+  {
+    "name": "query__resstock_oedi__v179",
+    "schemas": [
+      "resstock_oedi"
+    ],
+    "sql_hash": {
+      "resstock_oedi": "25a8938c3734c63fc04ae0f798bdb552d77a218f7463c7432d6b142c1a2e9f8c"
+    },
+    "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption"
+      ],
+      "group_by": [
+        {
+          "_mapped_column": {
+            "key_column": "geometry_building_type_recs",
+            "mapping_dict": {
+              "Mobile Home": "MH",
+              "Multi-Family with 2 - 4 Units": "MF",
+              "Multi-Family with 5+ Units": "MF",
+              "Single-Family Attached": "SF",
+              "Single-Family Detached": "SF"
+            },
+            "name": "simple_bldg_type"
+          }
+        }
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi__v180",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "899e07561ef9b40fcff054285b73f3ba5b97359426560dc7c93a544bd3cc61f0"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        {
+          "_mapped_column": {
+            "key_column": "comstock_building_type",
+            "mapping_dict": {
+              "FullServiceRestaurant": "Food",
+              "Hospital": "Health",
+              "LargeHotel": "Lodging",
+              "LargeOffice": "Office",
+              "MediumOffice": "Office",
+              "Outpatient": "Health",
+              "PrimarySchool": "School",
+              "QuickServiceRestaurant": "Food",
+              "RetailStandalone": "Retail",
+              "RetailStripmall": "Retail",
+              "SecondarySchool": "School",
+              "SmallHotel": "Lodging",
+              "SmallOffice": "Office",
+              "Warehouse": "Warehouse"
+            },
+            "name": "simple_bldg_type"
+          }
+        }
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "query__comstock_oedi_agg__v181",
+    "schemas": [
+      "comstock_oedi_agg"
+    ],
+    "sql_hash": {
+      "comstock_oedi_agg": "5bea598c0ba18b7286291b8606c93e7299452c4237ae9e8502816f7948a45201"
+    },
+    "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
+    "args": {
+      "enduses": [
+        "out.electricity.total.energy_consumption..kwh"
+      ],
+      "group_by": [
+        {
+          "_mapped_column": {
+            "key_column": "comstock_building_type",
+            "mapping_dict": {
+              "FullServiceRestaurant": "Food",
+              "Hospital": "Health",
+              "LargeHotel": "Lodging",
+              "LargeOffice": "Office",
+              "MediumOffice": "Office",
+              "Outpatient": "Health",
+              "PrimarySchool": "School",
+              "QuickServiceRestaurant": "Food",
+              "RetailStandalone": "Retail",
+              "RetailStripmall": "Retail",
+              "SecondarySchool": "School",
+              "SmallHotel": "Lodging",
+              "SmallOffice": "Office",
+              "Warehouse": "Warehouse"
+            },
+            "name": "simple_bldg_type"
+          }
+        }
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  }
+]

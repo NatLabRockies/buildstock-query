@@ -70,6 +70,7 @@ from tests.test_utility import (
     resolve_placeholder,
     run_query_data,
 )
+from tests.snapshot_recorder import record_query
 
 
 pd.set_option("display.width", 1000)
@@ -258,10 +259,18 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
     scenario_args = dict(scenario_extra)
     applied_all_of = scenario_args.pop("_applied_filter_all_of", None)
     scenario_restrict = list(restrict)
+    # `record_restrict` mirrors `scenario_restrict` but keeps the live
+    # SA Subquery in the `_applied_filter` marker form so the recorder
+    # can serialize to JSON.
+    record_restrict = list(restrict)
     if applied_all_of:
         applied_filter = bsq.get_applied_buildings_filter(all_of=applied_all_of)
         if applied_filter is not None:
             scenario_restrict = [applied_filter, *scenario_restrict]
+            record_restrict = [
+                {"_applied_filter": {"all_of": applied_all_of}},
+                *record_restrict,
+            ]
 
     try:
         annual_df = bsq.query(
@@ -271,6 +280,13 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
             **savings_kwargs,
             **scenario_args,
         )
+        record_query(bsq, {
+            "enduses": annual_enduses,
+            "group_by": [group_col],
+            "restrict": record_restrict,
+            **savings_kwargs,
+            **scenario_args,
+        })
         ts_year_df = bsq.query(
             enduses=ts_enduses,
             annual_only=False,
@@ -280,6 +296,15 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
             **savings_kwargs,
             **scenario_args,
         )
+        record_query(bsq, {
+            "enduses": ts_enduses,
+            "annual_only": False,
+            "timestamp_grouping_func": "year",
+            "group_by": [group_col],
+            "restrict": record_restrict,
+            **savings_kwargs,
+            **scenario_args,
+        })
         ts_monthly_df = bsq.query(
             enduses=ts_enduses,
             annual_only=False,
@@ -289,6 +314,15 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
             **savings_kwargs,
             **scenario_args,
         )
+        record_query(bsq, {
+            "enduses": ts_enduses,
+            "annual_only": False,
+            "timestamp_grouping_func": "month",
+            "group_by": [group_col, "time"],
+            "restrict": record_restrict,
+            **savings_kwargs,
+            **scenario_args,
+        })
     except UnsupportedQueryShape as exc:
         pytest.skip(f"query shape unsupported on {schema}: {exc}")
 
@@ -486,6 +520,19 @@ def test_calculated_column_matches_manual_decomposition_per_flow(
         f"{ts_elec} - {ts_gas}",
         table="timeseries",
     )
+    # JSON-serializable marker forms for the recorder. The snapshot
+    # harness rebuilds the live SA Label via _resolve_calc_and_mapped_columns
+    # at load time.
+    annual_calc_marker = {"_calc_column": {
+        "name": "elec_minus_gas",
+        "expr": f"{annual_elec} - {annual_gas}",
+        "table": "baseline",
+    }}
+    ts_calc_marker = {"_calc_column": {
+        "name": "elec_minus_gas",
+        "expr": f"{ts_elec} - {ts_gas}",
+        "table": "timeseries",
+    }}
 
     # Calc-column query frames (one enduse, the labeled expression).
     annual_df = bsq.query(
@@ -494,6 +541,12 @@ def test_calculated_column_matches_manual_decomposition_per_flow(
         restrict=restrict,
         **scenario_extra,
     )
+    record_query(bsq, {
+        "enduses": [annual_calc_marker],
+        "group_by": [group_col],
+        "restrict": restrict,
+        **scenario_extra,
+    })
     ts_year_df = bsq.query(
         enduses=[ts_calc],
         annual_only=False,
@@ -502,6 +555,14 @@ def test_calculated_column_matches_manual_decomposition_per_flow(
         restrict=restrict,
         **scenario_extra,
     )
+    record_query(bsq, {
+        "enduses": [ts_calc_marker],
+        "annual_only": False,
+        "timestamp_grouping_func": "year",
+        "group_by": [group_col],
+        "restrict": restrict,
+        **scenario_extra,
+    })
     ts_monthly_df = bsq.query(
         enduses=[ts_calc],
         annual_only=False,
@@ -510,6 +571,14 @@ def test_calculated_column_matches_manual_decomposition_per_flow(
         restrict=restrict,
         **scenario_extra,
     )
+    record_query(bsq, {
+        "enduses": [ts_calc_marker],
+        "annual_only": False,
+        "timestamp_grouping_func": "month",
+        "group_by": [group_col, "time"],
+        "restrict": restrict,
+        **scenario_extra,
+    })
 
     # Manual-decomposition query frames (two bare-column enduses) — same args
     # as above but with the underlying fuels queried directly. The output
@@ -520,6 +589,12 @@ def test_calculated_column_matches_manual_decomposition_per_flow(
         restrict=restrict,
         **scenario_extra,
     )
+    record_query(bsq, {
+        "enduses": [annual_elec, annual_gas],
+        "group_by": [group_col],
+        "restrict": restrict,
+        **scenario_extra,
+    })
     ts_year_bare_df = bsq.query(
         enduses=[ts_elec, ts_gas],
         annual_only=False,
@@ -528,6 +603,14 @@ def test_calculated_column_matches_manual_decomposition_per_flow(
         restrict=restrict,
         **scenario_extra,
     )
+    record_query(bsq, {
+        "enduses": [ts_elec, ts_gas],
+        "annual_only": False,
+        "timestamp_grouping_func": "year",
+        "group_by": [group_col],
+        "restrict": restrict,
+        **scenario_extra,
+    })
     ts_monthly_bare_df = bsq.query(
         enduses=[ts_elec, ts_gas],
         annual_only=False,
@@ -536,6 +619,14 @@ def test_calculated_column_matches_manual_decomposition_per_flow(
         restrict=restrict,
         **scenario_extra,
     )
+    record_query(bsq, {
+        "enduses": [ts_elec, ts_gas],
+        "annual_only": False,
+        "timestamp_grouping_func": "month",
+        "group_by": [group_col, "time"],
+        "restrict": restrict,
+        **scenario_extra,
+    })
 
     # Per-flow manual-decomposition check: calc-col total == bare-elec - bare-gas.
     # This is the strongest check on calc-col arithmetic — proves the expression
@@ -583,7 +674,9 @@ def test_group_by_sum_equals_overall(request, bsq_fixture, schema):
     restrict = [("state", ["CO"])]
 
     overall_df = bsq.query(enduses=enduses, restrict=restrict)
+    record_query(bsq, {"enduses": enduses, "restrict": restrict})
     grouped_df = bsq.query(enduses=enduses, group_by=[group_col], restrict=restrict)
+    record_query(bsq, {"enduses": enduses, "group_by": [group_col], "restrict": restrict})
 
     for col in (_strip_out_prefix(e) for e in enduses):
         overall_total = float(overall_df[col].iloc[0])
@@ -645,16 +738,30 @@ def test_ts_year_county_and_tract_disaggregation_matches_overall_comstock(reques
         enduses=[enduse], annual_only=False, upgrade_id=0,
         timestamp_grouping_func="year", restrict=restrict,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "timestamp_grouping_func": "year", "restrict": restrict,
+    })
     by_county_df = bsq.query(
         enduses=[enduse], annual_only=False, upgrade_id=0,
         timestamp_grouping_func="year",
         group_by=["in.county_name"], restrict=restrict,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "timestamp_grouping_func": "year",
+        "group_by": ["in.county_name"], "restrict": restrict,
+    })
     by_tract_df = bsq.query(
         enduses=[enduse], annual_only=False, upgrade_id=0,
         timestamp_grouping_func="year",
         group_by=["in.nhgis_tract_gisjoin"], restrict=restrict,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "timestamp_grouping_func": "year",
+        "group_by": ["in.nhgis_tract_gisjoin"], "restrict": restrict,
+    })
 
     overall_kwh = float(overall_df[enduse_col].iloc[0])
     by_county_kwh = float(by_county_df[enduse_col].sum())
@@ -728,9 +835,15 @@ def test_co_subset_of_co_plus_wy(request, bsq_fixture, schema):
     co_only_df = bsq.query(
         enduses=[enduse], group_by=[group_col], restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [group_col], "restrict": [("state", ["CO"])],
+    })
     co_wy_df = bsq.query(
         enduses=[enduse], group_by=["state"], restrict=[("state", ["CO", "WY"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": ["state"], "restrict": [("state", ["CO", "WY"])],
+    })
 
     co_row = co_wy_df[co_wy_df["state"] == "CO"]
     if co_row.empty:
@@ -773,10 +886,17 @@ def test_avoid_plus_avoided_equals_full(request, bsq_fixture, schema):
     full_df = bsq.query(
         enduses=[enduse], group_by=[group_col], restrict=restrict,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [group_col], "restrict": restrict,
+    })
     avoid_df = bsq.query(
         enduses=[enduse], group_by=[group_col], restrict=restrict,
         avoid=[(group_col, [avoided_value])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [group_col], "restrict": restrict,
+        "avoid": [(group_col, [avoided_value])],
+    })
 
     avoided_row = full_df[full_df[group_col] == avoided_value]
     if avoided_row.empty:
@@ -823,14 +943,25 @@ def test_mapped_column_aggregates_underlying_types(request, bsq_fixture, schema)
     direct_df = bsq.query(
         enduses=[enduse], group_by=[group_col], restrict=restrict,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [group_col], "restrict": restrict,
+    })
     # MappedColumn group_by — one row per mapped category (MH/SF/MF, etc.).
     key_col = bsq._get_column(group_col)
     mapped = MappedColumn(
         bsq=bsq, name="simple_bldg_type", mapping_dict=mapping_dict, key=key_col,
     )
+    mapped_marker = {"_mapped_column": {
+        "name": "simple_bldg_type",
+        "key_column": group_col,
+        "mapping_dict": mapping_dict,
+    }}
     mapped_df = bsq.query(
         enduses=[enduse], group_by=[mapped], restrict=restrict,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [mapped_marker], "restrict": restrict,
+    })
 
     enduse_col = _strip_out_prefix(enduse)
     # For each mapped category in the result, sum the underlying values from the direct
@@ -877,12 +1008,23 @@ def test_15min_raw_sums_to_monthly(request, bsq_fixture, schema):
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "group_by": ["state", "time"],
+        "restrict": [("state", ["CO"])],
+    })
     monthly_df = bsq.query(
         enduses=[enduse], annual_only=False, upgrade_id=0,
         timestamp_grouping_func="month",
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "timestamp_grouping_func": "month",
+        "group_by": ["state", "time"],
+        "restrict": [("state", ["CO"])],
+    })
 
     enduse_col = _strip_out_prefix(enduse)
     # Bucket raw rows into months (using the same `date_trunc('month', ts - 900s)` shift
@@ -937,12 +1079,23 @@ def test_15min_raw_sums_to_hourly(request, bsq_fixture, schema):
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "group_by": ["state", "time"],
+        "restrict": [("state", ["CO"])],
+    })
     hourly_df = bsq.query(
         enduses=[enduse], annual_only=False, upgrade_id=0,
         timestamp_grouping_func="hour",
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "timestamp_grouping_func": "hour",
+        "group_by": ["state", "time"],
+        "restrict": [("state", ["CO"])],
+    })
 
     enduse_col = _strip_out_prefix(enduse)
     raw_df = raw_df.copy()
@@ -1005,12 +1158,24 @@ def test_daily_sums_to_monthly(request, bsq_fixture, schema):
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "timestamp_grouping_func": "day",
+        "group_by": ["state", "time"],
+        "restrict": [("state", ["CO"])],
+    })
     monthly_df = bsq.query(
         enduses=[enduse], annual_only=False, upgrade_id=0,
         timestamp_grouping_func="month",
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "timestamp_grouping_func": "month",
+        "group_by": ["state", "time"],
+        "restrict": [("state", ["CO"])],
+    })
 
     enduse_col = _strip_out_prefix(enduse)
     daily_df = daily_df.copy()
@@ -1060,12 +1225,24 @@ def test_hourly_sums_to_daily(request, bsq_fixture, schema):
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "timestamp_grouping_func": "hour",
+        "group_by": ["state", "time"],
+        "restrict": [("state", ["CO"])],
+    })
     daily_df = bsq.query(
         enduses=[enduse], annual_only=False, upgrade_id=0,
         timestamp_grouping_func="day",
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "timestamp_grouping_func": "day",
+        "group_by": ["state", "time"],
+        "restrict": [("state", ["CO"])],
+    })
 
     enduse_col = _strip_out_prefix(enduse)
     hourly_df = hourly_df.copy()
@@ -1118,10 +1295,18 @@ def test_savings_only_matches_full_savings_query(request, bsq_fixture, schema):
         enduses=[enduse], upgrade_id="1", group_by=[group_col], restrict=restrict,
         include_baseline=True, include_upgrade=True, include_savings=True,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": "1", "group_by": [group_col], "restrict": restrict,
+        "include_baseline": True, "include_upgrade": True, "include_savings": True,
+    })
     only_df = bsq.query(
         enduses=[enduse], upgrade_id="1", group_by=[group_col], restrict=restrict,
         include_baseline=False, include_upgrade=False, include_savings=True,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": "1", "group_by": [group_col], "restrict": restrict,
+        "include_baseline": False, "include_upgrade": False, "include_savings": True,
+    })
 
     full_savings_col = _find_first_col(full_df, suffix="__savings", contains="electricity.total")
     only_savings_col = _find_first_col(only_df, suffix="__savings", contains="electricity.total")
@@ -1190,19 +1375,36 @@ def test_savings_equals_independent_baseline_minus_upgrade(request, bsq_fixture,
     try:
         applied_filter = bsq.get_applied_buildings_filter(all_of=[1])
         b_only_restrict = [applied_filter, *restrict] if applied_filter else list(restrict)
+        b_only_record_restrict = (
+            [{"_applied_filter": {"all_of": [1]}}, *restrict]
+            if applied_filter else list(restrict)
+        )
         b_only = bsq.query(
             enduses=enduses, upgrade_id="0",
             group_by=[group_col], restrict=b_only_restrict,
         )
+        record_query(bsq, {
+            "enduses": enduses, "upgrade_id": "0",
+            "group_by": [group_col], "restrict": b_only_record_restrict,
+        })
         u_only = bsq.query(
             enduses=enduses, upgrade_id="1",
             applied_only=True, group_by=[group_col], restrict=restrict,
         )
+        record_query(bsq, {
+            "enduses": enduses, "upgrade_id": "1",
+            "applied_only": True, "group_by": [group_col], "restrict": restrict,
+        })
         full = bsq.query(
             enduses=enduses, upgrade_id="1",
             applied_only=True, group_by=[group_col], restrict=restrict,
             include_baseline=True, include_upgrade=True, include_savings=True,
         )
+        record_query(bsq, {
+            "enduses": enduses, "upgrade_id": "1",
+            "applied_only": True, "group_by": [group_col], "restrict": restrict,
+            "include_baseline": True, "include_upgrade": True, "include_savings": True,
+        })
     except UnsupportedQueryShape as exc:
         pytest.skip(f"query shape unsupported on {schema}: {exc}")
 
@@ -1268,11 +1470,21 @@ def test_savings_independent_of_applied_only_flag(request, bsq_fixture, schema):
             applied_only=True, group_by=[group_col], restrict=restrict,
             include_baseline=True, include_upgrade=True, include_savings=True,
         )
+        record_query(bsq, {
+            "enduses": enduses, "upgrade_id": "1",
+            "applied_only": True, "group_by": [group_col], "restrict": restrict,
+            "include_baseline": True, "include_upgrade": True, "include_savings": True,
+        })
         full = bsq.query(
             enduses=enduses, upgrade_id="1",
             group_by=[group_col], restrict=restrict,
             include_baseline=True, include_upgrade=True, include_savings=True,
         )
+        record_query(bsq, {
+            "enduses": enduses, "upgrade_id": "1",
+            "group_by": [group_col], "restrict": restrict,
+            "include_baseline": True, "include_upgrade": True, "include_savings": True,
+        })
     except UnsupportedQueryShape as exc:
         pytest.skip(f"query shape unsupported on {schema}: {exc}")
 
@@ -1341,18 +1553,36 @@ def test_multi_state_savings_equals_sum_of_per_state(request, bsq_fixture, schem
             restrict=[("state", [s1])],
             include_baseline=True, include_upgrade=True, include_savings=True,
         )
+        record_query(bsq, {
+            "enduses": enduses, "upgrade_id": "1",
+            "applied_only": True, "group_by": [group_col],
+            "restrict": [("state", [s1])],
+            "include_baseline": True, "include_upgrade": True, "include_savings": True,
+        })
         s2_df = bsq.query(
             enduses=enduses, upgrade_id="1",
             applied_only=True, group_by=[group_col],
             restrict=[("state", [s2])],
             include_baseline=True, include_upgrade=True, include_savings=True,
         )
+        record_query(bsq, {
+            "enduses": enduses, "upgrade_id": "1",
+            "applied_only": True, "group_by": [group_col],
+            "restrict": [("state", [s2])],
+            "include_baseline": True, "include_upgrade": True, "include_savings": True,
+        })
         both = bsq.query(
             enduses=enduses, upgrade_id="1",
             applied_only=True, group_by=[group_col],
             restrict=[("state", [s1, s2])],
             include_baseline=True, include_upgrade=True, include_savings=True,
         )
+        record_query(bsq, {
+            "enduses": enduses, "upgrade_id": "1",
+            "applied_only": True, "group_by": [group_col],
+            "restrict": [("state", [s1, s2])],
+            "include_baseline": True, "include_upgrade": True, "include_savings": True,
+        })
     except UnsupportedQueryShape as exc:
         pytest.skip(f"query shape unsupported on {schema}: {exc}")
 
@@ -1435,6 +1665,11 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
         restrict=[("bldg_id", [bldg])],
         group_by=["state"],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": "0",
+        "restrict": [("bldg_id", [bldg])],
+        "group_by": ["state"],
+    })
     by_state_indexed = by_state.set_index("state")
     expected_per_state = {
         "CO": (2,  0.616301, 254552.65),
@@ -1466,6 +1701,10 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
         enduses=[enduse], upgrade_id="0",
         restrict=[("bldg_id", [bldg])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": "0",
+        "restrict": [("bldg_id", [bldg])],
+    })
     expected_n = sum(v[0] for v in expected_per_state.values())  # 46
     expected_w = sum(v[1] for v in expected_per_state.values())  # ~8.987
     expected_kwh = sum(v[2] for v in expected_per_state.values())  # ~3.711M
@@ -1486,6 +1725,10 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
         enduses=[enduse], upgrade_id="0",
         restrict=[("bldg_id", [bldg]), ("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": "0",
+        "restrict": [("bldg_id", [bldg]), ("state", ["CO"])],
+    })
     assert int(co_only["sample_count"].iloc[0]) == 2, (
         f"bldg+state restrict (CO): expected sample_count=2, got {co_only['sample_count'].iloc[0]}"
     )
@@ -1503,6 +1746,11 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
         restrict=[("bldg_id", [bldg])],
         group_by=["state", "in.nhgis_tract_gisjoin"],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": "0",
+        "restrict": [("bldg_id", [bldg])],
+        "group_by": ["state", "in.nhgis_tract_gisjoin"],
+    })
     assert len(by_tract) == 46, (
         f"by-tract row count: expected 46 (one per (state, tract) for bldg=51037), "
         f"got {len(by_tract)}"
@@ -1521,6 +1769,11 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
         restrict=[("bldg_id", [bldg])],
         group_by=["state", "in.county_name"],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": "0",
+        "restrict": [("bldg_id", [bldg])],
+        "group_by": ["state", "in.county_name"],
+    })
     assert len(by_county) > 4, (
         f"by-county row count: expected > 4 (multi-county states), got {len(by_county)}"
     )
@@ -1543,6 +1796,12 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
             group_by=["state"],
             include_baseline=True, include_upgrade=True, include_savings=True,
         )
+        record_query(bsq, {
+            "enduses": [enduse], "upgrade_id": "1", "applied_only": True,
+            "restrict": [("bldg_id", [bldg])],
+            "group_by": ["state"],
+            "include_baseline": True, "include_upgrade": True, "include_savings": True,
+        })
     except Exception as exc:
         pytest.skip(
             f"savings-shape query for bldg={bldg} failed (likely because the upgrade "
@@ -1707,9 +1966,15 @@ def test_two_fuel_electricity_equals_single_fuel(request, bsq_fixture, schema):
     two_fuel_df = bsq.query(
         enduses=[elec, gas], group_by=[group_col], restrict=restrict,
     )
+    record_query(bsq, {
+        "enduses": [elec, gas], "group_by": [group_col], "restrict": restrict,
+    })
     single_fuel_df = bsq.query(
         enduses=[elec], group_by=[group_col], restrict=restrict,
     )
+    record_query(bsq, {
+        "enduses": [elec], "group_by": [group_col], "restrict": restrict,
+    })
 
     elec_col = _strip_out_prefix(elec)
     two = two_fuel_df.set_index(group_col)[elec_col].sort_index()
@@ -1755,6 +2020,11 @@ def test_applied_buildings_intersection(request, bsq_fixture, schema):
         """Project applied-buildings to (md_keys ∩ state-restricted)."""
         applied = bsq.get_applied_buildings_filter(all_of=all_of)
         restrict = [applied, ("state", state_list)] if applied else [("state", state_list)]
+        record_restrict = (
+            [{"_applied_filter": {"all_of": all_of}}, ("state", state_list)]
+            if applied else [("state", state_list)]
+        )
+        record_query(bsq, {"restrict": record_restrict}, method="get_building_ids")
         return bsq.get_building_ids(restrict=restrict)
 
     for restrict_label, state_list in (
@@ -1798,10 +2068,18 @@ def test_applied_buildings_intersection(request, bsq_fixture, schema):
         # at the SQL level).
         applied_filter_12 = bsq.get_applied_buildings_filter(all_of=[1, 2])
         inv_restrict = [applied_filter_12, *restrict] if applied_filter_12 else list(restrict)
+        inv_record_restrict = (
+            [{"_applied_filter": {"all_of": [1, 2]}}, *restrict]
+            if applied_filter_12 else list(restrict)
+        )
         inv_df = bsq.query(
             enduses=enduses, upgrade_id="1", applied_only=True,
             group_by=[group_col], restrict=inv_restrict,
         )
+        record_query(bsq, {
+            "enduses": enduses, "upgrade_id": "1", "applied_only": True,
+            "group_by": [group_col], "restrict": inv_record_restrict,
+        })
         aggregated_sample_count = int(inv_df["sample_count"].sum())
         if aggregated_sample_count != len(keys_12):
             pytest.fail(
@@ -1861,6 +2139,11 @@ def test_savings_magnitude_bounded_by_baseline(request, bsq_fixture, schema):
         restrict=[("state", ["CO"])],
         include_baseline=True, include_upgrade=True, include_savings=True,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": "1", "group_by": [group_col],
+        "restrict": [("state", ["CO"])],
+        "include_baseline": True, "include_upgrade": True, "include_savings": True,
+    })
     baseline_col = _find_first_col(df, suffix="__baseline", contains="electricity.total")
     savings_col = _find_first_col(df, suffix="__savings", contains="electricity.total")
 
@@ -1899,9 +2182,11 @@ def test_aggregate_sample_count_matches_building_ids(request, bsq_fixture, schem
     restrict = [("state", ["CO"])]
 
     agg_df = bsq.query(enduses=[enduse], group_by=[group_col], restrict=restrict)
+    record_query(bsq, {"enduses": [enduse], "group_by": [group_col], "restrict": restrict})
     agg_total_count = int(agg_df["sample_count"].sum())
 
     bldg_ids_df = bsq.get_building_ids(restrict=restrict)
+    record_query(bsq, {"restrict": restrict}, method="get_building_ids")
     # On comstock the unique key is composite (bldg_id, nhgis_tract_gisjoin, state)
     # so each row is one (building × tract × state) tuple — same shape that
     # baseline COUNT(*) produces. resstock has just (bldg_id) per row.
@@ -1929,6 +2214,9 @@ def test_sample_count_integer_and_nonnegative(request, bsq_fixture, schema):
     df = bsq.query(
         enduses=[enduse], group_by=[group_col], restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [group_col], "restrict": [("state", ["CO"])],
+    })
     counts = df["sample_count"].astype(float)
     bad = []
     for key, val in zip(df[group_col], counts):
@@ -1958,6 +2246,9 @@ def test_annual_baseline_enduses_nonnegative(request, bsq_fixture, schema):
     df = bsq.query(
         enduses=enduses, group_by=[group_col], restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": enduses, "group_by": [group_col], "restrict": [("state", ["CO"])],
+    })
     bad = []
     for enduse in enduses:
         col = _strip_out_prefix(enduse)
@@ -2000,6 +2291,12 @@ def test_ts_time_buckets_monotonic_and_complete(
         group_by=["state", "time"],
         restrict=[("state", ["CO"])],
     )
+    record_query(bsq, {
+        "enduses": [enduse], "annual_only": False, "upgrade_id": 0,
+        "timestamp_grouping_func": grouping_func,
+        "group_by": ["state", "time"],
+        "restrict": [("state", ["CO"])],
+    })
     if "timestamp" not in df.columns:
         pytest.fail(f"{entry_name}: 'timestamp' column missing from {list(df.columns)}")
     if "state" not in df.columns:
@@ -2125,6 +2422,10 @@ def test_nonzero_count_bounded_by_units_count(request, bsq_fixture, schema):
         enduses=[enduse], group_by=[group_col], restrict=[("state", ["CO"])],
         get_nonzero_count=True,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [group_col], "restrict": [("state", ["CO"])],
+        "get_nonzero_count": True,
+    })
     enduse_col = _strip_out_prefix(enduse)
     nonzero_col = f"{enduse_col}__nonzero_units_count"
     if nonzero_col not in df.columns:
@@ -2165,6 +2466,10 @@ def test_sort_limit_equals_top_n_of_unsorted(request, bsq_fixture, schema):
         enduses=[enduse], group_by=["vintage"], restrict=[("state", ["CO"])],
         sort=True, limit=5,
     )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": ["vintage"], "restrict": [("state", ["CO"])],
+        "sort": True, "limit": 5,
+    })
     if len(sorted_df) > 5:
         pytest.fail(f"sort=True, limit=5 returned {len(sorted_df)} rows, expected ≤ 5")
 
@@ -2192,9 +2497,15 @@ def test_agg_func_mean_times_count_equals_sum(request, bsq_fixture, schema):
     restrict = [("state", ["CO"])]
 
     sum_df = bsq.query(enduses=[enduse], group_by=[group_col], restrict=restrict)
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [group_col], "restrict": restrict,
+    })
     mean_df = bsq.query(
         enduses=[enduse], group_by=[group_col], restrict=restrict, agg_func="mean",
     )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [group_col], "restrict": restrict, "agg_func": "mean",
+    })
 
     enduse_col = _strip_out_prefix(enduse)
     # mean queries label their column without the suffix when agg_func='mean'
@@ -2471,6 +2782,10 @@ def test_applied_buildings_ts_group_by_consistency(
     # interaction, which doesn't depend on state cardinality.
     applied_filter = bsq.get_applied_buildings_filter(all_of=[1, 2])
     restrict = [applied_filter, ("state", ["CO"])] if applied_filter else [("state", ["CO"])]
+    record_restrict = (
+        [{"_applied_filter": {"all_of": [1, 2]}}, ("state", ["CO"])]
+        if applied_filter else [("state", ["CO"])]
+    )
     upgrade_id = "1"
 
     try:
@@ -2481,6 +2796,13 @@ def test_applied_buildings_ts_group_by_consistency(
             group_by=[group_by_col],
             restrict=restrict,
         )
+        record_query(bsq, {
+            "enduses": annual_enduses,
+            "upgrade_id": upgrade_id,
+            "applied_only": True,
+            "group_by": [group_by_col],
+            "restrict": record_restrict,
+        })
         ts_year_df = bsq.query(
             enduses=ts_enduses,
             upgrade_id=upgrade_id,
@@ -2490,6 +2812,15 @@ def test_applied_buildings_ts_group_by_consistency(
             group_by=[group_by_col],
             restrict=restrict,
         )
+        record_query(bsq, {
+            "enduses": ts_enduses,
+            "upgrade_id": upgrade_id,
+            "applied_only": True,
+            "annual_only": False,
+            "timestamp_grouping_func": "year",
+            "group_by": [group_by_col],
+            "restrict": record_restrict,
+        })
         ts_monthly_df = bsq.query(
             enduses=ts_enduses,
             upgrade_id=upgrade_id,
@@ -2499,6 +2830,15 @@ def test_applied_buildings_ts_group_by_consistency(
             group_by=[group_by_col, "time"],
             restrict=restrict,
         )
+        record_query(bsq, {
+            "enduses": ts_enduses,
+            "upgrade_id": upgrade_id,
+            "applied_only": True,
+            "annual_only": False,
+            "timestamp_grouping_func": "month",
+            "group_by": [group_by_col, "time"],
+            "restrict": record_restrict,
+        })
     except UnsupportedQueryShape as exc:
         pytest.skip(f"query shape unsupported on {schema}: {exc}")
 

@@ -137,9 +137,9 @@ def _execute_notebook_in_place(path: Path) -> None:
 def _format_arg_value(v: Any) -> str:
     """Render an arg value as a Python literal string. SA-built objects
     (Label, MappedColumn) get a placeholder string — those aren't JSON-safe
-    and the user has to construct them inline anyway. The `_applied_filter`
-    sentinel inside lists is rendered as a `bsq.get_applied_buildings_filter(
-    ...)` call so the notebook produces runnable Python."""
+    and the user has to construct them inline anyway. The `_applied_filter`,
+    `_calc_column`, and `_mapped_column` sentinels render as inline
+    construction calls so the notebook produces runnable Python."""
     if isinstance(v, list):
         return "[" + ", ".join(_format_arg_value(item) for item in v) + "]"
     if isinstance(v, tuple):
@@ -155,6 +155,23 @@ def _format_arg_value(v: Any) -> str:
             if spec.get("all_of") is not None:
                 kwargs.append(f"all_of={_format_arg_value(spec['all_of'])}")
             return f"bsq.get_applied_buildings_filter({', '.join(kwargs)})"
+        if "_calc_column" in v:
+            spec = v["_calc_column"] or {}
+            args = [
+                _format_arg_value(spec["name"]),
+                _format_arg_value(spec["expr"]),
+                f"table={_format_arg_value(spec.get('table', 'baseline'))}",
+            ]
+            return f"bsq.get_calculated_column({', '.join(args)})"
+        if "_mapped_column" in v:
+            spec = v["_mapped_column"] or {}
+            kwargs = [
+                "bsq=bsq",
+                f"name={_format_arg_value(spec['name'])}",
+                f"mapping_dict={_format_arg_value(spec['mapping_dict'])}",
+                f"key=bsq._get_column({_format_arg_value(spec['key_column'])})",
+            ]
+            return f"MappedColumn({', '.join(kwargs)})"
         return repr(v)
     if isinstance(v, (str, int, float, bool)) or v is None:
         return repr(v)
@@ -216,6 +233,7 @@ def _build_notebook(
     cells.append(_code_cell(
         "from pathlib import Path\n"
         "from buildstock_query import BuildStockQuery\n"
+        "from buildstock_query.schema.utilities import MappedColumn\n"
         "import pandas as pd\n"
     ))
 

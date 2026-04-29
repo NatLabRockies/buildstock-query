@@ -573,6 +573,7 @@ def _dispatch_method(bsq, args: dict[str, Any]):
     """
     args = {k: v for k, v in args.items() if k != "get_query_only"}
     args = _resolve_applied_filters(bsq, args)
+    args = _resolve_calc_and_mapped_columns(bsq, args)
     method_name = args.pop("_method", None)
     if method_name is None:
         return bsq.query, args
@@ -606,6 +607,48 @@ def _resolve_applied_filters(bsq, args: dict[str, Any]) -> dict[str, Any]:
                     resolved.append(tup)
             else:
                 resolved.append(clause)
+        out[key] = resolved
+    return out
+
+
+def _resolve_calc_and_mapped_columns(bsq, args: dict[str, Any]) -> dict[str, Any]:
+    """Replace `{"_calc_column": {...}}` and `{"_mapped_column": {...}}` marker
+    dicts inside `enduses` and `group_by` with their live SA constructions.
+
+    `_calc_column` shape:
+        {"name": "...", "expr": "...", "table": "baseline" | "timeseries"}
+
+    `_mapped_column` shape:
+        {"name": "...", "key_column": "...", "mapping_dict": {...}}
+
+    Lets snapshot JSON express SA-built columns declaratively. The live
+    `bsq.get_calculated_column` / `MappedColumn(...)` constructions return
+    objects that don't JSON-serialize, so the recorder writes the marker
+    form and this helper rebuilds the live object before invocation.
+    """
+    from buildstock_query.schema.utilities import MappedColumn
+
+    out = dict(args)
+    for key in ("enduses", "group_by"):
+        items = out.get(key)
+        if not items:
+            continue
+        resolved: list[Any] = []
+        for item in items:
+            if isinstance(item, dict) and "_calc_column" in item:
+                spec = item["_calc_column"] or {}
+                resolved.append(bsq.get_calculated_column(
+                    spec["name"], spec["expr"], table=spec.get("table", "baseline"),
+                ))
+            elif isinstance(item, dict) and "_mapped_column" in item:
+                spec = item["_mapped_column"] or {}
+                key_col = bsq._get_column(spec["key_column"])
+                resolved.append(MappedColumn(
+                    bsq=bsq, name=spec["name"],
+                    mapping_dict=spec["mapping_dict"], key=key_col,
+                ))
+            else:
+                resolved.append(item)
         out[key] = resolved
     return out
 
@@ -840,13 +883,8 @@ def evaluate_entries(
 
     # Regenerate the per-(flavor, schema) example notebook when warranted:
     # - the notebook file is missing, OR
-    # - any entry just had its data refreshed (`outcome.updated`), OR
-    # - --update-snapshot / --overwrite-snapshot was passed (data was just
-    #   reverified, even if no entries needed writethrough).
-    _maybe_regenerate_notebook(
-        entries, outcomes,
-        update_snapshot=update_snapshot, overwrite_snapshot=overwrite_snapshot,
-    )
+    # - any entry just had its data refreshed (`outcome.updated`).
+    _maybe_regenerate_notebook(entries, outcomes)
 
     return outcomes
 
@@ -854,17 +892,16 @@ def evaluate_entries(
 def _maybe_regenerate_notebook(
     entries: list,
     outcomes: list,
-    *,
-    update_snapshot: bool,
-    overwrite_snapshot: bool,
 ) -> None:
     """Regenerate the per-(flavor, schema) example notebook if warranted.
 
-    The trigger is intentionally aligned with `--update-snapshot` (data was
-    just verified fresh, so embedded previews should reflect it) and with
-    "any update happened" (writethrough fired) and with "notebook is missing"
-    (first time anyone runs the suite). Otherwise we leave the file alone so
-    routine test runs produce no diff.
+    Triggers: notebook file missing (first run) OR an entry's data/SQL
+    actually got writethrough (`o.updated`). `--update-snapshot` and
+    `--overwrite-snapshot` don't trigger by themselves — if every entry
+    in the flavor was already current, the writethrough loop is a no-op
+    and the embedded notebook previews are still correct, so no regen
+    is needed. Avoiding spurious regen also keeps the working tree clean
+    on "nothing changed" `--update-snapshot` runs.
     """
     if not entries:
         return
@@ -883,12 +920,7 @@ def _maybe_regenerate_notebook(
         schema=schema, flavor=flavor, snapshots_root=SNAPSHOTS_ROOT,
     )
     any_updated = any(o.updated for o in outcomes)
-    needs_regen = (
-        not nb_path.exists()
-        or any_updated
-        or update_snapshot
-        or overwrite_snapshot
-    )
+    needs_regen = not nb_path.exists() or any_updated
     if not needs_regen:
         return
 

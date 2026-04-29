@@ -2388,3 +2388,131 @@ def test_comstock_oedi_equals_comstock_oedi_agg_building_ids(
             f"building_ids: {len(failures)}/{len(common_names)} entries diverged:\n"
             + "\n".join(failures)
         )
+
+
+# --- applied_in × TS flow × group_by interaction ----------------------------
+#
+# Existing invariants cover applied_in intersection, TS group-by, and
+# cross-schema equivalence — but never the three together. The county/
+# arbitrary() bug (commit 182ff21) lived precisely in this intersection:
+# wide separate coverage, untested combination. Pin all four flows
+# (annual, ts-year-collapse, sum(ts-monthly), and the comstock_oedi_agg
+# cross-check) on both schemas and on two group-by axes — the categorical
+# `comstock_building_type` and the `county` partition column that proved
+# fragile last time.
+
+_COMSTOCK_SCHEMA_CASES = [
+    pytest.param("bsq_comstock_oedi", "comstock_oedi", id="comstock"),
+    pytest.param("bsq_comstock_oedi_agg", "comstock_oedi_agg", id="comstock_agg"),
+]
+
+
+@pytest.mark.parametrize("group_by_col", ["comstock_building_type", "county"])
+@pytest.mark.parametrize("bsq_fixture, schema", _COMSTOCK_SCHEMA_CASES)
+def test_applied_in_intersection_ts_group_by_consistency(
+    request,
+    bsq_fixture,
+    schema,
+    group_by_col,
+):
+    """For ComStock with `applied_in=[1, 2]` (buildings where both upgrades
+    applied), the per-group totals must agree across:
+
+      1. annual
+      2. ts-year-collapse
+      3. sum-over-time of ts-monthly
+
+    All three must match within tolerance on both `units_count` and the
+    enduse aggregates. Exercised on two group_by axes:
+    `comstock_building_type` (categorical, low cardinality) and `county`
+    (partition-key column whose `arbitrary()` collapse silently broke in
+    the bs_per_bldg pre-aggregation before commit 182ff21).
+    """
+    from buildstock_query.aggregate_query import UnsupportedQueryShape
+
+    bsq = request.getfixturevalue(bsq_fixture)
+    annual_enduses = [
+        resolve_placeholder(schema, "electricity_total"),
+        resolve_placeholder(schema, "natural_gas_total"),
+    ]
+    ts_enduses = [
+        resolve_placeholder(schema, "electricity_total", annual=False),
+        resolve_placeholder(schema, "natural_gas_total", annual=False),
+    ]
+    # CO restrict keeps the test cheap; cross-schema equivalence is
+    # already tested over multi-state in the standalone cross-schema
+    # invariant. Here the focus is the applied_in × TS × group_by
+    # interaction, which doesn't depend on state cardinality.
+    restrict = [("state", ["CO"])]
+    applied_in = [1, 2]
+    upgrade_id = "1"
+
+    # Args mirror the existing `inv_upgrade1_applied_in_1_2_*_by_building_type`
+    # entries in invariants_three_way.json (applied_only=true is required to
+    # match the snapshot SQL hash for the building-type axis). The county
+    # axis adds three new snapshot entries; both sets resolve to populated
+    # caches once --update-snapshot has run.
+    try:
+        annual_df = bsq.query(
+            enduses=annual_enduses,
+            upgrade_id=upgrade_id,
+            applied_only=True,
+            applied_in=applied_in,
+            group_by=[group_by_col],
+            restrict=restrict,
+        )
+        ts_year_df = bsq.query(
+            enduses=ts_enduses,
+            upgrade_id=upgrade_id,
+            applied_only=True,
+            applied_in=applied_in,
+            annual_only=False,
+            timestamp_grouping_func="year",
+            group_by=[group_by_col],
+            restrict=restrict,
+        )
+        ts_monthly_df = bsq.query(
+            enduses=ts_enduses,
+            upgrade_id=upgrade_id,
+            applied_only=True,
+            applied_in=applied_in,
+            annual_only=False,
+            timestamp_grouping_func="month",
+            group_by=[group_by_col, "time"],
+            restrict=restrict,
+        )
+    except UnsupportedQueryShape as exc:
+        pytest.skip(f"query shape unsupported on {schema}: {exc}")
+
+    annual_bases = [_strip_out_prefix(e) for e in annual_enduses]
+    ts_bases = [_strip_out_prefix(e) for e in ts_enduses]
+    for annual_base, ts_base in zip(annual_bases, ts_bases):
+        annual_totals = _scalar_total_by_group(annual_df, annual_base, [group_by_col])
+        ts_year_totals = _scalar_total_by_group(ts_year_df, ts_base, [group_by_col])
+        ts_monthly_totals = _scalar_total_by_group(ts_monthly_df, ts_base, [group_by_col])
+        _assert_series_close(
+            f"annual vs ts_year_collapse [{ts_base}, group_by={group_by_col}]",
+            annual_totals,
+            ts_year_totals,
+        )
+        _assert_series_close(
+            f"annual vs sum(ts_monthly) [{ts_base}, group_by={group_by_col}]",
+            annual_totals,
+            ts_monthly_totals,
+        )
+
+    # Counts must agree too: monthly is per-(group, month), so collapse via
+    # mean across months; annual and ts_year_collapse have one row per group.
+    annual_units = _scalar_first_by_group(annual_df, "units_count", [group_by_col])
+    ts_year_units = _scalar_first_by_group(ts_year_df, "units_count", [group_by_col])
+    ts_monthly_units = _scalar_mean_by_group(ts_monthly_df, "units_count", [group_by_col])
+    _assert_series_close(
+        f"units_count: annual vs ts_year_collapse [group_by={group_by_col}]",
+        annual_units,
+        ts_year_units,
+    )
+    _assert_series_close(
+        f"units_count: ts_year_collapse vs mean(ts_monthly) [group_by={group_by_col}]",
+        ts_year_units,
+        ts_monthly_units,
+    )

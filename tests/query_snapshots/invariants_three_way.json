@@ -306,5 +306,106 @@
         ]
       ]
     }
+  },
+  {
+    "name": "inv_upgrade1_applied_in_1_2_annual_by_county",
+    "schemas": ["comstock_oedi", "comstock_oedi_agg"],
+    "sql_hash": {
+      "comstock_oedi": "0325b2def3cf31eabc4c29dd2dfdb2e80d59f1577b56646beec669bd733e34ae",
+      "comstock_oedi_agg": "212b06cae824bd40e2f750b08ab12731fac879c1574f8766b6c322de61274cce"
+    },
+    "description": "Three-way invariant: annual leg, upgrade 1, applied_only=True, applied_in=[1,2], grouped by county. Comstock-only — exercises the county group-by axis (the column whose arbitrary()-collapse silently broke before commit 182ff21). Pairs with the ts_year and ts_monthly siblings to verify the recent bs_per_bldg group-by fix interacts correctly with applied_in's HAVING-count subquery on a partition-key column.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL",
+        "$NATURAL_GAS_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "applied_only": true,
+      "applied_in": [
+        1,
+        2
+      ],
+      "group_by": [
+        "county"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "inv_upgrade1_applied_in_1_2_ts_year_by_county",
+    "schemas": ["comstock_oedi", "comstock_oedi_agg"],
+    "sql_hash": {
+      "comstock_oedi": "d78152224223758af603888fdbfed9841efddf0f22ecdc340e8520a284bca1c7",
+      "comstock_oedi_agg": "d1a916121e071fa01a4ef62a0168433bf9fa68ff8da4006174a20a6f1551e01e"
+    },
+    "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True, applied_in=[1,2], grouped by county. Pairs with annual and ts_monthly siblings.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL",
+        "$NATURAL_GAS_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "applied_only": true,
+      "applied_in": [
+        1,
+        2
+      ],
+      "annual_only": false,
+      "timestamp_grouping_func": "year",
+      "group_by": [
+        "county"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "inv_upgrade1_applied_in_1_2_ts_monthly_by_county",
+    "schemas": ["comstock_oedi", "comstock_oedi_agg"],
+    "sql_hash": {
+      "comstock_oedi": "fe235e2cdc1b2b6724257eb5e9e64e32d5be0045faad55ef01c7a554809e0261",
+      "comstock_oedi_agg": "9cfc11546c781a9ce5d65c28cef949cfccfff859e458f170e3a777ddac8ffd01"
+    },
+    "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True, applied_in=[1,2], grouped by county. Pairs with annual and ts_year siblings.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL",
+        "$NATURAL_GAS_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "applied_only": true,
+      "applied_in": [
+        1,
+        2
+      ],
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": [
+        "county",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
   }
 ]

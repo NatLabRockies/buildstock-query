@@ -63,7 +63,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.test_utility import resolve_placeholder
+from tests.test_utility import (
+    SNAPSHOTS_ROOT,
+    _has_array_values,
+    load_entries,
+    resolve_placeholder,
+    run_query_data,
+)
 
 
 pd.set_option("display.width", 1000)
@@ -157,6 +163,7 @@ def _find_first_col(df: pd.DataFrame, *, suffix: str, contains: str) -> str:
 SCHEMA_CASES = [
     pytest.param("bsq_resstock_oedi", "resstock_oedi", id="resstock"),
     pytest.param("bsq_comstock_oedi", "comstock_oedi", id="comstock"),
+    pytest.param("bsq_comstock_oedi_agg", "comstock_oedi_agg", id="comstock_agg"),
 ]
 
 
@@ -2204,3 +2211,180 @@ def test_agg_func_mean_times_count_equals_sum(request, bsq_fixture, schema):
             diffs.append(f"  {key}: sum/mean={s / m} not positive (sign mismatch)")
     if diffs:
         pytest.fail("agg_func mean/sum consistency:\n" + "\n".join(diffs))
+
+
+# --- Cross-schema invariant: comstock_oedi ≡ comstock_oedi_agg --------------
+#
+# The agg metadata table collapses buildings within a county into a single row
+# whose `weight` is the sum of the constituents and whose enduse values are
+# stored such that `weight_county * enduse_county = SUM(weight_b * enduse_b)`.
+# Any weighted-aggregate query on the agg table must therefore produce the
+# same numbers as the equivalent query on the un-aggregated table.
+#
+# `sample_count` is the only column that systematically differs (it's
+# `SUM(1)` and the agg table has fewer rows). Drop it before comparing;
+# `units_count` (= SUM(weight)) and the enduse aggregates should match
+# within float-drift tolerance.
+#
+# Flavors deliberately excluded:
+#   - building_ids / building_kws: building-grain output, not weight-aggregated
+#   - helpers: mix of distinct-vals / building-list / CSV-returning methods
+#   - report: every output column is a count of buildings
+#   - utility: resstock-only (already gated via the JSON `schemas` field)
+
+CROSS_SCHEMA_FLAVORS = (
+    "annual",
+    "timeseries",
+    "savings",
+    "applied_only",
+    "restrict_avoid",
+    "invariants_three_way",
+)
+# `mapped_column` and `calculated_column` are excluded because their JSON
+# entries carry test-side construction fields (`target`, `mapping_dict`,
+# `key_column`, `expression`) consumed by specialized test functions before
+# `bsq.query()` is called. Cross-schema equivalence for those flavors would
+# require duplicating that construction logic; out of scope here.
+
+
+def _is_weight_preserving(args: dict) -> bool:
+    """True iff the entry's aggregation collapses correctly under county-level
+    pre-aggregation. Weighted SUM is preserved (the agg table stores
+    weight-correct values); MEAN/MAX/MIN/quartiles/arbitrary do not.
+    """
+    if args.get("agg_func", "sum") != "sum":
+        return False
+    if args.get("get_quartiles") or args.get("get_nonzero_count"):
+        return False
+    return True
+
+
+def _drop_count_columns(df: pd.DataFrame) -> pd.DataFrame:
+    return df.drop(columns=[c for c in ("sample_count",) if c in df.columns])
+
+
+def _frames_match_loose(a: pd.DataFrame, b: pd.DataFrame) -> tuple[bool, str]:
+    """Sort by all non-array columns then `assert_frame_equal` with the loose
+    invariant tolerance. Returns (ok, message)."""
+    if set(a.columns) != set(b.columns):
+        return False, f"column mismatch: base={sorted(a.columns)} agg={sorted(b.columns)}"
+    b = b[list(a.columns)]
+    array_cols = [c for c in a.columns if _has_array_values(a[c])]
+    sort_cols = [c for c in a.columns if c not in array_cols]
+    try:
+        if sort_cols:
+            a_sorted = a.sort_values(sort_cols, kind="stable").reset_index(drop=True)
+            b_sorted = b.sort_values(sort_cols, kind="stable").reset_index(drop=True)
+        else:
+            a_sorted = a.reset_index(drop=True)
+            b_sorted = b.reset_index(drop=True)
+    except TypeError as exc:
+        return False, f"sort failed: {exc}"
+    try:
+        pd.testing.assert_frame_equal(
+            a_sorted, b_sorted,
+            rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+            check_dtype=False,
+        )
+    except AssertionError as exc:
+        return False, str(exc).splitlines()[0] if str(exc) else "assert_frame_equal failed"
+    return True, ""
+
+
+@pytest.mark.parametrize("flavor", CROSS_SCHEMA_FLAVORS)
+def test_comstock_oedi_equals_comstock_oedi_agg(
+    flavor,
+    bsq_comstock_oedi,
+    bsq_comstock_oedi_agg,
+):
+    """Each weight-aggregating snapshot entry produces equal DataFrames on
+    both ComStock schemas (after dropping `sample_count`).
+
+    Both fixtures point at populated `<schema>_cache/` folders, so every
+    `bsq.query()` call hits the parquet cache — no Athena spend.
+    """
+    json_path = SNAPSHOTS_ROOT / f"{flavor}.json"
+    base_entries = {e.name: e for e in load_entries(json_path, schema="comstock_oedi")}
+    agg_entries = {e.name: e for e in load_entries(json_path, schema="comstock_oedi_agg")}
+    common_names = sorted(set(base_entries) & set(agg_entries))
+    assert common_names, f"{flavor}: no entries comparable across both schemas"
+
+    failures: list[str] = []
+    compared = 0
+    for name in common_names:
+        base_entry = base_entries[name]
+        agg_entry = agg_entries[name]
+        if base_entry.nondeterministic or agg_entry.nondeterministic:
+            continue  # snapshot data-check skips these; we should too
+        # Variants are declared semantically equivalent; the snapshot harness
+        # only data-checks the first variant, so do the same here.
+        base_args = base_entry.args[0]
+        agg_args = agg_entry.args[0]
+        if not (_is_weight_preserving(base_args) and _is_weight_preserving(agg_args)):
+            continue  # MEAN/MAX/MIN/quartiles don't survive county pre-aggregation
+        try:
+            df_base = _drop_count_columns(run_query_data(bsq_comstock_oedi, base_args))
+            df_agg = _drop_count_columns(run_query_data(bsq_comstock_oedi_agg, agg_args))
+        except Exception as exc:
+            failures.append(f"{name}: execution error: {exc!r}")
+            continue
+        compared += 1
+        ok, msg = _frames_match_loose(df_base, df_agg)
+        if not ok:
+            failures.append(f"{name}: {msg}")
+    assert compared > 0, f"{flavor}: every entry was filtered out — adjust filters"
+    if failures:
+        pytest.fail(
+            f"{flavor}: {len(failures)}/{compared} compared entries diverged "
+            f"({len(common_names) - compared} skipped as non-preserving/nondeterministic):\n"
+            + "\n".join(failures)
+        )
+
+
+# `get_building_ids` returns the `md_key_cols`, which differ between the two
+# ComStock schemas: base has [bldg_id, in.nhgis_tract_gisjoin, state]; agg
+# has [bldg_id, county, state]. Different partition keys, same buildings —
+# project to (bldg_id, state) (the canonical building identity) and dedupe;
+# the resulting building set must be identical.
+def test_comstock_oedi_equals_comstock_oedi_agg_building_ids(
+    bsq_comstock_oedi,
+    bsq_comstock_oedi_agg,
+):
+    json_path = SNAPSHOTS_ROOT / "building_ids.json"
+    base_entries = {e.name: e for e in load_entries(json_path, schema="comstock_oedi")}
+    agg_entries = {e.name: e for e in load_entries(json_path, schema="comstock_oedi_agg")}
+    common_names = sorted(set(base_entries) & set(agg_entries))
+    assert common_names, "building_ids: no entries comparable across both schemas"
+
+    failures: list[str] = []
+    for name in common_names:
+        base_args = base_entries[name].args[0]
+        agg_args = agg_entries[name].args[0]
+        try:
+            df_base = run_query_data(bsq_comstock_oedi, base_args)
+            df_agg = run_query_data(bsq_comstock_oedi_agg, agg_args)
+        except Exception as exc:
+            failures.append(f"{name}: execution error: {exc!r}")
+            continue
+        proj_base = (
+            df_base[["bldg_id", "state"]]
+            .drop_duplicates()
+            .sort_values(["state", "bldg_id"])
+            .reset_index(drop=True)
+        )
+        proj_agg = (
+            df_agg[["bldg_id", "state"]]
+            .drop_duplicates()
+            .sort_values(["state", "bldg_id"])
+            .reset_index(drop=True)
+        )
+        try:
+            pd.testing.assert_frame_equal(proj_base, proj_agg, check_dtype=False)
+        except AssertionError as exc:
+            msg = str(exc).splitlines()[0] if str(exc) else "frames differ"
+            failures.append(f"{name}: {msg} (base={len(proj_base)} agg={len(proj_agg)} unique buildings)")
+    if failures:
+        pytest.fail(
+            f"building_ids: {len(failures)}/{len(common_names)} entries diverged:\n"
+            + "\n".join(failures)
+        )

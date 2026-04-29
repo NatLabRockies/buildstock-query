@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "b72f4900-b41a-43a8-adf2-9eba6d6ef08b",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) IN (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (3) AND bs.applicability = true GROUP BY bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state HAVING count(distinct(bs.upgrade)) = 1) AND bs.state = 'CO') \n TO 's3://resstock-core/bsq_athena_unload_results/6b972ec612c65776c4dea22ffdaceb9814d056e4c95bcf16a2239a904a483cc6/d93ec0f8-77db-4623-ab4d-86d8bdafb775/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/b72f4900-b41a-43a8-adf2-9eba6d6ef08b"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-29 14:41:24.377000-05:00",
+    "CompletionDateTime": "2026-04-29 14:42:28.154000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 63543,
+    "DataScannedInBytes": 13853539,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/b72f4900-b41a-43a8-adf2-9eba6d6ef08b-manifest.csv",
+    "TotalExecutionTimeInMillis": 63777,
+    "QueryQueueTimeInMillis": 88,
+    "ServicePreProcessingTimeInMillis": 118,
+    "QueryPlanningTimeInMillis": 12372,
+    "ServiceProcessingTimeInMillis": 28,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

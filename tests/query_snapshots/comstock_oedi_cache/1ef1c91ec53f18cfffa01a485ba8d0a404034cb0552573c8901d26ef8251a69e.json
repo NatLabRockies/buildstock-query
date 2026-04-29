@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "5f01f22d-0693-42a9-bd49-9eb6cbe0dee3",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) IN (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1, 11) AND bs.applicability = true GROUP BY bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state HAVING count(distinct(bs.upgrade)) = 2) AND bs.state = 'CO') \n TO 's3://resstock-core/bsq_athena_unload_results/1ef1c91ec53f18cfffa01a485ba8d0a404034cb0552573c8901d26ef8251a69e/45f14bfd-3a8a-40aa-845c-df9db8d5c19a/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/5f01f22d-0693-42a9-bd49-9eb6cbe0dee3"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-29 14:52:34.940000-05:00",
+    "CompletionDateTime": "2026-04-29 14:53:34.779000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 59666,
+    "DataScannedInBytes": 27467406,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/5f01f22d-0693-42a9-bd49-9eb6cbe0dee3-manifest.csv",
+    "TotalExecutionTimeInMillis": 59839,
+    "QueryQueueTimeInMillis": 54,
+    "ServicePreProcessingTimeInMillis": 91,
+    "QueryPlanningTimeInMillis": 11702,
+    "ServiceProcessingTimeInMillis": 28,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

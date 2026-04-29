@@ -153,6 +153,130 @@ def _find_first_col(df: pd.DataFrame, *, suffix: str, contains: str) -> str:
     )
 
 
+def _bldg_ids_for_restrict(bsq, restrict) -> set[int]:
+    """Project `get_building_ids(restrict=...)` to bldg_id (the leading
+    column of md_key_cols, present for both composite-key comstock and
+    flat-key resstock).
+    """
+    df = bsq.get_building_ids(restrict=restrict)
+    return set(int(x) for x in df.iloc[:, 0].tolist())
+
+
+# Cache the discovered pair on the bsq instance so the discovery cost
+# (a handful of metadata queries) is paid once per session per schema.
+_PAIR_CACHE_ATTR = "_applied_pair_cache"
+
+
+def _pick_meaningful_upgrade_pair(
+    bsq, *, state: str = "CO", max_upgrade: int = 16,
+) -> tuple[int, int]:
+    """Find a pair (a, b) of upgrade ids, a < b, both >= 1, where the four
+    regions defined by (applied to a, applied to b) are all non-empty under
+    `state`. The chosen pair is cached on `bsq` to amortize discovery cost.
+
+    Lookup order: (1, b) for b in 2..max_upgrade, then (2, b), ...
+    Picks the first pair with all four regions non-empty.
+
+    Fails the test loudly if no such pair exists in [1, max_upgrade].
+    """
+    cache_key = (state, max_upgrade)
+    cache = getattr(bsq, _PAIR_CACHE_ATTR, None)
+    if cache is None:
+        cache = {}
+        setattr(bsq, _PAIR_CACHE_ATTR, cache)
+    if cache_key in cache:
+        return cache[cache_key]
+
+    state_restrict = [("state", [state])]
+    universe = _bldg_ids_for_restrict(bsq, state_restrict)
+
+    sets: dict[int, set[int]] = {}
+
+    def _set_for(u: int) -> set[int]:
+        if u not in sets:
+            f = bsq.get_applied_buildings_filter(all_of=[u])
+            sets[u] = _bldg_ids_for_restrict(
+                bsq, [f, *state_restrict] if f else state_restrict,
+            )
+        return sets[u]
+
+    for a in range(1, max_upgrade + 1):
+        sa_ids = _set_for(a)
+        for b in range(a + 1, max_upgrade + 1):
+            sb = _set_for(b)
+            only_a = sa_ids - sb
+            only_b = sb - sa_ids
+            both = sa_ids & sb
+            neither = universe - (sa_ids | sb)
+            if only_a and only_b and both and neither:
+                cache[cache_key] = (a, b)
+                return (a, b)
+    pytest.fail(
+        f"no upgrade pair (a, b) in [1, {max_upgrade}] under state={state} "
+        f"produces four non-empty regions (only_a, only_b, both, neither); "
+        f"the schema either has too few upgrades or all upgrades apply to "
+        f"the same set of buildings under this state."
+    )
+
+
+def _curate_applied_universe(
+    bsq, *, upgrades: tuple[int, int] | None = None, state: str = "CO",
+    per_region: int = 2,
+) -> tuple[list[int], dict[str, set[int]], tuple[int, int]]:
+    """Discover bldg_ids spanning four regions defined by applicability of two upgrades.
+
+    Regions:
+      - only_a: applied to upgrade A but not B
+      - only_b: applied to upgrade B but not A
+      - both:   applied to both A and B
+      - neither: applied to neither
+
+    `upgrades` defaults to `_pick_meaningful_upgrade_pair(bsq)` so each schema
+    auto-selects a pair where all four regions are non-empty.
+
+    Returns `(curated, regions, (a, b))` where `curated` is a sorted list of
+    `per_region` bldg_ids from each region (smallest-first for reproducibility),
+    `regions` is a dict mapping region name to the full set of bldg_ids in that
+    region, and `(a, b)` is the upgrade pair that produced these regions.
+
+    The curated list is intended as a fixed `(bldg_id_col, curated)` restrict
+    to bound query cost while keeping each region non-empty.
+    """
+    if upgrades is None:
+        upgrades = _pick_meaningful_upgrade_pair(bsq, state=state)
+    a, b = upgrades
+    state_restrict = [("state", [state])]
+
+    f_a = bsq.get_applied_buildings_filter(all_of=[a])
+    f_b = bsq.get_applied_buildings_filter(all_of=[b])
+    set_a = _bldg_ids_for_restrict(
+        bsq, [f_a, *state_restrict] if f_a else state_restrict,
+    )
+    set_b = _bldg_ids_for_restrict(
+        bsq, [f_b, *state_restrict] if f_b else state_restrict,
+    )
+    universe = _bldg_ids_for_restrict(bsq, state_restrict)
+
+    only_a = set_a - set_b
+    only_b = set_b - set_a
+    both = set_a & set_b
+    neither = universe - (set_a | set_b)
+
+    regions = {"only_a": only_a, "only_b": only_b, "both": both, "neither": neither}
+    missing = sorted(name for name, s in regions.items() if not s)
+    if missing:
+        pytest.fail(
+            f"curated universe missing buildings in regions {missing} "
+            f"for upgrades=({a},{b}) state={state}; pick different upgrades "
+            f"so all four regions are non-empty."
+        )
+
+    curated: list[int] = []
+    for s in (only_a, only_b, both, neither):
+        curated.extend(sorted(s)[:per_region])
+    return sorted(curated), regions, (a, b)
+
+
 # --- parametrization ---------------------------------------------------------
 #
 # All per-schema column-name differences live in the per-schema resolvers in
@@ -2118,6 +2242,374 @@ def test_applied_buildings_intersection(request, bsq_fixture, schema):
             sample = list(sorted(only_in_union))[:5]
             msg.append(f"  in per-state union but not in multi-state: {sample}")
         pytest.fail("\n".join(msg))
+
+
+# --- applied-buildings union: any_of=[1,2] equals (all_of=[1] ∪ all_of=[2]) --
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_buildings_union(request, bsq_fixture, schema):
+    """The set of buildings returned by `get_applied_buildings_filter(any_of=[a,b])`
+    must equal the union of `all_of=[a]` and `all_of=[b]`. Asserts that union ≠
+    intersection so the test is meaningful (otherwise the two upgrades apply to
+    the same set and the union/intersection identity is trivially true).
+
+    The (a, b) pair is auto-discovered per schema via
+    `_pick_meaningful_upgrade_pair` so the test is meaningful regardless of
+    which upgrade ids happen to apply universally on a given run.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    a, b = _pick_meaningful_upgrade_pair(bsq, state=state_list[0])
+
+    def _ids_with_filter(*, all_of=None, any_of=None):
+        f = bsq.get_applied_buildings_filter(all_of=all_of, any_of=any_of)
+        restrict = [f, ("state", state_list)] if f else [("state", state_list)]
+        marker = {
+            "_applied_filter": {
+                k: v for k, v in (("all_of", all_of), ("any_of", any_of)) if v
+            }
+        }
+        record_restrict = (
+            [marker, ("state", state_list)] if f else [("state", state_list)]
+        )
+        record_query(bsq, {"restrict": record_restrict}, method="get_building_ids")
+        return bsq.get_building_ids(restrict=restrict)
+
+    df_a = _ids_with_filter(all_of=[a])
+    df_b = _ids_with_filter(all_of=[b])
+    df_or = _ids_with_filter(any_of=[a, b])
+
+    keys_a = set(map(tuple, df_a.itertuples(index=False, name=None)))
+    keys_b = set(map(tuple, df_b.itertuples(index=False, name=None)))
+    keys_or = set(map(tuple, df_or.itertuples(index=False, name=None)))
+    expected = keys_a | keys_b
+
+    if (keys_a | keys_b) == (keys_a & keys_b):
+        pytest.fail(
+            f"upgrades [{a}] and [{b}] apply to identical building sets "
+            f"({len(keys_a)} keys); discovery picked a pair that should "
+            f"have differed — investigate _pick_meaningful_upgrade_pair."
+        )
+
+    if keys_or != expected:
+        only_in_actual = sorted(keys_or - expected)
+        only_in_expected = sorted(expected - keys_or)
+        msg = [
+            f"any_of=[{a},{b}] returned {len(keys_or)} keys, union of all_of=[{a}] "
+            f"({len(keys_a)}) and all_of=[{b}] ({len(keys_b)}) has "
+            f"{len(expected)} keys.",
+        ]
+        if only_in_actual:
+            msg.append(f"  in any_of but not in union: {only_in_actual[:5]}")
+        if only_in_expected:
+            msg.append(f"  in union but not in any_of: {only_in_expected[:5]}")
+        pytest.fail("\n".join(msg))
+
+
+# --- applied-buildings avoid: avoid=[applied_filter] equals universe \ applied --
+
+@pytest.mark.parametrize("filter_kind", ["all_of", "any_of"])
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_buildings_avoid_complement(
+    request, bsq_fixture, schema, filter_kind,
+):
+    """Passing the applied-buildings filter to `avoid=[...]` must select the
+    set complement: `universe \\ applied_set` (where the universe is bounded
+    by the same non-applied restrict). Verified by full set equality on the
+    building-key tuples returned by `get_building_ids`. Parametrized over
+    `all_of` and `any_of` so both filter shapes get exercised through the
+    avoid path.
+
+    The upgrade pair is auto-discovered per schema via
+    `_pick_meaningful_upgrade_pair` so `applied_set` is a strict, non-empty
+    subset of the universe regardless of which upgrades happen to apply
+    universally on a given run.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    base_restrict = [("state", state_list)]
+    a, b = _pick_meaningful_upgrade_pair(bsq, state=state_list[0])
+
+    universe_df = bsq.get_building_ids(restrict=base_restrict)
+    record_query(bsq, {"restrict": base_restrict}, method="get_building_ids")
+    universe = set(map(tuple, universe_df.itertuples(index=False, name=None)))
+
+    applied_kwargs = {filter_kind: [a, b]}
+    f = bsq.get_applied_buildings_filter(**applied_kwargs)
+    marker = {"_applied_filter": applied_kwargs}
+
+    applied_df = bsq.get_building_ids(
+        restrict=[f, *base_restrict] if f else base_restrict,
+    )
+    record_query(bsq, {
+        "restrict": [marker, *base_restrict] if f else base_restrict,
+    }, method="get_building_ids")
+    applied_set = set(map(tuple, applied_df.itertuples(index=False, name=None)))
+
+    if not applied_set or applied_set == universe:
+        pytest.fail(
+            f"applied set ({filter_kind}=[{a},{b}]) cardinality "
+            f"{len(applied_set)} equals 0 or full universe {len(universe)}; "
+            f"discovery picked a pair that should have split the universe — "
+            f"investigate _pick_meaningful_upgrade_pair."
+        )
+
+    avoid_df = bsq.get_building_ids(
+        restrict=base_restrict,
+        avoid=[f] if f else [],
+    )
+    record_query(bsq, {
+        "restrict": base_restrict,
+        "avoid": [marker] if f else [],
+    }, method="get_building_ids")
+    avoid_set = set(map(tuple, avoid_df.itertuples(index=False, name=None)))
+
+    expected = universe - applied_set
+    if avoid_set != expected:
+        only_in_actual = sorted(avoid_set - expected)
+        only_in_expected = sorted(expected - avoid_set)
+        msg = [
+            f"avoid={filter_kind}=[{a},{b}] returned {len(avoid_set)} keys, "
+            f"universe ({len(universe)}) \\ applied ({len(applied_set)}) has "
+            f"{len(expected)} keys.",
+        ]
+        if only_in_actual:
+            msg.append(f"  in avoid but not in expected: {only_in_actual[:5]}")
+        if only_in_expected:
+            msg.append(f"  in expected but not in avoid: {only_in_expected[:5]}")
+        pytest.fail("\n".join(msg))
+
+
+# --- aggregated-route set identities on units_count via bsq.query() ----------
+
+@pytest.mark.parametrize("annual_only", [True, False])
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_buildings_set_identities_via_query(
+    request, bsq_fixture, schema, annual_only,
+):
+    """Run `bsq.query(group_by=[...], ...)` over a curated bldg_id universe
+    spanning four regions (only_a, only_b, both, neither) and verify two
+    invariants on `units_count`:
+
+    (a) Total `sum(units_count)` is invariant to `group_by` choice
+        (`[bldg_id]`, `[county]`, `[bldg_type]`, `[county, bldg_type]`,
+        `[]`) under the same applied filter — catches aggregation bugs
+        that surface only at certain group_by grains (e.g. tract fan-out
+        when grouping by tract; arbitrary() collapsing wrong key).
+    (b) Set-arithmetic identities on `units_count` totals. Each applied
+        filter goes through both restrict and avoid paths so NOT-IN
+        composition is exercised independently per filter shape:
+
+          # restrict-side: applied set partitioned over four regions
+          U_{all_of=[a]}        == U_{only_a} + U_{both}
+          U_{all_of=[b]}        == U_{only_b} + U_{both}
+          U_{all_of=[a,b]}      == U_{both}
+          U_{any_of=[a,b]}      == U_{only_a} + U_{only_b} + U_{both}
+          U_{any_of=[a,b]}      == U_{all_of=[a]} + U_{all_of=[b]} - U_{all_of=[a,b]}
+
+          # avoid-side: complement of each applied set
+          U_{avoid all_of=[a]}     == U_{only_b} + U_{neither}
+          U_{avoid all_of=[b]}     == U_{only_a} + U_{neither}
+          U_{avoid all_of=[a,b]}   == U_{only_a} + U_{only_b} + U_{neither}
+          U_{avoid any_of=[a,b]}   == U_{neither}
+
+          # restrict + matching avoid covers the universe with no overlap/gap
+          U_{all_of=[a]}    + U_{avoid all_of=[a]}    == U_{no_filter}
+          U_{all_of=[b]}    + U_{avoid all_of=[b]}    == U_{no_filter}
+          U_{all_of=[a,b]}  + U_{avoid all_of=[a,b]}  == U_{no_filter}
+          U_{any_of=[a,b]}  + U_{avoid any_of=[a,b]}  == U_{no_filter}
+
+          U_{no filter}     == U_{only_a} + U_{only_b} + U_{both} + U_{neither}
+
+    Run on annual (`annual_only=True`) and TS (`annual_only=False`,
+    `timestamp_grouping_func='year'`) flows so both query paths exercise
+    the applied-filter machinery. The TS leg's `units_count` is per-row
+    metadata (constant across timestamps); using `timestamp_grouping_func='year'`
+    collapses to one row per group-key so `sum(units_count)` is directly
+    comparable to the annual leg.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    bldg_col = bsq.md_bldgid_column
+    curated, regions, (a, b) = _curate_applied_universe(bsq, state="CO")
+    base_restrict = [("state", ["CO"]), (bldg_col, sorted(curated))]
+
+    # group_by axis. Per-schema county column choice — comstock_oedi uses
+    # tract gisjoin (no flat county column on the md table without a join);
+    # comstock_oedi_agg has a flat `county` col; resstock_oedi has
+    # `in.county_name`. The composite `[county, bldg_type]` exercises
+    # multi-key grouping.
+    if schema == "resstock_oedi":
+        county_col = "in.county_name"
+    elif schema == "comstock_oedi_agg":
+        county_col = "county"
+    else:  # comstock_oedi
+        county_col = "in.nhgis_tract_gisjoin"
+    bldg_type_col = resolve_placeholder(schema, "building_type_col")
+    group_by_axis = {
+        "none": [],
+        "bldg_id": [bldg_col],
+        "county": [county_col],
+        "bldg_type": [bldg_type_col],
+        "county_x_bldg_type": [county_col, bldg_type_col],
+    }
+
+    if annual_only:
+        enduses = [resolve_placeholder(schema, "electricity_total")]
+        extra: dict = {}
+    else:
+        enduses = [resolve_placeholder(schema, "electricity_total", annual=False)]
+        extra = {"annual_only": False, "timestamp_grouping_func": "year"}
+
+    def _u_total(group_by, *, all_of=None, any_of=None, use_avoid=False):
+        f = bsq.get_applied_buildings_filter(all_of=all_of, any_of=any_of)
+        marker = {
+            "_applied_filter": {
+                k: v for k, v in (("all_of", all_of), ("any_of", any_of)) if v
+            }
+        }
+        if use_avoid:
+            restrict = list(base_restrict)
+            avoid = [f] if f else []
+            record_restrict = list(base_restrict)
+            record_avoid = [marker] if f else []
+        else:
+            restrict = [f, *base_restrict] if f else list(base_restrict)
+            avoid = []
+            record_restrict = [marker, *base_restrict] if f else list(base_restrict)
+            record_avoid = []
+        df = bsq.query(
+            enduses=enduses, group_by=group_by, restrict=restrict,
+            avoid=avoid, **extra,
+        )
+        record_query(bsq, {
+            "enduses": enduses, "group_by": group_by,
+            "restrict": record_restrict, "avoid": record_avoid, **extra,
+        })
+        return df, float(df["units_count"].sum())
+
+    # Filter matrix exercises every applied-filter shape through both restrict
+    # and avoid paths. Each avoid_* mirrors an all_of_* / any_of_* with the
+    # same filter spec but goes through the avoid path; pairing them gives
+    # independent coverage of NOT-IN composition through the TS pivot.
+    filter_specs = {
+        "no_filter": {},
+        "all_of_a": {"all_of": [a]},
+        "all_of_b": {"all_of": [b]},
+        "all_of_ab": {"all_of": [a, b]},
+        "any_of_ab": {"any_of": [a, b]},
+        "avoid_all_a": {"all_of": [a], "use_avoid": True},
+        "avoid_all_b": {"all_of": [b], "use_avoid": True},
+        "avoid_all_ab": {"all_of": [a, b], "use_avoid": True},
+        "avoid_any_ab": {"any_of": [a, b], "use_avoid": True},
+    }
+
+    # --- Invariant (a): group_by-invariance of total per filter --------------
+    totals: dict[str, dict[str, float]] = {}
+    bldg_id_dfs: dict[str, pd.DataFrame] = {}
+    for fname in sorted(filter_specs):
+        spec = filter_specs[fname]
+        totals[fname] = {}
+        for gname in sorted(group_by_axis):
+            df, u = _u_total(group_by_axis[gname], **spec)
+            totals[fname][gname] = u
+            if gname == "bldg_id":
+                bldg_id_dfs[fname] = df
+
+    inv_a_failures = []
+    gnames_sorted = sorted(group_by_axis)
+    for fname in sorted(filter_specs):
+        ref_g = gnames_sorted[0]
+        ref_u = totals[fname][ref_g]
+        for gname in gnames_sorted[1:]:
+            if not np.isclose(
+                totals[fname][gname], ref_u,
+                rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+            ):
+                inv_a_failures.append(
+                    f"  filter={fname}: group_by={gname} -> "
+                    f"{totals[fname][gname]:.4f}, group_by={ref_g} -> "
+                    f"{ref_u:.4f} (diff={totals[fname][gname] - ref_u:.4f})"
+                )
+    if inv_a_failures:
+        pytest.fail(
+            "group_by-invariance of units_count failed:\n"
+            + "\n".join(inv_a_failures)
+        )
+
+    # --- Invariant (b): inclusion-exclusion using bldg_id-grouped totals -----
+    df_all = bldg_id_dfs["no_filter"]
+    curated_set = set(curated)
+
+    def _u_for(df: pd.DataFrame, ids: set[int]) -> float:
+        if not ids:
+            return 0.0
+        sub = df[df[bldg_col.name].isin(sorted(ids))]
+        return float(sub["units_count"].sum())
+
+    only_1_set = regions["only_a"] & curated_set
+    only_2_set = regions["only_b"] & curated_set
+    both_set = regions["both"] & curated_set
+    neither_set = regions["neither"] & curated_set
+    u_only_1 = _u_for(df_all, only_1_set)
+    u_only_2 = _u_for(df_all, only_2_set)
+    u_both = _u_for(df_all, both_set)
+    u_neit_expected = _u_for(df_all, neither_set)
+
+    G = "bldg_id"
+    checks = [
+        # restrict-side identities — applied set partitioned over the four regions
+        (f"all_of=[{a}] == only_a + both",
+         totals["all_of_a"][G], u_only_1 + u_both),
+        (f"all_of=[{b}] == only_b + both",
+         totals["all_of_b"][G], u_only_2 + u_both),
+        (f"all_of=[{a},{b}] == both",
+         totals["all_of_ab"][G], u_both),
+        (f"any_of=[{a},{b}] == only_a + only_b + both",
+         totals["any_of_ab"][G], u_only_1 + u_only_2 + u_both),
+        (f"incl-excl: any_of == all_of[{a}] + all_of[{b}] - all_of[{a},{b}]",
+         totals["any_of_ab"][G],
+         totals["all_of_a"][G] + totals["all_of_b"][G] - totals["all_of_ab"][G]),
+        # avoid-side identities — complement of each applied set within the
+        # curated universe. Pairs each restrict-side filter with its avoid
+        # counterpart so a NOT-IN composition bug surfaces independently per
+        # filter shape (all_of single, all_of pair, any_of pair).
+        (f"avoid all_of=[{a}] == only_b + neither",
+         totals["avoid_all_a"][G], u_only_2 + u_neit_expected),
+        (f"avoid all_of=[{b}] == only_a + neither",
+         totals["avoid_all_b"][G], u_only_1 + u_neit_expected),
+        (f"avoid all_of=[{a},{b}] == only_a + only_b + neither",
+         totals["avoid_all_ab"][G],
+         u_only_1 + u_only_2 + u_neit_expected),
+        (f"avoid any_of=[{a},{b}] == neither",
+         totals["avoid_any_ab"][G], u_neit_expected),
+        # avoid-side complements: each restrict + matching avoid covers the
+        # full curated universe (no double-counting, no gap).
+        (f"all_of=[{a}] + avoid all_of=[{a}] == universe",
+         totals["all_of_a"][G] + totals["avoid_all_a"][G], totals["no_filter"][G]),
+        (f"all_of=[{b}] + avoid all_of=[{b}] == universe",
+         totals["all_of_b"][G] + totals["avoid_all_b"][G], totals["no_filter"][G]),
+        (f"all_of=[{a},{b}] + avoid all_of=[{a},{b}] == universe",
+         totals["all_of_ab"][G] + totals["avoid_all_ab"][G], totals["no_filter"][G]),
+        (f"any_of=[{a},{b}] + avoid any_of=[{a},{b}] == universe",
+         totals["any_of_ab"][G] + totals["avoid_any_ab"][G], totals["no_filter"][G]),
+        ("no_filter == only_a + only_b + both + neither",
+         totals["no_filter"][G],
+         u_only_1 + u_only_2 + u_both + u_neit_expected),
+    ]
+    inv_b_failures = []
+    for label, actual, expected in checks:
+        if not np.isclose(
+            actual, expected, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+        ):
+            inv_b_failures.append(
+                f"  {label}: actual={actual:.4f}, expected={expected:.4f}, "
+                f"diff={actual - expected:.4f}"
+            )
+    if inv_b_failures:
+        pytest.fail(
+            "units_count inclusion-exclusion failed:\n"
+            + "\n".join(inv_b_failures)
+        )
 
 
 # --- savings magnitude bounded by baseline ----------------------------------

@@ -127,6 +127,22 @@ def bsq_comstock_oedi() -> Iterator[BuildStockQuery]:
 
 
 @pytest.fixture(scope="session")
+def bsq_comstock_oedi_agg() -> Iterator[BuildStockQuery]:
+    print("\n[fixture] constructing BuildStockQuery(comstock_oedi_agg)...", flush=True)
+    bsq = BuildStockQuery(
+        "rescore",
+        "buildstock_sdr",
+        "comstock_amy2018_r2_2025",
+        buildstock_type="comstock",
+        db_schema="comstock_oedi_agg_state_and_county",
+        skip_reports=True,
+        cache_folder=str(SNAPSHOTS_ROOT / "comstock_oedi_agg_cache"),
+    )
+    print("[fixture] comstock_oedi_agg ready.", flush=True)
+    yield bsq
+
+
+@pytest.fixture(scope="session")
 def bsq_resstock_oedi() -> Iterator[BuildStockQuery]:
     print("\n[fixture] constructing BuildStockQuery(resstock_oedi)...", flush=True)
     bsq = BuildStockQuery(

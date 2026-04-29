@@ -3,7 +3,8 @@
     "name": "ts_monthly_electricity_by_state",
     "sql_hash": {
       "resstock_oedi": "5a44db15568986c857f1d8d36c6dbe203d36bc46b6c783ef16b21b72984e2e97",
-      "comstock_oedi": "80026f6ca4154f9d7eb9f2b86df3e94471eccd60e740c2f04c84209eb80f0343"
+      "comstock_oedi": "80026f6ca4154f9d7eb9f2b86df3e94471eccd60e740c2f04c84209eb80f0343",
+      "comstock_oedi_agg": "427c464f6d1f7a8e1a0043a1d9ec59ddd9610e02dde27e959bf72053ed302cf4"
     },
     "description": "Monthly electricity grouped by state (CO only), upgrade 0 baseline.",
     "args": {
@@ -31,7 +32,8 @@
     "name": "ts_monthly_two_fuels_by_building_type",
     "sql_hash": {
       "resstock_oedi": "f7652a19a42889ec0ad977b38e0970417c60bc8804eff771ca139d6f9973f171",
-      "comstock_oedi": "effff253ec3695b6453b912f9ed6e4843de35e2644a6e719123e1ec2fb9f0216"
+      "comstock_oedi": "effff253ec3695b6453b912f9ed6e4843de35e2644a6e719123e1ec2fb9f0216",
+      "comstock_oedi_agg": "bf4438f158ec4c6c4b77f5604978beffdccfa23c3be8ca695c7b5e4be4cb03b3"
     },
     "description": "Monthly electricity + natural gas grouped by building type and time, CO only.",
     "args": {
@@ -59,7 +61,8 @@
     "name": "ts_year_collapse_electricity",
     "sql_hash": {
       "resstock_oedi": "40179da4f5d864923c4131dac861c05b6705c816b8f8e8f614b326d3ed41baf1",
-      "comstock_oedi": "5ec3d5fa0517f977fa0e390ae6c706293c1a9332989fa86d4526e9bd456ce548"
+      "comstock_oedi": "5ec3d5fa0517f977fa0e390ae6c706293c1a9332989fa86d4526e9bd456ce548",
+      "comstock_oedi_agg": "3aaed5f22fbe4d273a5fa5c425d1975c89f4baeda3549cd819065e2b5de60204"
     },
     "description": "Year-collapsed timeseries electricity, grouped by building type, CO only.",
     "args": {
@@ -85,7 +88,8 @@
     "name": "ts_15min_raw_electricity_by_state",
     "sql_hash": {
       "resstock_oedi": "83ad28ec29290eca3739654883276f3a48298c6b3a5820736d76888f368819a5",
-      "comstock_oedi": "f45afba34183811ddb982d97de7d67dde079a0ac5fa250bb5439c4629ba89ed2"
+      "comstock_oedi": "f45afba34183811ddb982d97de7d67dde079a0ac5fa250bb5439c4629ba89ed2",
+      "comstock_oedi_agg": "d599dfbe7301aa34db2290d6eba434aea3592f16a63f3293d8c38e4fd1bce24f"
     },
     "description": "Raw 15-min cadence timeseries (no timestamp_grouping_func), CO only. Exercises the un-aggregated time-axis code path that example notebooks rely on.",
     "args": {
@@ -112,7 +116,8 @@
     "name": "ts_daily_electricity_by_state",
     "sql_hash": {
       "resstock_oedi": "b0b250dc16cb6f35aa662727c3c9f749eabd4b757e3916b270e077c9e5d97300",
-      "comstock_oedi": "f7fbb43ad35f336993759649228195260c1187efd12f56e0fbce8fa27a53e2dc"
+      "comstock_oedi": "f7fbb43ad35f336993759649228195260c1187efd12f56e0fbce8fa27a53e2dc",
+      "comstock_oedi_agg": "4740ab9f8715150a5e3d0ff42a5cbe6a2ed6070a51f7ffea4caa3263a8f55656"
     },
     "description": "Daily-grouped timeseries electricity, CO only. Exercises date_trunc('day', ...) plus the rows_per_sample / distinct-bs-keys grouping_metrics branch.",
     "args": {
@@ -140,7 +145,8 @@
     "name": "ts_hourly_electricity_by_building_type",
     "sql_hash": {
       "resstock_oedi": "a9f33b02fb2c9c9a9974b214df7cfcdb3fbe54d03091d92f2be22d536a1fc063",
-      "comstock_oedi": "8a6f42200de058e3773407213d3774df1eafdcaee05126bfe49492a86c3988b4"
+      "comstock_oedi": "8a6f42200de058e3773407213d3774df1eafdcaee05126bfe49492a86c3988b4",
+      "comstock_oedi_agg": "50e9eb9af0d02acf5845c1f04a061f18340382a4412637df630cd428a399a140"
     },
     "description": "Hourly-grouped timeseries electricity, CO + single building type. Exercises date_trunc('hour', ...) \u2014 the smallest grouping_func granularity.",
     "args": {
@@ -174,7 +180,8 @@
     "name": "ts_monthly_multi_attribute_group_by",
     "sql_hash": {
       "resstock_oedi": "5b6c15fe1defa8e408e296135c4227031776a2ab6dee2112cc9d26adb066d173",
-      "comstock_oedi": "f885f5d1a69627950a992c111d259dad97f33b4036bcc21cdb71597d46a4a0d3"
+      "comstock_oedi": "f885f5d1a69627950a992c111d259dad97f33b4036bcc21cdb71597d46a4a0d3",
+      "comstock_oedi_agg": "850909d75a5fbc099602e681def95ba4b119482a5e2db052baf3038a343d443e"
     },
     "description": "Monthly TS electricity grouped by [building_type, state, time] — multi-attribute group_by combined with the time axis. Every other TS entry uses single-attribute + time; this pins the SQL shape for the more general case.",
     "args": {
@@ -203,7 +210,8 @@
     "name": "ts_hourly_electricity_by_state",
     "sql_hash": {
       "resstock_oedi": "d8334dd7b46dcca62dc303d2a8635cc45e66d784f7267495519c4588f89448df",
-      "comstock_oedi": "290ed9aec7334bbb1d706a222241639fd5edd2eb122e5d896bbc2b6a4d9ccdff"
+      "comstock_oedi": "290ed9aec7334bbb1d706a222241639fd5edd2eb122e5d896bbc2b6a4d9ccdff",
+      "comstock_oedi_agg": "b435709a975b2db60d1ed874bee6b7cb28a33cb98f1f3baa0f0c63bb07ef7187"
     },
     "description": "Hourly TS electricity grouped by state, CO only. Restrict and group_by deliberately match ts_daily_electricity_by_state and ts_monthly_electricity_by_state so the hourly\u2192daily\u2192monthly sum invariants align.",
     "args": {

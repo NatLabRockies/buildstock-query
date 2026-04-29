@@ -79,7 +79,7 @@ STATUS_PRECEDENCE = ["mismatch", "sqlglot_only", "match"]
 # Strings without a `$` prefix pass through unchanged. Names are case-
 # insensitive, accepted with or without the leading `$`.
 
-_SUPPORTED_SCHEMAS = ("resstock_oedi", "comstock_oedi")
+_SUPPORTED_SCHEMAS = ("resstock_oedi", "comstock_oedi", "comstock_oedi_agg")
 
 
 def _resolve_resstock_placeholder(name: str, *, annual: bool) -> Any:
@@ -188,6 +188,17 @@ def _resolve_comstock_placeholder(name: str, *, annual: bool) -> Any:
     return table[name]
 
 
+def _resolve_comstock_oedi_agg_placeholder(name: str, *, annual: bool) -> Any:
+    # The agg schema differs from comstock_oedi in just two ways: the metadata
+    # table is `_md_agg_by_state_and_county_parquet` (county-aggregated rows)
+    # and the unique-key set drops `in.nhgis_tract_gisjoin`. Column names,
+    # building-type values, fuel suffixes, etc. are identical, so we share the
+    # base resolver and only override BS_TABLE_NAME.
+    if name == "BS_TABLE_NAME":
+        return "comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet"
+    return _resolve_comstock_placeholder(name, annual=annual)
+
+
 def resolve_placeholder(schema: str, placeholder: str, *, annual: bool = True) -> Any:
     """Return the schema-specific value for `placeholder`.
 
@@ -201,6 +212,8 @@ def resolve_placeholder(schema: str, placeholder: str, *, annual: bool = True) -
         resolver = _resolve_resstock_placeholder
     elif schema == "comstock_oedi":
         resolver = _resolve_comstock_placeholder
+    elif schema == "comstock_oedi_agg":
+        resolver = _resolve_comstock_oedi_agg_placeholder
     else:
         raise ValueError(f"unknown schema '{schema}'; expected one of {list(_SUPPORTED_SCHEMAS)}")
     try:
@@ -1137,24 +1150,55 @@ def _maybe_update(
 
 
 def _patch_hash(json_path: Path, entry_name: str, schema: str, new_hash: str) -> None:
-    """Replace the per-schema sql_hash for `entry_name` by exact text substitution.
+    """Replace (or insert) the per-schema sql_hash for `entry_name` by text substitution.
 
-    Locates `"name": "<entry_name>"`, then `"sql_hash": { ... "<schema>": "<old>" ... }`
-    within that entry's window, and rewrites just the `<old>` value. Preserves all
-    other formatting in the file."""
+    Locates `"name": "<entry_name>"`, then its `"sql_hash": { ... }` dict.
+    If the schema key already exists, rewrites its value. If not, inserts a
+    new `"<schema>": "<new_hash>"` entry at the end of the dict, matching
+    the indentation and trailing-comma style of the existing entries so the
+    diff stays minimal. Preserves all other formatting in the file."""
     text = json_path.read_text()
-    # Anchor on entry name, then on sql_hash, then on the schema key.
-    pattern = re.compile(
+    # Try the overwrite path first: schema key already present.
+    overwrite_pattern = re.compile(
         r'("name"\s*:\s*"' + re.escape(entry_name)
         + r'".*?"sql_hash"\s*:\s*\{[^{}]*?"' + re.escape(schema) + r'"\s*:\s*")[^"]*(")',
         re.DOTALL,
     )
-    new_text, n = pattern.subn(rf'\g<1>{new_hash}\g<2>', text, count=1)
-    if n == 0:
+    new_text, n = overwrite_pattern.subn(rf'\g<1>{new_hash}\g<2>', text, count=1)
+    if n == 1:
+        json_path.write_text(new_text)
+        return
+
+    # Insert path: schema key missing. Find the entry's sql_hash dict body
+    # and append a new key before the closing brace, copying indentation
+    # from the last existing line.
+    insert_pattern = re.compile(
+        r'("name"\s*:\s*"' + re.escape(entry_name)
+        + r'".*?"sql_hash"\s*:\s*\{)([^{}]*?)(\})',
+        re.DOTALL,
+    )
+    m = insert_pattern.search(text)
+    if not m:
         raise RuntimeError(
             f"Could not patch sql_hash[{schema!r}] for entry {entry_name!r} in {json_path} — "
-            f"entry not found or sql_hash dict is missing the {schema!r} key."
+            f"entry not found or has no sql_hash dict."
         )
+    body = m.group(2)
+    # Match the indentation of the last existing key inside the dict so the
+    # inserted line aligns. Body looks like:
+    #     \n      "resstock_oedi": "abc...",\n      "comstock_oedi": "def..."\n
+    # We want to add a comma after the trailing entry and append the new key
+    # on its own line at the same indent.
+    indent_match = re.search(r'\n(\s+)"[^"]+"\s*:\s*"[^"]*"\s*$', body)
+    indent = indent_match.group(1) if indent_match else "      "
+    # Strip trailing whitespace/newline before the close brace, add a comma
+    # to the existing last entry, then append our new line + a newline at
+    # indent-minus-2 (so the close brace lines up with the original indent).
+    stripped = body.rstrip()
+    close_indent_match = re.search(r'\n(\s*)$', body)
+    close_indent = close_indent_match.group(1) if close_indent_match else "    "
+    new_body = f'{stripped},\n{indent}"{schema}": "{new_hash}"\n{close_indent}'
+    new_text = text[:m.start(2)] + new_body + text[m.end(2):]
     json_path.write_text(new_text)
 
 

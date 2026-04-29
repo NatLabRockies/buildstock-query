@@ -3,7 +3,8 @@
     "name": "bldg_ids_applied_in_1",
     "sql_hash": {
       "resstock_oedi": "3ad82492b9dd09beccd3a9eea32b8d9fc20a02e56191f0be12e6cc262fbf2fc8",
-      "comstock_oedi": "90dc0c9633bbe613fef08d96769c4df07ccd6d43d8d28f06ad8428e3bd7fc41f"
+      "comstock_oedi": "90dc0c9633bbe613fef08d96769c4df07ccd6d43d8d28f06ad8428e3bd7fc41f",
+      "comstock_oedi_agg": "53e82780a3603e91f5db58599958e1c100a1d9f2288f9d575bc0c225eb1f4f04"
     },
     "description": "Building keys that applied to upgrade 1, CO. Used for the applied_in intersection invariant.",
     "args": {
@@ -25,7 +26,8 @@
     "name": "bldg_ids_applied_in_2",
     "sql_hash": {
       "resstock_oedi": "8afb4d9b252743367981d7d7cbce0721fe4c27c57a6cb33b0a1e1c8569ea7eb0",
-      "comstock_oedi": "592053ab53eccf025add6ba479efeffb1b81872f58fe062d38a299e99cd57494"
+      "comstock_oedi": "592053ab53eccf025add6ba479efeffb1b81872f58fe062d38a299e99cd57494",
+      "comstock_oedi_agg": "d210b9e528b3d7396bacee09d84465d1ede527a3912439c0c7da2c48ccfa5c40"
     },
     "description": "Building keys that applied to upgrade 2, CO. Used for the applied_in intersection invariant.",
     "args": {
@@ -47,7 +49,8 @@
     "name": "bldg_ids_applied_in_1_and_2",
     "sql_hash": {
       "resstock_oedi": "98f767f6918930f9f23337ab9b7cf40b168543cfad8d416cd64cb56d31c4b9eb",
-      "comstock_oedi": "62e5522df74a69a1c0e42ff4e0dd335d88ea718a431ca2255fb0aed6139843a9"
+      "comstock_oedi": "62e5522df74a69a1c0e42ff4e0dd335d88ea718a431ca2255fb0aed6139843a9",
+      "comstock_oedi_agg": "c3677a087830acf709c775dea116264a271586a10fc7d4cd92af0e06c8df082b"
     },
     "description": "Building keys that applied to BOTH upgrade 1 and upgrade 2, CO. Equals the intersection of applied_in_1 and applied_in_2.",
     "args": {

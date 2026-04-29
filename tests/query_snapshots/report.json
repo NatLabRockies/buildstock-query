@@ -3,7 +3,8 @@
     "name": "report_buildings_by_change_ok",
     "sql_hash": {
       "resstock_oedi": "b7e5084e3aead815e93797f6ac10bd18aa63b61047e561125a73837d1bf9344a",
-      "comstock_oedi": "057a20f88b6e71491e5ef830274953c10a05662445487a4e8666433921619041"
+      "comstock_oedi": "057a20f88b6e71491e5ef830274953c10a05662445487a4e8666433921619041",
+      "comstock_oedi_agg": "4c344cd6669332632a5a34e088f84efa766fbe8e33a490a3fe45c30d8844d457"
     },
     "description": "report.get_buildings_by_change for upgrade 1, change_type='ok-chng' — buildings whose upgrade succeeded with an acceptable energy change. Pins the change-condition SQL shape now that the OEDI applicability fix lets the report layer resolve.",
     "args": {
@@ -16,7 +17,8 @@
     "name": "report_successful_simulation_count_co",
     "sql_hash": {
       "resstock_oedi": "bbbc030ebb2c80bfc707bf4c2c8ea273db4ff797e75d608ecab39763de428f54",
-      "comstock_oedi": "9f12bcbddb543eed119b38fb39884875bcf6fd03fcdc7ebcf29a58cb06489057"
+      "comstock_oedi": "9f12bcbddb543eed119b38fb39884875bcf6fd03fcdc7ebcf29a58cb06489057",
+      "comstock_oedi_agg": "a210de9827c1aa44bfb273cfa997833f5394861293460d56874564502c48ed07"
     },
     "description": "report.get_successful_simulation_count restricted to CO. Pins the metadata-only count shape. Method was broken before fix in 2026-04-26: the call passed `bs_only=True` to _add_restrict() which doesn't accept that kwarg, causing TypeError on every call with a non-empty restrict.",
     "args": {
@@ -30,7 +32,8 @@
     "name": "report_successful_simulation_count_no_restrict",
     "sql_hash": {
       "resstock_oedi": "0c86d27cd8a5b96bbbe4e4179cbae6cdff0c237cc20a782998bcd6a6b9fb37f2",
-      "comstock_oedi": "62016fc4476e9a8e0ad2baa68b791b9d02ffa35e31a0545d9febe9514d2dedb5"
+      "comstock_oedi": "62016fc4476e9a8e0ad2baa68b791b9d02ffa35e31a0545d9febe9514d2dedb5",
+      "comstock_oedi_agg": "1b05e3dda121ce946908114149a1c5b7fc1dfb2e03b2bc6157f6ff91d6e7d187"
     },
     "description": "report.get_successful_simulation_count with no restrict — pins the no-WHERE branch (only the implicit applicability=true filter). Pairs with report_successful_simulation_count_co to cover both restrict and no-restrict paths.",
     "args": {
@@ -41,7 +44,8 @@
     "name": "report_success_report",
     "sql_hash": {
       "resstock_oedi": "aa1747ccef8c9e7e569a5c27fee688ad4cc0274468127640ce0b353d922f5509",
-      "comstock_oedi": "50036ff3b8a1430a84b2a21d530f7a4da577e5ccecb81beb6ec5b73838e059b7"
+      "comstock_oedi": "50036ff3b8a1430a84b2a21d530f7a4da577e5ccecb81beb6ec5b73838e059b7",
+      "comstock_oedi_agg": "049f6e846225cfcc23d7a06bb8e65b799c5d0549a2ec1c57fe8d51b587835680"
     },
     "description": "report.get_success_report — returns three SQL statements (baseline counts, per-upgrade counts, change-type breakdown). Joined into one snapshot via the harness's MULTI_SQL_SEPARATOR. Pins the most-used reporting entry point. Requires the OEDI applicability fix in _rename_completed_status_column (commit added a lowercase-string normalize so True/False booleans map correctly).",
     "args": {
@@ -53,7 +57,8 @@
     "name": "report_check_ts_bs_integrity",
     "sql_hash": {
       "resstock_oedi": "3c945e09edd606ea55d453c4584741f6f27e7112e8b9ab3dc442d15deb70004f",
-      "comstock_oedi": "d01c10906735517e27c5c1038aef59289cf803e10e85f587fe99c7ae76aaa706"
+      "comstock_oedi": "d01c10906735517e27c5c1038aef59289cf803e10e85f587fe99c7ae76aaa706",
+      "comstock_oedi_agg": "908bf49784c923cae4527c9fd7759a3162c9e9f5b9807cf0d12c082bd7f59351"
     },
     "nondeterministic": true,
     "description": "report.check_ts_bs_integrity — every BuildStockQuery(skip_reports=False) init runs this. Pins the SQL shape of all queries it submits: per-upgrade ts distinct counts, metadata distinct counts (baseline + per-upgrade), duplicate-row checks, rows-per-building. Marked nondeterministic to skip data check — _get_rows_per_building scans the full TS table and would be a multi-TB landmine to actually run. SQL-shape regression coverage for the comma-join class of bug fixed in commit 9cd148d (md_table column refs mixed with bs_table predicates produced FROM x, x AS bs Cartesians that Athena rejected with 'mismatched input GROUP').",

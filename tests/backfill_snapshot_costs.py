@@ -45,6 +45,13 @@ def _make_bsq(schema: str) -> BuildStockQuery:
             skip_reports=True,
             cache_folder=str(SNAPSHOTS_ROOT / "comstock_oedi_cache"),
         )
+    if schema == "comstock_oedi_agg":
+        return BuildStockQuery(
+            "rescore", "buildstock_sdr", "comstock_amy2018_r2_2025",
+            buildstock_type="comstock", db_schema="comstock_oedi_agg_state_and_county",
+            skip_reports=True,
+            cache_folder=str(SNAPSHOTS_ROOT / "comstock_oedi_agg_cache"),
+        )
     raise ValueError(f"Unknown schema: {schema}")
 
 
@@ -53,7 +60,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Don't write changes; just report.")
     args = parser.parse_args()
 
-    schemas = ("resstock_oedi", "comstock_oedi")
+    schemas = ("resstock_oedi", "comstock_oedi", "comstock_oedi_agg")
     for schema in schemas:
         cache_dir = SNAPSHOTS_ROOT / f"{schema}_cache"
         # Find cached entries lacking metadata sidecars BEFORE we walk history

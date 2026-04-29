@@ -1,0 +1,1 @@
+SELECT DISTINCT comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet

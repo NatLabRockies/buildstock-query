@@ -64,6 +64,11 @@ _SCHEMA_CONSTRUCTOR: dict[str, dict[str, Any]] = {
         "buildstock_type": "comstock",
         "db_schema": "comstock_oedi_state_and_county",
     },
+    "comstock_oedi_agg": {
+        "table_name": "comstock_amy2018_r2_2025",
+        "buildstock_type": "comstock",
+        "db_schema": "comstock_oedi_agg_state_and_county",
+    },
 }
 
 

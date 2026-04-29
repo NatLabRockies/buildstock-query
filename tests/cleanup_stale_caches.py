@@ -49,7 +49,7 @@ from typing import Iterable
 
 SNAPSHOTS_ROOT = Path(__file__).resolve().parent / "query_snapshots"
 USAGE_LOG_NAME = ".cache_usage_log"
-SCHEMAS = ("resstock_oedi", "comstock_oedi")
+SCHEMAS = ("resstock_oedi", "comstock_oedi", "comstock_oedi_agg")
 SIDECAR_SUFFIXES = (".sql", ".parquet", ".json")
 
 

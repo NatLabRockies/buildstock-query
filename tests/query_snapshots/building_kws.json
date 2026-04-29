@@ -3,7 +3,8 @@
     "name": "building_kws_noon_grid_aligned_co",
     "sql_hash": {
       "resstock_oedi": "03d5b5fafbe00f84b7a4be82fc4c7f793685a0cc1762fc53cdfe4ae7d54ce66a",
-      "comstock_oedi": "629e7deff40027e306cff00fc6f933dd44b1c8ea659a87e0f4da03b232cae5e1"
+      "comstock_oedi": "629e7deff40027e306cff00fc6f933dd44b1c8ea659a87e0f4da03b232cae5e1",
+      "comstock_oedi_agg": "3088bbae415bcc7d63147e1f79ade02fe854a557a0a6cb25a80d0cb4ede97055"
     },
     "description": "agg.get_building_average_kws_at at noon (12.0) for three days, restricted to CO. Hour aligns to the 15-min grid (12*3600 % 900 == 0) so the method returns a single-element SQL list — pins the 'exact_times' branch. The restrict + upgrade=0 filter on the TS join (added 2026-04-25) caps Athena scan to a single state's partition; without those, this query was a 3.2 TB landmine.",
     "args": {
@@ -21,7 +22,8 @@
     "name": "building_kws_off_grid_interpolated_co",
     "sql_hash": {
       "resstock_oedi": "9fdd72ff46ab02fae4a6e6213890b83c3efd079fe8a05ccd0c945dcb7d76f832",
-      "comstock_oedi": "75c893337066fa069d22d1cc0d8a698079c9f91c2c41cb3bb11c4c470757ff81"
+      "comstock_oedi": "75c893337066fa069d22d1cc0d8a698079c9f91c2c41cb3bb11c4c470757ff81",
+      "comstock_oedi_agg": "a804504ccfd670166536d9064d981165c5f45edf8e7995fc2e958cfe93d4c78a"
     },
     "description": "agg.get_building_average_kws_at at 12.1h (off the 15-min grid) for three days, CO restrict. Returns two SQL strings (lower + upper timestamps for interpolation), joined with MULTI_SQL_SEPARATOR. Pins the two-query interpolation branch.",
     "args": {

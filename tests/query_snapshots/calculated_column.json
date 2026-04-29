@@ -3,7 +3,8 @@
     "name": "calculated_column_elec_minus_gas",
     "sql_hash": {
       "resstock_oedi": "9df9dfa9b364ca6add7739985c2647651bd6265875a7e06736b31d38e521478d",
-      "comstock_oedi": "6a75acb6082ea8a156625b399b7b98b3370771d20f44fae7d59c8f39274be78c"
+      "comstock_oedi": "6a75acb6082ea8a156625b399b7b98b3370771d20f44fae7d59c8f39274be78c",
+      "comstock_oedi_agg": "4e79f0dc71a39681001435d0e13a0e70bceaebc658490cb18aad9cfaf1c85607"
     },
     "description": "Annual aggregation using a get_calculated_column-built enduse: electricity total minus natural gas total. Pins the operator-precedence and column-resolution path through get_calculated_column. The column_expr placeholders ($ELECTRICITY_TOTAL, $NATURAL_GAS_TOTAL) get resolved to per-schema column names by the specialized test function before construction.",
     "args": {
@@ -20,7 +21,8 @@
     "name": "calculated_column_ts_pivot_upgrade_pair",
     "sql_hash": {
       "resstock_oedi": "9fff07e9bd2d54703e4e2885b3b0a02d5af45bcad0718833a696136e2f319edd",
-      "comstock_oedi": "cdb77fa1204293439c961823ae8722dcffc106cf51cf009d871541dc89931866"
+      "comstock_oedi": "cdb77fa1204293439c961823ae8722dcffc106cf51cf009d871541dc89931866",
+      "comstock_oedi_agg": "b1f0c233261a625dc74d8d0878b8f16aa873cbbb6c49f1500902284b7ae5c353"
     },
     "description": "TS calculated column on the pivot path: table='timeseries' + annual_only=False + upgrade_id != 0 + applied_only=False forces the upgrade-pair pivot subquery (NOT the upgrade_only short-circuit). The Label produced by get_calculated_column wraps an arithmetic expression of raw ts columns; the pivot must wrap that whole expression in a per-side CASE, not look up Label.name on ts.c. Without this entry, the pivot path's calculated-column handling is uncovered.",
     "args": {
@@ -41,7 +43,8 @@
     "name": "calculated_column_ts_pivot_with_baseline",
     "sql_hash": {
       "resstock_oedi": "8bebdba59c1e820cebbc239331c2c982edfb0d1d48ba8240593a4b72183d7d10",
-      "comstock_oedi": "f5dc895e08d596da3191d1e419bb4cbb91458cdf29a05f019063e5bc9e084850"
+      "comstock_oedi": "f5dc895e08d596da3191d1e419bb4cbb91458cdf29a05f019063e5bc9e084850",
+      "comstock_oedi_agg": "e6fde917a28b08029cd601639be4ad9957a9e210be525e9b0e8b8d3bbac649c9"
     },
     "description": "TS calculated column on the pivot path with include_baseline=True + applied_only=True. This combination forces the pivot subquery (upgrade_only short-circuit only fires when both include_baseline and include_savings are False) AND exercises the applied_in synthesis path that filters to applicable buildings. Together with the upgrade_pair entry above, these two pin both branches of the TS pivot's calculated-column handling.",
     "args": {

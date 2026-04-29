@@ -3,7 +3,8 @@
     "name": "upgrade_names_oedi",
     "sql_hash": {
       "resstock_oedi": "ea6b3cd5372bb7ecfe2a2cb85d0f91bf14bfd20ed156fd377298b64aed9b98a8",
-      "comstock_oedi": "048dfa1b4efb379a94417a6ddc772e32030960acefd9a3596aeb6aaadfb552fa"
+      "comstock_oedi": "048dfa1b4efb379a94417a6ddc772e32030960acefd9a3596aeb6aaadfb552fa",
+      "comstock_oedi_agg": "2439536d76c10ee639369f6bcabc900c13c509ce750a8adc6dfec0d79197c949"
     },
     "description": "get_upgrade_names — was broken before 2026-04-26 fix on two counts: (1) f-string interpolation of self.up_table (a Subquery) produced malformed `FROM SELECT * FROM ...` SQL with no enclosing parens; (2) the method assumed an `apply_upgrade.upgrade_name` column that doesn't exist on OEDI schemas. Fixed to use SA construction and gracefully degrade to `CAST(NULL AS VARCHAR) AS upgrade_name` when the name column is absent — so the dict shape stays consistent across schemas.",
     "args": {
@@ -14,7 +15,8 @@
     "name": "upgrades_csv_three_buildings_upgrade1",
     "sql_hash": {
       "resstock_oedi": "37b7e3364712668f1f405f1916eed4b56dc282afcbd43a5747b3d47646034615",
-      "comstock_oedi": "898505c4939c1df5e87ed423479bf420bd396459d98d85c35ddb59a7cb3e5bf5"
+      "comstock_oedi": "898505c4939c1df5e87ed423479bf420bd396459d98d85c35ddb59a7cb3e5bf5",
+      "comstock_oedi_agg": "01ed6f2c6d98c499f9b87525e92f57655eaaf5db0f82e6bb95440688b19c030d"
     },
     "description": "get_upgrades_csv for upgrade=1 restricted to a tiny known building_id list. Mirrors results_csv_three_buildings on the upgrade-table side.",
     "args": {
@@ -29,7 +31,8 @@
     "name": "buildings_by_locations_state",
     "sql_hash": {
       "resstock_oedi": "f9c1e5ac2f8c5d6ee9cbd883dd0d1924de647488c49fc48fe31308c9189fb7a7",
-      "comstock_oedi": "015e514c4943b38948b4a59330bc9d5ac1f98abbd4a26489303a34f4ce60cfe3"
+      "comstock_oedi": "015e514c4943b38948b4a59330bc9d5ac1f98abbd4a26489303a34f4ce60cfe3",
+      "comstock_oedi_agg": "ed3c086ec41d2dfcf7237250b19079b4a2fa717bdf5f0b81ede0b884083464cf"
     },
     "description": "get_buildings_by_locations: list bs-keys whose location_col=$STATE_COL_BASELINE is in ['CO']. Different code path from restrict — uses bs_key_cols projection and IN-list filter directly.",
     "args": {
@@ -42,7 +45,8 @@
     "name": "results_csv_three_buildings",
     "sql_hash": {
       "resstock_oedi": "28055a8e70627e7178a89cacf2ec2345d4d64ba9c2c2ecae9379a6c4dc0b73db",
-      "comstock_oedi": "427c657e15c005b94a607a346d17c12ab52efb09206c81e2c4fcf1c66c5e5c33"
+      "comstock_oedi": "427c657e15c005b94a607a346d17c12ab52efb09206c81e2c4fcf1c66c5e5c33",
+      "comstock_oedi_agg": "869e2bc631a4a25714a3bd909dcec83bebd3ea0d1cc518a01f4b758b927f4fb2"
     },
     "description": "get_results_csv restricted to a tiny known building_id list. Pins the SELECT-* shape of the baseline metadata projection used by basic_usage.ipynb. Bounded to 3 buildings so the data parquet stays small (results_csv has ~150 columns, full state would be 100+ MB).",
     "args": {
@@ -56,7 +60,8 @@
     "name": "distinct_vals_state_baseline",
     "sql_hash": {
       "resstock_oedi": "d40dd40b407d8ba027f29792779f2e3898c5ee54a6ef39b2771dc787ec9e3102",
-      "comstock_oedi": "f88b3e80ddb7ecff32c8b1c9d1ead1379a2c7f97fe50d571e96840168f7c339e"
+      "comstock_oedi": "f88b3e80ddb7ecff32c8b1c9d1ead1379a2c7f97fe50d571e96840168f7c339e",
+      "comstock_oedi_agg": "1243d29bd6e47898d70b89398cb0c8141bbf370e65af38e202fcf047b0af6412"
     },
     "description": "get_distinct_vals on the baseline-table state column. Pins the simple SELECT DISTINCT shape — used by notebooks to enumerate categorical values before building restricts. The column name differs by schema (resstock=`in.state`, comstock=`state`); resolved via $STATE_COL_BASELINE.",
     "args": {
@@ -69,7 +74,8 @@
     "name": "distinct_count_state_baseline",
     "sql_hash": {
       "resstock_oedi": "afd58514bb4d2cd552ec5f5e369b4b383ed1b68e171b2bc2aef215a1643fccc1",
-      "comstock_oedi": "6735debc27c53c2571455742c5bceccc652f74bb257198ed797017e7d4bfc9a6"
+      "comstock_oedi": "6735debc27c53c2571455742c5bceccc652f74bb257198ed797017e7d4bfc9a6",
+      "comstock_oedi_agg": "49c31912741b91775345b64b8872d35bb80d5b7a5de1b5601f20c3125dad817f"
     },
     "description": "get_distinct_count on the baseline-table state column. Pins the COUNT-with-weighted-sum shape (sample_count + weighted_count per category).",
     "args": {

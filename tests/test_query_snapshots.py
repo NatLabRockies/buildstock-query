@@ -29,6 +29,7 @@ from tests.test_utility import (
 SCHEMA_FIXTURES = [
     pytest.param("resstock_oedi", "bsq_resstock_oedi", id="resstock_oedi"),
     pytest.param("comstock_oedi", "bsq_comstock_oedi", id="comstock_oedi"),
+    pytest.param("comstock_oedi_agg", "bsq_comstock_oedi_agg", id="comstock_oedi_agg"),
 ]
 
 

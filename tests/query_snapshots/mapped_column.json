@@ -1,0 +1,55 @@
+[
+  {
+    "name": "mapped_column_simple_bldg_type_group_by",
+    "sql_hash": {
+      "resstock_oedi": "8d5e07c5d15cca2172034709d9917d259831747e1c1d7fd6793b8489acacd9b7",
+      "comstock_oedi": "06f8396a42b44d2349148dd2fad7b52c960627e7d474018c0275b92bc4fec14a",
+      "comstock_oedi_agg": "0824b5ecf542d6670560e4bba361789d579479cd88bd46b7a1b4a042d0304603"
+    },
+    "description": "Annual electricity grouped by a MappedColumn that collapses building types into broader categories, CO only.",
+    "args": {
+      "target": "group_by",
+      "mapped_name": "simple_bldg_type",
+      "key_column": "$BUILDING_TYPE_COL",
+      "mapping_dict": "$BUILDING_TYPE_MAPPING",
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "mapped_column_load_factor_enduse",
+    "sql_hash": {
+      "resstock_oedi": "66e4c9a4b951901ef4476cc35028f7af4d80a4a2caa00e06d9802c63b6ee8447",
+      "comstock_oedi": "ec9b8d2de6c0988040ef55a0c1476de176a116503a15ac3b365b7d5484834a39",
+      "comstock_oedi_agg": "5091e36c002b626b961029f12b1403e670176e6e1c5a8023d41ba75031af1840"
+    },
+    "description": "MappedColumn used as an enduse rather than a group_by column, CO only. Mirrors the advanced_usage notebook pattern where a numeric mapping (per-building-type load factor) is summed across the population. Exercises the enduse path through MappedColumn.",
+    "args": {
+      "target": "enduses",
+      "mapped_name": "bldg_load_factor",
+      "key_column": "$BUILDING_TYPE_COL",
+      "mapping_dict": "$BUILDING_TYPE_LOAD_FACTOR",
+      "enduses": [],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  }
+]

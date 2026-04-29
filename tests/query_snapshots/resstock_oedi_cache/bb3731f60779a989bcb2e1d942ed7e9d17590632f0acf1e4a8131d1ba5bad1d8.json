@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "4f63b338-1782-4ed5-a733-f327752992a5",
+  "Query": "UNLOAD (SELECT bs.\"in.geometry_building_type_recs\" AS geometry_building_type_recs, sum(1) AS sample_count, sum(bs.weight) AS units_count, sum(bs.\"out.electricity.total.energy_consumption\" * bs.weight) AS \"electricity.total.energy_consumption\" \nFROM resstock_2024_amy2018_release_2_metadata AS bs \nWHERE bs.applicability = true AND bs.upgrade = 0 AND bs.\"in.state\" = 'CO' AND (bs.\"in.geometry_building_type_recs\" NOT IN ('Mobile Home', 'Multi-Family with 5+ Units')) GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/ab35234c42b0a196db7a1be33c98c76514ea871e90bc09419a923b2756c96df1/1e236f96-e46b-4c0f-8fd6-e29c301947dd/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/4f63b338-1782-4ed5-a733-f327752992a5"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-27 00:05:46.996000-05:00",
+    "CompletionDateTime": "2026-04-27 00:05:48.923000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 1715,
+    "DataScannedInBytes": 2667126,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/4f63b338-1782-4ed5-a733-f327752992a5-manifest.csv",
+    "TotalExecutionTimeInMillis": 1927,
+    "QueryQueueTimeInMillis": 101,
+    "ServicePreProcessingTimeInMillis": 81,
+    "QueryPlanningTimeInMillis": 407,
+    "ServiceProcessingTimeInMillis": 30,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "9f75d85f-023d-4e6a-9544-f10fac832aea",
+  "Query": "UNLOAD (SELECT bs.\"in.comstock_building_type\" AS comstock_building_type, sum(1) AS sample_count, sum(bs.weight) AS units_count, sum(MAP(ARRAY['FullServiceRestaurant', 'QuickServiceRestaurant', 'RetailStandalone', 'RetailStripmall', 'PrimarySchool', 'SecondarySchool', 'SmallOffice', 'MediumOffice', 'LargeOffice', 'SmallHotel', 'LargeHotel', 'Hospital', 'Outpatient', 'Warehouse'], ARRAY[1.0, 0.8, 0.6, 0.5, 0.7, 0.7, 0.4, 0.6, 0.9, 0.5, 0.8, 1.0, 0.7, 0.3])[bs.\"in.comstock_building_type\"] * bs.weight) AS bldg_load_factor \nFROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs \nWHERE bs.applicability = true AND bs.upgrade = 0 AND bs.state = 'CO' GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/dbad416b2338016da4687997e98b1143509b6a531203a2b581ca547d1cb5e0c6/32591f7d-1d79-47b7-9364-760e046d46a9/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/9f75d85f-023d-4e6a-9544-f10fac832aea"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-27 00:42:24.331000-05:00",
+    "CompletionDateTime": "2026-04-27 00:42:27.352000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 2878,
+    "DataScannedInBytes": 1123225,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/9f75d85f-023d-4e6a-9544-f10fac832aea-manifest.csv",
+    "TotalExecutionTimeInMillis": 3021,
+    "QueryQueueTimeInMillis": 46,
+    "ServicePreProcessingTimeInMillis": 68,
+    "QueryPlanningTimeInMillis": 863,
+    "ServiceProcessingTimeInMillis": 29,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

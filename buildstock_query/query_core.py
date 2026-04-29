@@ -21,7 +21,8 @@ import numpy as np
 from collections import OrderedDict
 import types
 from buildstock_query.helpers import CachedFutureDf, AthenaFutureDf, DataExistsException, CustomCompiler
-from buildstock_query.helpers import save_pickle, load_pickle, read_csv
+from buildstock_query.helpers import read_csv
+from buildstock_query.sql_cache import SqlCache, hash_sql, normalize_sql
 from typing import TypedDict, NewType
 from botocore.config import Config
 import urllib3
@@ -35,9 +36,11 @@ from buildstock_query.schema.utilities import (
     MappedColumn,
     SALabel,
     DBTableType,
-    validate_arguments
+    typed_literal,
+    validate_arguments,
 )
-import hashlib
+import json as _json_module
+import re
 import toml
 import uuid
 from sqlalchemy.sql.selectable import SelectBase, Subquery
@@ -84,14 +87,14 @@ class QueryCore:
             workgroup (str): The workgroup for athena. The cost will be charged based on workgroup.
             db_name (str): The athena database name
             buildstock_type (str, optional): 'resstock' or 'comstock' runs. Defaults to 'resstock'
-            table_name (str or Union[str, tuple[str, Optional[str], Optional[str]]]): If a single string is provided,
-            say, 'mfm_run', then it must correspond to tables in athena named mfm_run_baseline and optionally
-            mfm_run_timeseries and mf_run_upgrades. Or, tuple of three elements can be provided for the table names
-            for baseline, timeseries and upgrade. Timeseries and upgrade can be None if no such table exist.
-            db_schema (str, optional): The database structure in Athena is different between ResStock and ComStock run.
-                It is also different between the version in OEDI and default version from BuildStockBatch. This argument
-                controls the assumed schema. Allowed values are 'resstock_default', 'resstock_oedi', 'comstock_default'
-                and 'comstock_oedi'. Defaults to 'resstock_default' for resstock and 'comstock_default' for comstock.
+            table_name (str or tuple[str, Optional[str]]): If a single string is provided, say, 'mfm_run', then it
+                must correspond to tables in athena formed by appending the schema's
+                `[table_suffix].annual_and_metadata` and `.timeseries` to it. Or, a tuple `(annual_and_metadata,
+                timeseries)` can be provided directly. Timeseries may be None if no such table exists.
+            db_schema (str, optional): The database structure in Athena is different between ResStock and ComStock
+                run. It is also different between the version in OEDI and default version from BuildStockBatch. This
+                argument controls the assumed schema. Allowed values are TOML files in the db_schema/ folder
+                (e.g. 'resstock_oedi', 'comstock_oedi_state_and_county').
             sample_weight (str, optional): Specify a custom sample_weight. Otherwise, the default is 1 for ComStock and
                 uses sample_weight in the run for ResStock.
             region_name (str, optional): the AWS region where the database exists. Defaults to 'us-west-2'.
@@ -106,10 +109,11 @@ class QueryCore:
         self.run_params = params
         self.workgroup = params.workgroup
         self.buildstock_type = params.buildstock_type
-        self._query_cache: dict[str, pd.DataFrame] = {}  # {"query": query_result_df} to cache queries
-        self._session_queries: set[str] = set()  # Set of all queries that is run in current session.
 
-        self._aws_s3 = boto3.client("s3")
+        # pool matches the download_metadata_and_annual_results thread pool (10 workers) with
+        # headroom for incidental per-request metadata calls, so parallel downloads don't
+        # churn the HTTPS pool and spam "Connection pool is full" warnings.
+        self._aws_s3 = boto3.client("s3", config=Config(max_pool_connections=32))
         self._aws_athena = boto3.client("athena", region_name=params.region_name)
         self._aws_glue = boto3.client("glue", region_name=params.region_name)
         self._async_conn = Connection(
@@ -145,80 +149,124 @@ class QueryCore:
         self.table_name = params.table_name
         self.cache_folder = pathlib.Path(params.cache_folder)
         self.athena_query_reuse = params.athena_query_reuse
-        os.makedirs(self.cache_folder, exist_ok=True)
+        self._cache = SqlCache(self.cache_folder)
         self._initialize_tables()
         self._initialize_book_keeping(params.execution_history)
 
-        with contextlib.suppress(FileNotFoundError):
-            self.load_cache()
-
-    @staticmethod
-    def _get_compact_cache_name(table_name: str) -> str:
-        table_name = str(table_name)
-        if len(table_name) > 64:
-            return hashlib.sha256(table_name.encode()).hexdigest()
-        else:
-            return table_name
-
-    def _get_cache_file_path(self) -> pathlib.Path:
-        return self.cache_folder / f"{self._get_compact_cache_name(self.table_name)}_query_cache.pkl"
-
-    @validate_arguments
-    def load_cache(self, path: Optional[str] = None):
-        """Read and update query cache from pickle file.
-
-        Args:
-            path (str, optional): The path to the pickle file. If not provided, reads from current directory.
-        """
-        pickle_path = pathlib.Path(path) if path else self._get_cache_file_path()
-        before_count = len(self._query_cache)
-        saved_cache = load_pickle(pickle_path)
-        logger.info(f"{len(saved_cache)} queries cache read from {pickle_path}.")
-        self._query_cache.update(saved_cache)
-        self.last_saved_queries = set(saved_cache)
-        after_count = len(self._query_cache)
-        if diff := after_count - before_count:
-            logger.info(f"{diff} queries cache is updated.")
-        else:
-            logger.info("Cache already upto date.")
-
-    @validate_arguments
-    def save_cache(self, path: Optional[str] = None, trim_excess: bool = False):
-        """Saves queries cache to a pickle file. It is good idea to run this after making queries so that on the next
-        session these queries won't have to be run on Athena and can be directly loaded from the file.
-
-        Args:
-            path (str, optional): The path to the pickle file. If not provided, the file will be saved on the current
-            directory.
-            trim_excess (bool, optional): If true, any queries in the cache that is not run in current session will be
-            removed before saving it to file. This is useful if the cache has accumulated a bunch of stray queries over
-            several sessions that are no longer used. Defaults to False.
-        """
-        cached_queries = set(self._query_cache)
-        if self.last_saved_queries == cached_queries:
-            logger.info("No new queries to save.")
-            return
-
-        pickle_path = pathlib.Path(path) if path else self._get_cache_file_path()
-        if trim_excess:
-            if excess_queries := [key for key in self._query_cache if key not in self._session_queries]:
-                for query in excess_queries:
-                    del self._query_cache[query]
-                logger.info(f"{len(excess_queries)} excess queries removed from cache.")
-        self.last_saved_queries = cached_queries
-        save_pickle(pickle_path, self._query_cache)
-        logger.info(f"{len(self._query_cache)} queries cache saved to {pickle_path}")
-
     def _initialize_tables(self):
-        self.bs_table, self.ts_table, self.up_table = self._get_tables(self.table_name)
+        self.md_table, self.ts_table = self._get_tables(self.table_name)
+        # `bs_table` is a stable alias of md_table that callers use as the
+        # canonical metadata-side handle in outer queries. Keeping a single
+        # named alias (not constructing fresh `md.alias(...)` per call) lets
+        # things like `self.sample_wt = bs_table.c["weight"]` and
+        # `self.md_key_cols = [bs_table.c[k] for k in md_key]` bind once at
+        # init time and remain valid in any query that selects through the
+        # bs alias. Self-join sites construct an additional `md.alias("up")`
+        # locally for the upgrade-side row set.
+        self.bs_table = self.md_table.alias("bs")
 
-        self.bs_bldgid_column = self.bs_table.c[self.building_id_column_name]
+        self.md_bldgid_column = self.bs_table.c[self.building_id_column_name]
         if self.ts_table is not None:
             self.timestamp_column = self.ts_table.c[self.timestamp_column_name]
             self.ts_bldgid_column = self.ts_table.c[self.building_id_column_name]
-        if self.up_table is not None:
-            self.up_bldgid_column = self.up_table.c[self.building_id_column_name]
+
+        self.md_key: tuple[str, ...] = tuple(self._get_unique_keys("metadata"))
+        self.ts_key: tuple[str, ...] = tuple(self._get_unique_keys("timeseries"))
+
         self.sample_wt = self._get_sample_weight(self.sample_weight)
+
+    @property
+    def md_key_cols(self) -> list[sa.Column]:
+        return [self.bs_table.c[k] for k in self.md_key]
+
+    @property
+    def ts_key_cols(self) -> list[sa.Column]:
+        if self.ts_table is None:
+            raise ValueError("No timeseries table is available.")
+        return [self.ts_table.c[k] for k in self.ts_key]
+
+    @staticmethod
+    def _unique_columns_by_name(columns: Sequence[DBColType]) -> list[DBColType]:
+        unique_columns: list[DBColType] = []
+        seen_names = set()
+        for column in columns:
+            if column.name in seen_names:
+                continue
+            seen_names.add(column.name)
+            unique_columns.append(column)
+        return unique_columns
+
+    def _get_unique_keys(self, kind: Literal["metadata", "timeseries"]) -> list[str]:
+        configured_keys = getattr(self.db_schema.unique_keys, kind, None)
+        return configured_keys or [self.building_id_column_name]
+
+    def _join_condition(
+        self,
+        left_table: AnyTableType,
+        right_table: AnyTableType,
+        kind: Literal["metadata", "timeseries"],
+        extra_keys: Sequence[str] = (),
+    ) -> sa.ColumnElement:
+        keys = list(dict.fromkeys([*self._get_unique_keys(kind), *extra_keys]))
+        return sa.and_(*(left_table.c[key] == right_table.c[key] for key in keys))
+
+    def _baseline_timeseries_join_condition(
+        self,
+        baseline_table: AnyTableType,
+        timeseries_table: AnyTableType,
+    ) -> sa.ColumnElement:
+        """JOIN ON for md-baseline-alias ⋈ ts. Bakes in `baseline.upgrade=0`."""
+        return sa.and_(
+            self._join_condition(baseline_table, timeseries_table, "timeseries"),
+            self._upgrade_zero_filter(baseline_table),
+        )
+
+    def _baseline_upgrade_join_condition(
+        self,
+        baseline_table: AnyTableType,
+        upgrade_table: AnyTableType,
+    ) -> sa.ColumnElement:
+        """JOIN ON for md-baseline-alias ⋈ md-upgrade-alias. Bakes in `baseline.upgrade=0`."""
+        return sa.and_(
+            self._join_condition(baseline_table, upgrade_table, "metadata"),
+            self._upgrade_zero_filter(baseline_table),
+        )
+
+    def _upgrade_zero_filter(self, table: AnyTableType) -> sa.ColumnElement:
+        """`table.upgrade = 0` — the WHERE/ON predicate that selects baseline rows
+        on the unified annual_and_metadata table (or any alias of it)."""
+        upgrade_col = table.c["upgrade"]
+        return upgrade_col == typed_literal(upgrade_col, "0")
+
+    def _md_baseline_filter(self, table: AnyTableType | None = None) -> sa.ColumnElement:
+        """`<table>.upgrade = 0` — convenience helper for callers that want
+        baseline rows on the metadata side. `table` defaults to `bs_table`
+        (the canonical alias used in joined queries); pass `md_table` when
+        the outer FROM is the raw md_table directly, so SQLAlchemy doesn't
+        auto-add bs_table to the FROM as a stray comma-join."""
+        return self._upgrade_zero_filter(table if table is not None else self.bs_table)
+
+    def _timeseries_pair_join_condition(
+        self,
+        left_timeseries_table: AnyTableType,
+        right_timeseries_table: AnyTableType,
+    ) -> sa.ColumnElement:
+        return self._join_condition(
+            left_timeseries_table,
+            right_timeseries_table,
+            "timeseries",
+            [self.timestamp_column_name],
+        )
+
+    @staticmethod
+    def _count_distinct(columns: Sequence[sa.Column]) -> sa.ColumnElement:
+        if len(columns) == 1:
+            return safunc.count(safunc.distinct(columns[0]))
+        return safunc.count(sa.distinct(sa.tuple_(*columns)))
+
+    @staticmethod
+    def _scalar_or_tuple(row: Sequence):
+        return row[0] if len(row) == 1 else tuple(row)
 
     def _get_sample_weight(self, sample_weight):
         if not sample_weight:
@@ -270,24 +318,38 @@ class QueryCore:
             return sa.literal(column_name).label(self._simple_label(column_name.name))
 
         if not candidate_tables:
+            # bs_table and up_table are aliases over the same md_table — searching
+            # bs_table (alias of md_table) holds annual + characteristics
+            # columns; ts_table holds timeseries values. Annual-only column
+            # resolution looks at bs alone; otherwise both. Using bs_table
+            # rather than md_table makes the resolved column references bind
+            # to the alias that's in the FROM of any aggregate query.
             if annual_only:
-                candidate_tables = (self.bs_table, self.up_table)
+                candidate_tables = (self.bs_table,)
             else:
-                candidate_tables = (self.bs_table, self.up_table, self.ts_table)
+                candidate_tables = (self.bs_table, self.ts_table)
 
         search_tables = [self._get_table(table) for table in candidate_tables if table is not None]
-        valid_tables = []
-        for tbl in search_tables:
-            if column_name in tbl.columns:
-                valid_tables.append(tbl)
-        if not valid_tables:
-            raise ValueError(f"Column {column_name} not found in any tables {[t.name for t in search_tables]}")
-        if len(valid_tables) > 1:
-            logger.warning(
-                f"Column {column_name} found in multiple tables {[t.name for t in valid_tables]}. "
-                f"Using {valid_tables[0].name}"
-            )
-        return valid_tables[0].c[column_name]
+        char_prefix = self.db_schema.column_prefix.characteristics
+        names_to_try = [column_name]
+        if column_name.startswith(char_prefix):
+            names_to_try.append(column_name.removeprefix(char_prefix))
+        else:
+            names_to_try.append(f"{char_prefix}{column_name}")
+
+        for attempt_name in names_to_try:
+            valid_tables = [tbl for tbl in search_tables if attempt_name in tbl.columns]
+            if valid_tables:
+                if len(valid_tables) > 1:
+                    logger.warning(
+                        f"Column {attempt_name} found in multiple tables {[t.name for t in valid_tables]}. "
+                        f"Using {valid_tables[0].name}"
+                    )
+                return valid_tables[0].c[attempt_name]
+        raise ValueError(
+            f"Column {column_name} not found in any tables {[t.name for t in search_tables]} "
+            f"(also tried {names_to_try[1]!r})"
+        )
 
     def _get_subquery_table(
         self, source_table: DBTableType, where_clause: sa.ColumnElement, alias_name: str
@@ -295,34 +357,40 @@ class QueryCore:
         raw_subquery = sa.select("*").select_from(source_table).where(where_clause)
         return sa.text(self._compile(raw_subquery)).columns(*source_table.c).subquery(alias_name)
 
-    def _get_tables(self, table_name: Union[str, tuple[str, Optional[str], Optional[str]]]):
+    def _get_tables(self, table_name: Union[str, tuple[str, Optional[str]]]):
+        """Resolve the two underlying physical tables for this run.
+
+        The schema is two tables: a unified `annual_and_metadata` parquet
+        (one row per (bldg_id, upgrade) carrying both characteristics and
+        annual results) and a `timeseries` parquet. Self-join sites that
+        need to compare baseline and upgrade values for the same building
+        construct local `md_table.alias("bs")` / `.alias("up")` handles
+        — there are no module-level baseline/upgrade table attributes.
+
+        For tuple `table_name`, the entries are `(annual_and_metadata, timeseries)`.
+        """
         self._engine = self._create_athena_engine(
             region_name=self.region_name, database=self.db_name, workgroup=self.workgroup
         )
-        if isinstance(table_name, str):
-            baseline_table_name = f"{table_name}{self.db_schema.table_suffix.baseline}"
-            ts_table_name = f"{table_name}{self.db_schema.table_suffix.timeseries}"
-            upgrade_table_name = f"{table_name}{self.db_schema.table_suffix.upgrades}"
-        else:
-            baseline_table_name = table_name[0]
-            ts_table_name = table_name[1]
-            upgrade_table_name = table_name[2]
 
-        baseline_table = self._get_table(baseline_table_name)
-        ts_table = self._get_table(ts_table_name, missing_ok=True) if ts_table_name else None
-        if baseline_table_name == upgrade_table_name:
-            upgrade_col = sa.cast(baseline_table.c["upgrade"], sa.String)
-            upgrade_table = self._get_subquery_table(baseline_table, upgrade_col != "0", "upgrade")
-            baseline_table = self._get_subquery_table(baseline_table, upgrade_col == "0", "baseline")
+        suffix = self.db_schema.table_suffix
+
+        if isinstance(table_name, str):
+            md_table_name = f"{table_name}{suffix.annual_and_metadata}"
+            ts_table_name = f"{table_name}{suffix.timeseries}"
         else:
-            upgrade_table = self._get_table(upgrade_table_name, missing_ok=True) if upgrade_table_name else None
-        return baseline_table, ts_table, upgrade_table
+            md_table_name = table_name[0]
+            ts_table_name = table_name[1] if len(table_name) > 1 else None
+
+        md_table = self._get_table(md_table_name)
+        ts_table = self._get_table(ts_table_name, missing_ok=True) if ts_table_name else None
+
+        return md_table, ts_table
 
     def _initialize_book_keeping(self, execution_history):
         self._execution_history_file = execution_history or self.cache_folder / ".execution_history"
         self.execution_cost = {"GB": 0, "Dollars": 0}  # Tracks the cost of current session. Only used for Athena query
         self.seen_execution_ids = set()  # set to prevent double counting same execution id
-        self.last_saved_queries = set()
         if os.path.exists(self._execution_history_file):
             with open(self._execution_history_file) as f:
                 existing_entries = f.readlines()
@@ -479,26 +547,138 @@ class QueryCore:
         with open(self._execution_history_file, "a") as f:
             f.write(f"{time.time()},{execution_id}\n")
 
-    def _log_execution_cost(self, execution_id: ExeId):
+    def _log_execution_cost(self, execution_id: ExeId, sql: Optional[str] = None):
+        """Pull GetQueryExecution metadata, log session cost, and (when `sql`
+        is supplied) write the full Athena response as a `<hash>.json` sidecar
+        in the cache directory. Future runs read that sidecar to compare cost
+        across runs without re-querying Athena.
+        """
         if execution_id == "CACHED":
             # Can't log cost for cached query
             return
         res = self._aws_athena.get_query_execution(QueryExecutionId=execution_id)
-        scanned_GB = res["QueryExecution"]["Statistics"]["DataScannedInBytes"] / 1e9
+        qe = res["QueryExecution"]
+        stats = qe["Statistics"]
+        scanned_GB = stats["DataScannedInBytes"] / 1e9
         cost = scanned_GB * 5 / 1e3  # 5$ per TB scanned
         if execution_id not in self.seen_execution_ids:
             self.execution_cost["Dollars"] += cost
             self.execution_cost["GB"] += scanned_GB
             self.seen_execution_ids.add(execution_id)
 
+        # Persist the full QueryExecution dict alongside the query result so
+        # future analyses can pull whatever Athena reports without re-fetching.
+        # Keyed by the same hash as the .sql / .parquet sidecars.
+        if sql is not None:
+            self._cache.put_metadata(sql, qe)
+
         logger.info(
-            f"{execution_id} cost {scanned_GB:.1f} GB (${cost:.1f}). Session total:"
-            f" {self.execution_cost['GB']:.1f} GB (${self.execution_cost['Dollars']:.1f})"
+            f"{execution_id} cost {scanned_GB:.2f} GB (${cost:.2f}). Session total:"
+            f" {self.execution_cost['GB']:.2f} GB (${self.execution_cost['Dollars']:.2f})"
         )
+
+    _UNLOAD_RE = re.compile(r"^\s*UNLOAD\s*\((.*)\)\s*TO\s*'", re.DOTALL | re.IGNORECASE)
+
+    def build_query_metadata_index(self) -> dict[str, dict]:
+        """Walk this workgroup's Athena history once and return
+        `{hash_sql(inner_select): full_QueryExecution_dict}`.
+
+        For each historical query that's an UNLOAD wrapping a SELECT, the
+        index records the EARLIEST non-cache-hit successful execution
+        (DataScannedInBytes > 0). The full QueryExecution dict is preserved
+        so callers can pull whatever Athena reports — Statistics,
+        EngineVersion, ResultReuseInformation, etc. Athena history retains
+        ~45 days; older snapshots have no entry.
+        """
+        # hash → (submitted_ts, full_qe_dict). On a duplicate hash, keep the
+        # earliest submitted_ts so we capture the cold-cache cost.
+        index: dict[str, tuple[float, dict]] = {}
+        paginator = self._aws_athena.get_paginator("list_query_executions")
+        for page in paginator.paginate(WorkGroup=self.workgroup):
+            ids = page.get("QueryExecutionIds", [])
+            if not ids:
+                continue
+            for chunk_start in range(0, len(ids), 50):
+                chunk = ids[chunk_start:chunk_start + 50]
+                resp = self._aws_athena.batch_get_query_execution(QueryExecutionIds=chunk)
+                for qe in resp.get("QueryExecutions", []):
+                    query_text = qe.get("Query", "")
+                    if "bsq_athena_unload_results" not in query_text:
+                        continue
+                    m = self._UNLOAD_RE.match(query_text)
+                    if not m:
+                        continue
+                    status = qe.get("Status", {})
+                    if status.get("State") != "SUCCEEDED":
+                        continue
+                    stats = qe.get("Statistics", {})
+                    scanned_bytes = stats.get("DataScannedInBytes") or 0
+                    if scanned_bytes <= 0:
+                        continue
+                    submitted = status.get("SubmissionDateTime")
+                    if submitted is None:
+                        continue
+                    submitted_ts = submitted.timestamp()
+                    key = hash_sql(m.group(1))
+                    existing = index.get(key)
+                    if existing is None or submitted_ts < existing[0]:
+                        index[key] = (submitted_ts, qe)
+        return {k: v[1] for k, v in index.items()}
+
+    def backfill_cache_metadata(self, cache_dir: Optional[pathlib.Path | str] = None) -> tuple[int, int]:
+        """Walk Athena history once and write `<hash>.json` sidecars into the
+        cache directory for any cached SQL that doesn't have one yet.
+
+        `cache_dir` defaults to this BSQ's cache folder. The lookup matches
+        a cached SQL by its hash against the inner-SELECT hash of every
+        historical UNLOAD execution — so it works whether the cached SQL
+        was originally executed in this session or weeks ago.
+
+        Returns (filled, skipped) — count of metadata files written and
+        cached entries whose execution wasn't found in history.
+        """
+        cache_root = pathlib.Path(cache_dir) if cache_dir else self._cache.root
+        # Find cached entries lacking metadata
+        missing_hashes: list[str] = []
+        for parquet in cache_root.glob("*.parquet"):
+            h = parquet.stem
+            if not (cache_root / f"{h}.json").exists():
+                missing_hashes.append(h)
+        if not missing_hashes:
+            return 0, 0
+        index = self.build_query_metadata_index()
+        filled = 0
+        skipped = 0
+        for h in missing_hashes:
+            qe = index.get(h)
+            if qe is None:
+                skipped += 1
+                continue
+            (cache_root / f"{h}.json").write_text(_json_module.dumps(qe, indent=2, default=str))
+            filled += 1
+        return filled, skipped
+
+    def get_query_cost_from_history(self, sql: str) -> Optional[dict]:
+        """Look up Athena execution metadata for a single SQL by walking
+        history. Returns the full QueryExecution dict (or None if not found).
+
+        Convenience wrapper for one-shot lookups. To backfill many snapshots,
+        prefer `backfill_cache_metadata()` or `build_query_metadata_index()`
+        — those walk history once instead of N times.
+        """
+        target_hash = hash_sql(sql)
+        index = self.build_query_metadata_index()
+        return index.get(target_hash)
 
     def _compile(self, query) -> str:
         compiled_query = CustomCompiler(AthenaDialect(), query).process(query, literal_binds=True)
-        return compiled_query
+        # Normalize whitespace at compile time so every consumer sees the same
+        # canonical form: cache filename hash, S3 unload-path hash, snapshot
+        # `<hash>.sql` content, and Athena query history all match for the
+        # same logical SQL. Without this, cache lookups by literal SQL string
+        # would miss across whitespace variations, and history-search helpers
+        # would need to re-normalize on the way in.
+        return normalize_sql(compiled_query)
 
     def _get_unload_result(self, execution_id, result_location: str) -> pd.DataFrame:
         t = time.time()
@@ -514,6 +694,10 @@ class QueryCore:
                 try:
                     df = pd.read_parquet(result_location)
                 except FileNotFoundError:  # empty result
+                    # SUCCEEDED + empty destination = UNLOAD wrote zero files, result is genuinely empty.
+                    # Drop an _EMPTY sentinel so future runs can recognize this as a cache hit instead of
+                    # re-executing the (possibly expensive) query.
+                    self._write_empty_marker(result_location)
                     df = pd.DataFrame()
                 return df
             elif stat.upper() in ["FAILED", "CANCELLED"]:
@@ -527,19 +711,36 @@ class QueryCore:
                 time.sleep(1)
         raise TimeoutError("Query failed to complete within 30 mins.")
 
+    _EMPTY_MARKER_KEY = "_EMPTY"
+
+    def _write_empty_marker(self, result_location: str) -> None:
+        """Write a 0-byte _EMPTY sentinel inside `result_location` to cache a zero-row UNLOAD."""
+        if not result_location.startswith("s3://"):
+            return
+        bucket_name, prefix = result_location.replace("s3://", "").split("/", 1)
+        marker_key = prefix.rstrip("/") + "/" + self._EMPTY_MARKER_KEY
+        try:
+            self._aws_s3.put_object(Bucket=bucket_name, Key=marker_key, Body=b"")
+        except ClientError as e:
+            logger.warning("Could not write _EMPTY marker to %s: %s", result_location, e)
+
     def _get_query_result_location(self, result_path: str) -> Optional[str]:
         """Check if the UNLOAD result already exists in S3.
 
         Args:
             result_path (str): The S3 path where the UNLOAD result would be stored.
         Returns:
-            Optional[str]: The S3 path to the result if it exists, otherwise None.
+            Optional[str]: The S3 path to the result if it exists, otherwise None. When the
+                cached result is a zero-row UNLOAD, returns a path ending in "/<folder>/_EMPTY"
+                (caller must recognize this sentinel and return an empty DataFrame without
+                calling read_parquet).
         """
         bucket_name, prefix = result_path.replace("s3://", "").split("/", 1)
         normalized_prefix = prefix.rstrip("/") + "/"
         try:
             paginator = self._aws_s3.get_paginator("list_objects_v2")
             folders: dict[str, datetime.datetime] = {}
+            empty_folders: set[str] = set()
             for page in paginator.paginate(Bucket=bucket_name, Prefix=normalized_prefix):
                 for obj in page.get("Contents", []):
                     key = obj.get("Key", "")
@@ -549,26 +750,32 @@ class QueryCore:
                     if not remainder or "/" not in remainder:
                         continue
 
-                    folder = remainder.split("/", 1)[0]
-                    last_modified = obj.get("LastModified")
-                    if not folder or last_modified is None:
+                    folder, _, basename = remainder.partition("/")
+                    if not folder:
                         continue
-
+                    if basename == self._EMPTY_MARKER_KEY:
+                        empty_folders.add(folder)
+                        continue
+                    last_modified = obj.get("LastModified")
+                    if last_modified is None:
+                        continue
                     current = folders.get(folder)
                     if current is None or last_modified > current:
                         folders[folder] = last_modified
 
-            if not folders:
-                return None
-
-            chosen_folder = max(folders.items(), key=lambda item: (item[1], item[0]))[0]
-            if len(folders) > 1:
-                logger.warning(
-                    "Multiple cached UNLOAD result folders found for prefix %s; using newest folder %s.",
-                    normalized_prefix,
-                    chosen_folder,
-                )
-            return f"s3://{bucket_name}/{normalized_prefix}{chosen_folder}/"
+            if folders:
+                chosen_folder = max(folders.items(), key=lambda item: (item[1], item[0]))[0]
+                if len(folders) > 1:
+                    logger.warning(
+                        "Multiple cached UNLOAD result folders found for prefix %s; using newest folder %s.",
+                        normalized_prefix,
+                        chosen_folder,
+                    )
+                return f"s3://{bucket_name}/{normalized_prefix}{chosen_folder}/"
+            if empty_folders:
+                chosen_folder = sorted(empty_folders)[0]
+                return f"s3://{bucket_name}/{normalized_prefix}{chosen_folder}/{self._EMPTY_MARKER_KEY}"
+            return None
         except ClientError as e:
             logger.error(f"Error accessing S3: {e}")
             return None
@@ -602,20 +809,29 @@ class QueryCore:
         if not isinstance(query, str):
             query = self._compile(query)
 
-        self._session_queries.add(query)
-        if query in self._query_cache:
+        cached = self._cache.get(query)
+        if cached is not None:
             if run_async:
-                return "CACHED", CachedFutureDf(self._query_cache[query].copy())
-            return self._query_cache[query].copy()
+                return "CACHED", CachedFutureDf(cached)
+            return cached
 
-        query_hash = hashlib.sha256(query.encode()).hexdigest()
+        # `query` here is already whitespace-normalized (see `_compile`), so
+        # `hash_sql` and `sha256(query.encode())` are equivalent. The S3 unload
+        # path embeds this hash, which is the same as the snapshot cache
+        # `<hash>.sql` filename — letting the cost-history helper find a query's
+        # past Athena execution by substring-searching history for `/<hash>/`.
+        query_hash = hash_sql(query)
         result_path = f"s3://{self.run_params.query_unload_s3_bucket}/bsq_athena_unload_results/{query_hash}"
         # check if result already exists in s3
         if (result_location := self._get_query_result_location(result_path)):
-            self._query_cache[query] = pd.read_parquet(result_location)
+            if result_location.endswith("/" + self._EMPTY_MARKER_KEY):
+                df = pd.DataFrame()
+            else:
+                df = pd.read_parquet(result_location)
+            self._cache.put(query, df)
             if run_async:
-                return "CACHED", CachedFutureDf(self._query_cache[query].copy())
-            return self._query_cache[query].copy()
+                return "CACHED", CachedFutureDf(df.copy())
+            return df.copy()
         else:
             result_location = f"{result_path}/{uuid.uuid4()}/"  # unique path to avoid collision
 
@@ -632,18 +848,23 @@ class QueryCore:
         exe_id = ExeId(exe_id)
 
         def get_df(future):
-            if query in self._query_cache:
-                return self._query_cache[query].copy()
-            self._query_cache[query] = self._get_unload_result(exe_id, result_location)
-            return self._query_cache[query].copy()
+            cached_inner = self._cache.get(query)
+            if cached_inner is not None:
+                return cached_inner
+            df_inner = self._get_unload_result(exe_id, result_location)
+            self._cache.put(query, df_inner)
+            self._log_execution_cost(exe_id, sql=query)
+            return df_inner.copy()
 
         if run_async:
             result_future.as_df = types.MethodType(get_df, result_future)
             self._save_execution_id(exe_id)
             return exe_id, AthenaFutureDf(result_future)
 
-        self._query_cache[query] = self._get_unload_result(exe_id, result_location)
-        return self._query_cache[query].copy()
+        df = self._get_unload_result(exe_id, result_location)
+        self._cache.put(query, df)
+        self._log_execution_cost(exe_id, sql=query)
+        return df.copy()
 
     def print_all_batch_query_status(self) -> None:
         """Prints the status of all batch queries."""
@@ -681,6 +902,8 @@ class QueryCore:
         failed_queries: list[str] = []
         if stats:
             for i, exe_id in enumerate(stats["submitted_execution_ids"]):
+                if exe_id == "CACHED":
+                    continue
                 completion_stat = self.get_query_status(exe_id)
                 if completion_stat in ["FAILED", "CANCELLED"]:
                     failed_query_ids.append(exe_id)
@@ -713,6 +936,8 @@ class QueryCore:
         """
         failed_ids = []
         for i, exe_id in enumerate(self._batch_query_status_map[batch_id]["submitted_execution_ids"]):
+            if exe_id == "CACHED":
+                continue
             completion_stat = self.get_query_status(exe_id)
             if completion_stat in ["FAILED", "CANCELLED"]:
                 failed_ids.append(exe_id)
@@ -855,6 +1080,7 @@ class QueryCore:
 
         if len(query_exe_ids) == 0:
             raise ValueError("No query was submitted successfully")
+        submitted_queries = self._batch_query_status_map[batch_id]["submitted_queries"]
         res_df_array: list[pd.DataFrame] = []
         for index, exe_id in enumerate(query_exe_ids):
             df = query_futures[index].as_pandas()
@@ -862,7 +1088,7 @@ class QueryCore:
                 if len(df) > 0:
                     df["query_id"] = index
             logger.info(f"Got result from Query [{index}] ({exe_id})")
-            self._log_execution_cost(exe_id)
+            self._log_execution_cost(exe_id, sql=submitted_queries[index])
             res_df_array.append(df)
         if not combine:
             return res_df_array
@@ -1100,8 +1326,8 @@ class QueryCore:
                 cols = [c for c in cols if c.name not in [self.ts_bldgid_column.name, self.timestamp_column.name]]
                 cols = [c for c in cols if fuel_type in c.name]
             return cols
-        elif table in ["baseline", "bs"]:
-            cols = [c for c in self.bs_table.columns]
+        elif table in ["baseline", "bs", "metadata", "md"]:
+            cols = [c for c in self.md_table.columns]
             if fuel_type:
                 cols = [c for c in cols if "simulation_output_report" in c.name]
                 cols = [c for c in cols if fuel_type in c.name]
@@ -1119,35 +1345,70 @@ class QueryCore:
         return label
 
     @staticmethod
-    def _normalize_restrict_subquery(criteria):
+    def _normalize_restrict_subquery(criteria, expected_width: int = 1):
         if isinstance(criteria, SelectBase):
-            if len(criteria.selected_columns) != 1:
-                raise ValueError("Subquery restrictions must select exactly one column.")
+            if len(criteria.selected_columns) != expected_width:
+                raise ValueError(
+                    f"Subquery restrictions must select exactly {expected_width} column(s)."
+                )
             return criteria
 
         if isinstance(criteria, Subquery):
-            if len(criteria.c) != 1:
-                raise ValueError("Subquery restrictions must select exactly one column.")
-            return sa.select(next(iter(criteria.c)))
+            if len(criteria.c) != expected_width:
+                raise ValueError(
+                    f"Subquery restrictions must select exactly {expected_width} column(s)."
+                )
+            return sa.select(*criteria.c)
 
         return None
 
+    @staticmethod
+    def _is_column_tuple(col_ref) -> bool:
+        if not isinstance(col_ref, tuple) or len(col_ref) == 0:
+            return False
+        return all(isinstance(c, (sa.Column, SALabel)) for c in col_ref)
+
+    def _multi_column_membership(self, col_ref, criteria):
+        """Build a (cols) IN (...) expression. `criteria` may be a subquery or a sequence of row-tuples."""
+        subquery = self._normalize_restrict_subquery(criteria, expected_width=len(col_ref))
+        if subquery is not None:
+            return sa.tuple_(*col_ref).in_(subquery)
+
+        if isinstance(criteria, Sequence) and not isinstance(criteria, str):
+            if not criteria:
+                raise ValueError("Multi-column membership criteria cannot be empty.")
+            for row in criteria:
+                if not isinstance(row, tuple) or len(row) != len(col_ref):
+                    raise ValueError(
+                        f"Each row in multi-column criteria must be a tuple of length {len(col_ref)}."
+                    )
+            return sa.tuple_(*col_ref).in_([sa.tuple_(*row) for row in criteria])
+
+        raise ValueError(
+            "Multi-column restrict keys must be paired with a subquery or a sequence of row-tuples."
+        )
+
     def _get_restrict_clauses(self, restrict, annual_only=False):
         clauses = []
-        for col_str, criteria in restrict:
-            col = self._get_column(col_str, annual_only=annual_only)
+        for col_ref, criteria in restrict:
+            if self._is_column_tuple(col_ref):
+                clauses.append(self._multi_column_membership(col_ref, criteria))
+                continue
+
+            col = self._get_column(col_ref, annual_only=annual_only)
             subquery = self._normalize_restrict_subquery(criteria)
             if subquery is not None:
                 clauses.append(col.in_(subquery))
             elif isinstance(criteria, Sequence) and not isinstance(criteria, str):
-                if len(criteria) > 1:
-                    clauses.append(col.in_(criteria))
-                elif len(criteria) == 1:
-                    clauses.append(col == criteria[0])
+                typed = [typed_literal(col, v) for v in criteria]
+                if len(typed) > 1:
+                    clauses.append(col.in_(typed))
+                elif len(typed) == 1:
+                    clauses.append(col == typed[0])
                 else:
                     raise ValueError(f"Invalid criteria {criteria}")
             else:
-                clauses.append(col == criteria)
+                clauses.append(col == typed_literal(col, criteria))
         return clauses
 
     def _add_restrict(self, query, restrict, *, annual_only=False):
@@ -1161,8 +1422,12 @@ class QueryCore:
         if not avoid:
             return query
         where_clauses = []
-        for col_str, criteria in avoid:
-            col = self._get_column(col_str, annual_only=annual_only)
+        for col_ref, criteria in avoid:
+            if self._is_column_tuple(col_ref):
+                where_clauses.append(sa.not_(self._multi_column_membership(col_ref, criteria)))
+                continue
+
+            col = self._get_column(col_ref, annual_only=annual_only)
             subquery = self._normalize_restrict_subquery(criteria)
             if subquery is not None:
                 where_clauses.append(col.not_in(subquery))
@@ -1187,10 +1452,28 @@ class QueryCore:
             return col.name
         raise ValueError(f"Can't get name for {col} of type {type(col)}")
 
-    def _add_join(self, query, join_list):
+    def _add_join(self, query, join_list, bs_alias=None):
+        # `bs_alias` overrides which "bs side" the join's left key resolves
+        # against. Defaults to the canonical self.bs_table. TS queries pass
+        # `bs_per_bldg` (the per-bldg pre-aggregated subquery that replaces
+        # bs in the outer FROM) so the JOIN ON references resolve to the
+        # subquery's projected columns rather than the original bs alias
+        # (which isn't in the outer FROM after the bs_per_bldg refactor).
+        bs_for_join = bs_alias if bs_alias is not None else self.bs_table
         for new_table_name, baseline_column_name, new_column_name in join_list:
             new_tbl = self._get_table(new_table_name)
-            baseline_column = self._get_column(baseline_column_name, candidate_tables=[self.bs_table])
+            # Resolve the bs-side column. baseline_column_name can be a
+            # string (column name) or an SA Column. For both we look it up
+            # by name on bs_for_join when possible — this lets the
+            # bs_per_bldg subquery substitute for the canonical bs alias.
+            ref_name = (
+                baseline_column_name if isinstance(baseline_column_name, str)
+                else getattr(baseline_column_name, "name", None)
+            )
+            if ref_name and ref_name in bs_for_join.c:
+                baseline_column = bs_for_join.c[ref_name]
+            else:
+                baseline_column = self._get_column(baseline_column_name, candidate_tables=[self.bs_table])
             new_column = self._get_column(new_column_name, candidate_tables=[new_tbl])
             query = query.join(new_tbl, baseline_column == new_column)
         return query
@@ -1249,13 +1532,13 @@ class QueryCore:
 
     def delete_everything(self):
         """Deletes the athena tables and data in s3 for the run."""
-        info = self._aws_glue.get_table(DatabaseName=self.db_name, Name=self.bs_table.name)
+        # bs_table/up_table are SA aliases over md_table — ".name" yields "bs"/"up",
+        # not the real Athena table name. Use md_table directly.
+        info = self._aws_glue.get_table(DatabaseName=self.db_name, Name=self.md_table.name)
         self.pth = pathlib.Path(info["Table"]["StorageDescriptor"]["Location"]).parent
-        tables_to_delete = [self.bs_table.name]
+        tables_to_delete = [self.md_table.name]
         if self.ts_table is not None:
             tables_to_delete.append(self.ts_table.name)
-        if self.up_table is not None:
-            tables_to_delete.append(self.up_table.name)
         print(f"Will delete the following tables {tables_to_delete} and the {self.pth} folder")
         while True:
             curtime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")

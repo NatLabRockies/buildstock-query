@@ -1,0 +1,1 @@
+SELECT CAST(comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet.upgrade AS INTEGER) AS upgrade, arbitrary(comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet."in.upgrade_name") AS upgrade_name FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet WHERE comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet.upgrade != 0 GROUP BY 1 ORDER BY 1

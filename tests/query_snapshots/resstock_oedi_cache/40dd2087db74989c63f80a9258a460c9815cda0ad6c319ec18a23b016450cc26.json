@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "2a22a12e-bc3e-4496-ab7d-d9b4d5a365dd",
+  "Query": "UNLOAD (SELECT eiaid_weights.eiaid AS eiaid, sum(1) AS sample_count, sum(bs.weight * eiaid_weights.weight) AS units_count, sum(bs.\"out.site_energy.net.energy_consumption\" * bs.weight * eiaid_weights.weight) AS \"site_energy.net.energy_consumption\", sum(bs.\"out.site_energy.total.energy_consumption\" * bs.weight * eiaid_weights.weight) AS \"site_energy.total.energy_consumption\" \nFROM resstock_2024_amy2018_release_2_metadata AS bs JOIN eiaid_weights ON bs.\"in.county\" = eiaid_weights.gisjoin \nWHERE bs.applicability = true AND bs.upgrade = 0 GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/313eb7a22fda835f58700e2beae0d1817e1c39a28a07669ea59f5173dad921d3/81bf9688-2a17-453a-97bf-e0ba1a1838ee/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/2a22a12e-bc3e-4496-ab7d-d9b4d5a365dd"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-27 00:40:51.601000-05:00",
+    "CompletionDateTime": "2026-04-27 00:40:54.129000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 2361,
+    "DataScannedInBytes": 10144720,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/2a22a12e-bc3e-4496-ab7d-d9b4d5a365dd-manifest.csv",
+    "TotalExecutionTimeInMillis": 2528,
+    "QueryQueueTimeInMillis": 52,
+    "ServicePreProcessingTimeInMillis": 74,
+    "QueryPlanningTimeInMillis": 454,
+    "ServiceProcessingTimeInMillis": 41,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

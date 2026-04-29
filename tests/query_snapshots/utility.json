@@ -1,0 +1,104 @@
+[
+  {
+    "name": "utility_unit_counts_by_eiaid_with_state_groupby",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "3252b03c24858d5b3fadc9c64530b411528a7411269a922ae1094708cec0f939"
+    },
+    "description": "utility.aggregate_unit_counts_by_eiaid restricted to two utilities, grouped by state. Mirrors basic_usage_oedi.ipynb cell 7. Schema-restricted: comstock TOMLs don't define map_eiaid_column.",
+    "args": {
+      "_method": "utility.aggregate_unit_counts_by_eiaid",
+      "eiaid_list": ["4110", "14328"],
+      "group_by": ["state"]
+    }
+  },
+  {
+    "name": "utility_annual_by_eiaid_all",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "40dd2087db74989c63f80a9258a460c9815cda0ad6c319ec18a23b016450cc26"
+    },
+    "description": "utility.aggregate_annual_by_eiaid with no eiaid_list — pins the all-EIAIDs branch (no restrict). Mirrors basic_usage_oedi.ipynb cell 8.",
+    "args": {
+      "_method": "utility.aggregate_annual_by_eiaid",
+      "enduses": [
+        "out.site_energy.net.energy_consumption",
+        "out.site_energy.total.energy_consumption"
+      ]
+    }
+  },
+  {
+    "name": "utility_ts_by_eiaid",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "035dfa5ef9c8e9def5f70eec6751c0ba89c04ea27555770f7e9ebfcbad367646"
+    },
+    "description": "utility.aggregate_ts_by_eiaid for one utility (eiaid=15466 = Xcel Energy Colorado, ~9.3k samples / ~1.3M units in CO — by far the largest CO utility). Pinned only after the _split_restrict 3-bucket fix that routes eiaid_weights.eiaid restricts to the outer WHERE instead of the bs JOIN ON-clause. State-restricted to keep Athena cost bounded — every TS-side join must be partition-filtered (CLAUDE.md cost guardrail). Eiaid was changed from 4110 (no CO coverage → empty result) to 15466 to exercise the bs_per_bldg eiaid-disaggregation path with actual data.",
+    "args": {
+      "_method": "utility.aggregate_ts_by_eiaid",
+      "eiaid_list": ["15466"],
+      "enduses": [
+        "out.site_energy.total.energy_consumption"
+      ],
+      "group_by": ["state", "timestamp"],
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
+  },
+  {
+    "name": "utility_get_eiaids_co",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "e94b10924937f43ddefcb14a663fcf9ee030a30a53e43d16b3a07f057a68ed2a"
+    },
+    "description": "utility.get_eiaids restricted to CO — returns the list of utility EIAIDs serving any building in the state. Pins the bs ⋈ eiaid_weights JOIN shape with weighted units_count aggregation. Schema-restricted: comstock TOMLs don't define map_eiaid_column. The get_query_only path bypasses the in-memory cache so the SQL is always emitted.",
+    "args": {
+      "_method": "utility.get_eiaids",
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
+  },
+  {
+    "name": "utility_buildings_by_eiaids",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "cfadcade8e85cf7928ed86aa7b7a40a28fce754ab991eb5cb44c76889d6c3958"
+    },
+    "description": "utility.get_buildings_by_eiaids for one utility. Pins the SELECT DISTINCT bldg_id JOIN eiaid_weights shape — used as a building-set lookup before downstream queries. Schema-restricted: comstock TOMLs don't define map_eiaid_column.",
+    "args": {
+      "_method": "utility.get_buildings_by_eiaids",
+      "eiaids": ["4110"]
+    }
+  },
+  {
+    "name": "utility_locations_by_eiaids",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "49d7eca9ba4be243f373a49bc436559c8bb5dd503fe886cc649a738feec2f24d"
+    },
+    "description": "utility.get_locations_by_eiaids for one utility. Pins the SELECT DISTINCT gisjoin FROM eiaid_weights shape — the simplest of the eiaid lookup family, returns a list of geographies served by the listed utilities.",
+    "args": {
+      "_method": "utility.get_locations_by_eiaids",
+      "eiaids": ["4110"]
+    }
+  },
+  {
+    "name": "utility_calculate_tou_bill_flat_rate_monthly_co",
+    "schemas": ["resstock_oedi"],
+    "sql_hash": {
+      "resstock_oedi": "a4d57e09c563cc224ce5c8077a48b0d5b69b43cc075606e144a7df2c5a0970e8"
+    },
+    "description": "utility.calculate_tou_bill with a flat-rate (10c/kWh everywhere) rate map, restricted to CO (cost guardrail per CLAUDE.md — TS queries without state restrict scan ~3.2 TB on OEDI). Pins the TOU SQL shape (timestamp→month/weekend/hour MappedColumn rate, multiplied into a meter column) without depending on the example-CSV rate files. The rate_map is built from the JSON marker `rate_map_flat: 0.10` in the specialized test function. The meter_col uses an OEDI-style TS column; the method's default (`fuel_use__electricity__total__kwh`) is non-OEDI.",
+    "args": {
+      "_method": "utility.calculate_tou_bill",
+      "rate_map_flat": 0.10,
+      "meter_col": "out.electricity.total.energy_consumption",
+      "group_by": ["state"],
+      "restrict": [
+        ["state", ["CO"]]
+      ]
+    }
+  }
+]

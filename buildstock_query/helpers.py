@@ -2,13 +2,10 @@ from concurrent.futures import Future
 from pyathena.sqlalchemy.base import AthenaDialect
 from pyathena.pandas.result_set import AthenaPandasResultSet
 import datetime
-import pickle
-import os
 import pandas as pd
 from pathlib import Path
 import json
 from typing import Literal, TYPE_CHECKING
-from filelock import FileLock
 if TYPE_CHECKING:
     from buildstock_query.schema.utilities import MappedColumn  # noqa: F401
 
@@ -139,22 +136,6 @@ class DataExistsException(Exception):
     def __init__(self, message, existing_data=None):
         super(DataExistsException, self).__init__(message)
         self.existing_data = existing_data
-
-
-def save_pickle(path, obj):
-    lock_path = str(path) + ".lock"
-    with FileLock(lock_path):
-        with open(path, "wb") as f:
-            pickle.dump(obj, f)
-
-
-def load_pickle(path):
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"File {path} not found for loading table")
-    lock_path = str(path) + ".lock"
-    with FileLock(lock_path):
-        with open(path, "rb") as f:
-            return pickle.load(f)
 
 
 def read_csv(csv_file_path, **kwargs) -> pd.DataFrame:

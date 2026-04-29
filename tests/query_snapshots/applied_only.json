@@ -1,0 +1,163 @@
+[
+  {
+    "name": "applied_only_upgrade1_annual",
+    "sql_hash": {
+      "resstock_oedi": "70b1a9f0504ee34c82776b4bd181690d755fe4050ab0e704a8f7632ceb5843a8",
+      "comstock_oedi": "6b5e79b2127d6883394178ead1d8bd40c9bac992eb3037aaa5a63c29c6467389",
+      "comstock_oedi_agg": "6399c76621ce20ce2fa8e6d1f2a083214ee6f5878731d674eb3a5f9b400c2a61"
+    },
+    "description": "Annual upgrade 1 electricity restricted to applied buildings only, CO.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "applied_only": true
+    }
+  },
+  {
+    "name": "all_buildings_upgrade1_annual",
+    "sql_hash": {
+      "resstock_oedi": "509530d0818b7679ff7471f6f2afa3ae9f7373bcd9332a6f3d1d7545a586ee44",
+      "comstock_oedi": "2374cafeb8b4b5c2a3d2187878f4faf8a1669fbcbaa37a324adf45e9ad55e451",
+      "comstock_oedi_agg": "a8cf9c1525f653c8a219e02622a7697062c60adbce62f2e6f4bc01a9918efd9c"
+    },
+    "description": "Annual upgrade 1 including unapplied buildings, CO. Two variants \u2014 upgrade_id as string '1' vs int 1 \u2014 must compile to the same SQL since _validate_upgrade normalizes both to str.",
+    "args": [
+      {
+        "enduses": [
+          "$ELECTRICITY_TOTAL"
+        ],
+        "upgrade_id": "1",
+        "group_by": [
+          "$BUILDING_TYPE_COL"
+        ],
+        "restrict": [
+          [
+            "state",
+            [
+              "CO"
+            ]
+          ]
+        ],
+        "applied_only": false
+      },
+      {
+        "enduses": [
+          "$ELECTRICITY_TOTAL"
+        ],
+        "upgrade_id": 1,
+        "group_by": [
+          "$BUILDING_TYPE_COL"
+        ],
+        "restrict": [
+          [
+            "state",
+            [
+              "CO"
+            ]
+          ]
+        ],
+        "applied_only": false
+      }
+    ]
+  },
+  {
+    "name": "include_baseline_upgrade1_annual",
+    "sql_hash": {
+      "resstock_oedi": "bf976a81143914bc331af4b16d6732a35e32ba50651ee7e1af55a079f2e8ede8",
+      "comstock_oedi": "a17a19865b9a15ad85ae069dec8010ee46a99406e007650e201e80036a3d01e9",
+      "comstock_oedi_agg": "62ee5ccd044ae7665f871099c39c28ab536bda00e36f43a6650bfe377100dbc8"
+    },
+    "description": "Annual upgrade 1 with include_baseline=true and include_savings=false. Mirrors the comstock notebook pattern that exposes baseline + upgrade columns side-by-side without the savings subtraction.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": false,
+      "applied_only": false
+    }
+  },
+  {
+    "name": "baseline_with_applied_in_upgrade1",
+    "sql_hash": {
+      "resstock_oedi": "3fd9dc45319dd9d56211997e6b577f93484a75ebc2f77023f25825de706fe047",
+      "comstock_oedi": "f534cd62905c86e808029aba7783f3370ba56c29cec7a09c87cffd0936c97f78",
+      "comstock_oedi_agg": "1db388093beed5f6339ef2bbc804cb6480e685756c247df2b5c36f54343afe32"
+    },
+    "description": "Annual baseline (upgrade_id=0) restricted via applied_in=[1] — buildings where upgrade 1 applied successfully. Validator was relaxed in 2026-04-26 commit (e85e741) to allow applied_in on baseline queries; before that, the validator rejected this combination as 'applied_in cannot be set when applied_only is False'. Pins the SQL shape that test_savings_equals_independent_baseline_minus_upgrade depends on.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "0",
+      "applied_in": [1],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "include_baseline_upgrade1_applied_only_annual",
+    "sql_hash": {
+      "resstock_oedi": "665ef6fc2178e2d028998a122eee2e61aeb719e7ed5cae5460b98acc235272eb",
+      "comstock_oedi": "d7a1c6331e1e8149590291e3b97a4afdce7c88f352da24d564313477a4c50e2b",
+      "comstock_oedi_agg": "bf8e4520550f3e6209e78fde5aa7179bc8d6abdcba9253fa1060b4143fb7417c"
+    },
+    "description": "Same as include_baseline_upgrade1_annual but with applied_only=true. Hits the upgrade_only=False branch (because include_baseline forces the baseline join).",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": false,
+      "applied_only": true
+    }
+  }
+]

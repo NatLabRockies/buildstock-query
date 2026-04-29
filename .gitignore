@@ -14,7 +14,20 @@ poetry.lock
 build/
 *.egg-info
 *.parquet
+# Track snapshot-cache parquets so the data-check survives a fresh clone.
+!tests/query_snapshots/**/*.parquet
+!tests/query_snapshots/**/*.sql
+!tests/query_snapshots/**/*.json
 *.txt
 *.csv
 *.yml
 .bsq_cache
+# Transient query-execution audit log written by query_core; not snapshot data.
+.execution_history
+# Per-session SqlCache hash log — populated by SqlCache.get/put, consumed by
+# tests/cleanup_stale_caches.py to identify orphaned cache entries.
+.cache_usage_log
+# Local-only test cache: full metadata parquets downloaded from S3 (~hundreds
+# of MB) for pure-pandas methods like get_applied_options. Tests that use this
+# cache require --include-local; default behavior is to skip them in CI.
+tests/local_only/cache/

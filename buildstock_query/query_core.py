@@ -1418,30 +1418,33 @@ class QueryCore:
         query = query.where(*restrict_clauses)
         return query
 
-    def _add_avoid(self, query, avoid, *, annual_only=False):
-        if not avoid:
-            return query
-        where_clauses = []
+    def _get_avoid_clauses(self, avoid, *, annual_only=False):
+        clauses = []
         for col_ref, criteria in avoid:
             if self._is_column_tuple(col_ref):
-                where_clauses.append(sa.not_(self._multi_column_membership(col_ref, criteria)))
+                clauses.append(sa.not_(self._multi_column_membership(col_ref, criteria)))
                 continue
 
             col = self._get_column(col_ref, annual_only=annual_only)
             subquery = self._normalize_restrict_subquery(criteria)
             if subquery is not None:
-                where_clauses.append(col.not_in(subquery))
+                clauses.append(col.not_in(subquery))
             elif isinstance(criteria, Sequence) and not isinstance(criteria, str):
                 if len(criteria) > 1:
-                    where_clauses.append(col.not_in(criteria))
+                    clauses.append(col.not_in(criteria))
                 elif len(criteria) == 1:
-                    where_clauses.append(col != criteria[0])
+                    clauses.append(col != criteria[0])
                 else:
                     raise ValueError(f"Invalid criteria {criteria}")
             else:
-                where_clauses.append(col != criteria)
-        query = query.where(*where_clauses)
-        return query
+                clauses.append(col != criteria)
+        return clauses
+
+    def _add_avoid(self, query, avoid, *, annual_only=False):
+        if not avoid:
+            return query
+        clauses = self._get_avoid_clauses(avoid, annual_only=annual_only)
+        return query.where(*clauses)
 
     def _get_name(self, col):
         if isinstance(col, tuple):

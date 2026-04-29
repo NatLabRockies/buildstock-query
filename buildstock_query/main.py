@@ -650,6 +650,7 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: Literal[False] = False,
     ) -> pd.DataFrame: ...
 
@@ -658,6 +659,7 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: Literal[True],
     ) -> str: ...
 
@@ -666,6 +668,7 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: bool,
     ) -> Union[pd.DataFrame, str]: ...
 
@@ -673,6 +676,7 @@ class BuildStockQuery(QueryCore):
     def get_building_ids(
         self,
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: bool = False,
     ) -> Union[str, pd.DataFrame]:
         """Return the list of building keys.
@@ -680,21 +684,29 @@ class BuildStockQuery(QueryCore):
         For applied-buildings filtering, compose with `get_applied_buildings_filter`:
             f = bsq.get_applied_buildings_filter(all_of=[1, 2])
             ids = bsq.get_building_ids(restrict=[f] if f else [])
+            # Or to get the complement (universe \\ applied set):
+            ids = bsq.get_building_ids(avoid=[f] if f else [])
 
         Args:
             restrict: Standard restrict list. Each entry is either a `(column, value)`
                 scalar/list comparison, a `(column, subquery)` IN-subquery, or a
                 `(tuple-of-columns, tuple-subquery)` composite-key membership.
+            avoid: Same shape as `restrict`, but each entry becomes a NOT-IN /
+                inequality predicate. Use to select buildings outside a given
+                set (e.g. `avoid=[applied_filter]` returns buildings the
+                upgrade did NOT apply to).
             get_query_only: If True, return the SQL string instead of executing.
 
         Returns:
             DataFrame of building keys (`md_key_cols`).
         """
         restrict = list(restrict) if restrict else []
+        avoid = list(avoid) if avoid else []
         # md_table holds rows for every upgrade — filter to baseline so the
         # result is one row per (building × keys), not (building × upgrade × keys).
         query = sa.select(*self.md_key_cols).select_from(self.bs_table).where(self._md_baseline_filter())
         query = self._add_restrict(query, restrict, annual_only=True)
+        query = self._add_avoid(query, avoid, annual_only=True)
         if get_query_only:
             return self._compile(query)
         return self.execute(query)

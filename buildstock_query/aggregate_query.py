@@ -37,7 +37,9 @@ class BuildStockAggregate:
         upgrade_id: str,
         applied_only: bool | None,
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         bs_restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        bs_avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         group_by: Sequence[DBColType] = Field(default_factory=list),
         upgrade_only: bool = False,
         timestamp_grouping_func: Optional[str] = None,
@@ -62,6 +64,12 @@ class BuildStockAggregate:
         # the SELECT list clean and lets Athena push the predicate into the bs
         # table scan without enumerating all columns.
         bs_restrict_clauses = self._bsq._get_restrict_clauses(bs_restrict, annual_only=True)
+        # bs-side avoid clauses (NOT IN / != predicates targeting metadata-side
+        # columns) get folded into bs_per_bldg's WHERE the same way bs_restrict
+        # is. Without this, an outer-level _add_avoid would resolve the bs col
+        # to self.bs_table and SA would introduce that table via a comma-join
+        # against the outer FROM (which is ts_aggr ⋈ bs_per_bldg, no bs).
+        bs_avoid_clauses = self._bsq._get_avoid_clauses(bs_avoid, annual_only=True)
 
         # Unified two-level shape used for both single-upgrade and
         # upgrade-pair queries.
@@ -129,6 +137,9 @@ class BuildStockAggregate:
             bucketed_time_expr = None
 
         ts_restrict_clauses = self._bsq._get_restrict_clauses(restrict, annual_only=False)
+        # ts-side avoid (NOT IN / != on ts columns) is symmetric to ts_restrict
+        # at this layer — apply as additional WHERE clauses on ts_flat.
+        ts_avoid_clauses = self._bsq._get_avoid_clauses(avoid, annual_only=False)
 
         # Classify each enduse by which table(s) its leaf columns reference:
         # - ts-only: every leaf is on ts. Routed through ts_flat / ts_aggr.
@@ -205,6 +216,7 @@ class BuildStockAggregate:
             .where(
                 ts.c["upgrade"].in_([typed_literal(ts.c["upgrade"], u) for u in ts_upgrade_ids]),
                 *ts_restrict_clauses,
+                *ts_avoid_clauses,
             )
             .subquery("ts_flat")
         )
@@ -330,6 +342,7 @@ class BuildStockAggregate:
             .where(
                 self._bsq._upgrade_zero_filter(base),
                 *bs_restrict_clauses,
+                *bs_avoid_clauses,
                 *join_list_restrict_clauses,
             )
             .group_by(
@@ -672,8 +685,17 @@ class BuildStockAggregate:
             bs_tbl, up_tbl, tbljoin = self.__get_annual_bs_up_table(upgrade_id, params.applied_only)
             md_alias = bs_tbl  # annual: bs_tbl IS the metadata-side handle
             extra_restrict: list = []
+            extra_avoid: list = []
         else:
             bs_restrict, ts_restrict, extra_restrict = self._bsq._split_restrict(bs_restrict)
+            # Split avoid the same way: bs-side avoid clauses (e.g. NOT IN
+            # applied-buildings subquery on bldg_id) must be folded into
+            # bs_per_bldg's WHERE because the outer FROM (ts_aggr ⋈ bs_per_bldg)
+            # has no bs_table — _add_avoid at the outer level would comma-join
+            # bs against the FROM and silently drop the predicate.
+            bs_avoid, ts_avoid, extra_avoid = self._bsq._split_restrict(
+                list(params.avoid) if params.avoid else []
+            )
             # When the caller wants only upgrade values (no savings, no baseline column),
             # skip the pivot subquery. For `applied_only=True` the only-upgrade-rows
             # behavior is the definition. For `applied_only=False`, the pivot's bs side
@@ -721,7 +743,9 @@ class BuildStockAggregate:
                 extra_restrict = kept
             bs_tbl, up_tbl, tbljoin, group_by_selection, md_alias = self.__get_timeseries_bs_up_table(
                 enduse_cols, upgrade_id, params.applied_only, ts_restrict,
-                bs_restrict=bs_restrict, group_by=group_by_selection,
+                avoid=ts_avoid,
+                bs_restrict=bs_restrict, bs_avoid=bs_avoid,
+                group_by=group_by_selection,
                 upgrade_only=upgrade_only,
                 timestamp_grouping_func=params.timestamp_grouping_func,
                 total_weight=total_weight,
@@ -1004,7 +1028,13 @@ class BuildStockAggregate:
         # introduced their referenced tables.
         if extra_restrict:
             query = self._bsq._add_restrict(query, extra_restrict, annual_only=params.annual_only)
-        query = self._bsq._add_avoid(query, params.avoid, annual_only=params.annual_only)
+        # On TS, bs_avoid was folded into bs_per_bldg's WHERE and ts_avoid was
+        # folded into ts_flat's WHERE; only extra_avoid (avoids on join_list
+        # tables that aren't bs or ts) remains for the outer level. On annual
+        # the outer FROM has bs_table directly, so all avoid clauses apply
+        # straightforwardly.
+        outer_avoid = params.avoid if params.annual_only else extra_avoid
+        query = self._bsq._add_avoid(query, outer_avoid, annual_only=params.annual_only)
         query = self._bsq._add_group_by(query, group_by_selection)
         query = self._bsq._add_order_by(query, group_by_selection if params.sort else [])
         query = query.limit(params.limit) if params.limit else query

@@ -245,9 +245,9 @@
   {
     "name": "inv_upgrade1_applied_in_1_2_ts_year_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "",
-      "comstock_oedi": "",
-      "comstock_oedi_agg": ""
+      "resstock_oedi": "78aa908a675409ba45ab10d58a0ebcbd9b81922991c678bbb791057ded1b7d94",
+      "comstock_oedi": "4ff24a5e687a7de1f6528b447609bc2f97a85f9061c6cac6291a99dd4ff4d7d1",
+      "comstock_oedi_agg": "0c99940ea480432e0ea7484446a5a247bff406a99a62c0e5ee30ddcc347f66d8"
     },
     "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied. Two fuels. SQL drift expected after applied_in\u2192helper refactor (extra redundant auto-synthesized applied filter); data verified equivalent.",
     "args": {
@@ -283,9 +283,9 @@
   {
     "name": "inv_upgrade1_applied_in_1_2_ts_monthly_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "",
-      "comstock_oedi": "",
-      "comstock_oedi_agg": ""
+      "resstock_oedi": "5038c6fd8767baa6717494ca5e78211278fd8c5733c5fe2a61b839617dd51c43",
+      "comstock_oedi": "4a2ccf0beef38d32b6d4861a21f7bc934c5892986375fca876c50a0f065ce131",
+      "comstock_oedi_agg": "fcfef75f6c2976cf26684ccb20e956745f2f5ddef882c0804992e5c2b3b71545"
     },
     "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied. Two fuels. SQL drift expected after applied_in\u2192helper refactor (extra redundant auto-synthesized applied filter); data verified equivalent.",
     "args": {
@@ -365,8 +365,8 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi": "",
-      "comstock_oedi_agg": ""
+      "comstock_oedi": "7537798377c0a9abf87a7e7efd9aac6e09d0c11e131c25a9b68ae3a1b10f1db7",
+      "comstock_oedi_agg": "836777b44f174c72eab9064ef0fbb842dd0b06a6b79ee3b6b6796bd75442f654"
     },
     "description": "Three-way invariant: ts-year-collapse leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied, grouped by county. Pairs with annual and ts_monthly siblings. SQL drift expected after applied_in\u2192helper refactor (extra redundant auto-synthesized applied filter); data verified equivalent.",
     "args": {
@@ -406,8 +406,8 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi": "",
-      "comstock_oedi_agg": ""
+      "comstock_oedi": "9e1dd666e3c6c2d2589fd61674b5a1f820a0b97a27c2fe2e82d745fd14a1a738",
+      "comstock_oedi_agg": "e9d3636bda48c9c9ed2568e58b056c809c11a6dc297738c4329e546a7bab7ccf"
     },
     "description": "Three-way invariant: ts-monthly leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied, grouped by county. Pairs with annual and ts_year siblings. SQL drift expected after applied_in\u2192helper refactor (extra redundant auto-synthesized applied filter); data verified equivalent.",
     "args": {

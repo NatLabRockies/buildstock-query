@@ -1,0 +1,71 @@
+{
+  "probe": {
+    "name": "multi_state_bldg_sample",
+    "sql": "SELECT bldg_id, \"in.state\", weight FROM comstock_amy2018_r2_2025_md_agg_national_parquet WHERE upgrade=0 AND bldg_id IN (SELECT bldg_id FROM comstock_amy2018_r2_2025_md_agg_national_parquet WHERE upgrade=0 GROUP BY bldg_id HAVING count(*) > 1) ORDER BY bldg_id LIMIT 10",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "1",
+        "TN",
+        "43.61743869384717"
+      ],
+      [
+        "1",
+        "AL",
+        "246.72813495580166"
+      ],
+      [
+        "1",
+        "MS",
+        "122.11738799064287"
+      ],
+      [
+        "2",
+        "TN",
+        "27.41538878198556"
+      ],
+      [
+        "2",
+        "MS",
+        "73.08132815849272"
+      ],
+      [
+        "2",
+        "AL",
+        "140.39245362544142"
+      ],
+      [
+        "3",
+        "AL",
+        "49.793978630958364"
+      ],
+      [
+        "3",
+        "MS",
+        "25.264443134265502"
+      ],
+      [
+        "3",
+        "TN",
+        "8.318589143755107"
+      ],
+      [
+        "4",
+        "AL",
+        "48.501403654401216"
+      ]
+    ],
+    "columns": [
+      "bldg_id",
+      "in.state",
+      "weight"
+    ],
+    "bytes_scanned": 2422824,
+    "engine_ms": 1882,
+    "planning_ms": 255,
+    "queue_ms": 98,
+    "total_ms": 2087,
+    "execution_id": "09428289-eac4-42d2-b028-70dcf4b26634"
+  }
+}

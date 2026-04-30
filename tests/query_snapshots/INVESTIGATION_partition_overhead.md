@@ -192,19 +192,58 @@ inner predicate is logically implied by the outer IN-tuple match — so
    subqueries.**~~ **DONE** — see "Fix #1 shipped" section above. Recovers
    13–14× on the slow ComStock shapes; 44 snapshots regenerated cleanly.
 2. **Auto-route to less-sharded tables.** Add a `_pick_metadata_table()`
-   selector in `buildstock_query/main.py` that picks among the four
-   ComStock tables based on the query's `group_by` / `restrict`. Decision
-   rule:
-    - `group_by` includes `county` or filters by `county`/`gisjoin`
-      → use `_md_*_by_state_and_county_parquet` (no choice).
-    - `group_by ⊆ {state, upgrade, ...}` AND has state restrict
-      → use `_md_agg_by_state_parquet`.
-    - National-only with no state restrict → use `_md_agg_national_parquet`.
-   Adds another ~3× on top of #1.
+   selector that picks `_md_agg_national_parquet` (the user-validated
+   pick — same data as `_md_agg_by_state_parquet` but unpartitioned;
+   small-files headwind beats partition pruning at this scale) when the
+   query's `group_by` / `restrict` are state-or-coarser. Plan in
+   `~/.claude/plans/i-am-bit-unhappy-fluffy-hedgehog.md`. Benchmark below
+   measured ~2× engine-time win on top of Fix #1.
 3. **Repartition the published parquet (data-pipeline change, outside
    this repo).** Move from `(state, county)` → `state`-only partitioning,
-   compact small files. ~2× remaining gain after #1 + #2; high cost to
-   ship through the data-publication pipeline.
+   compact small files. Smaller marginal gain after #1 + #2; high cost
+   to ship through the data-publication pipeline.
+
+## Benchmark: does query-time two-sided dedup help?
+
+User-proposed alternative (or addition) to routing: collapse cross-state
+duplicates at query time using `arbitrary()` on the TS side
+(`GROUP BY bldg_id, timestamp`) and `sum(weight)` on the MD side
+(`GROUP BY bldg_id`), then join on `bldg_id` alone. The duplicates
+carry identical *value* columns, so `arbitrary()` is exact.
+
+`tests/query_snapshots/benchmark_dedup.py` measures four variants of
+the same logical workload (TS-monthly, baseline, electricity total,
+restrict to CO+NM, no group_by). All four return identical
+`total_kwh` to 0 ppm — correctness invariant holds.
+
+| Variant | Strategy | Wall | Plan | Engine | Bytes |
+|---------|----------|-----:|-----:|-------:|------:|
+| V1 | primary MD + bs_per_bldg, today's shape | 14.19 s | 7.20 s | 14.00 s | 796 MB |
+| V2 | alt MD + no bs_per_bldg (routing only) | **7.28 s** | **318 ms** | 7.04 s | 796 MB |
+| V3 | primary MD + dedup (dedup only) | 22.24 s | 7.83 s | 22.04 s | 796 MB |
+| V4 | alt MD + dedup (routing + dedup) | **5.78 s** | 332 ms | 5.54 s | 796 MB |
+
+**Findings:**
+- **Routing alone (V2) closes the 14.2 s → 7.3 s gap** — a ~2× win over
+  V1, dominated by planning collapsing from 7.20 s to 318 ms (the
+  small-files-pathology disappearance).
+- **Dedup on the slow primary table (V3) makes things worse** (22.2 s
+  vs V1's 14.2 s). The TS-side `arbitrary()` GROUP BY pays a real
+  shuffle cost that outweighs the join savings when the rest of the
+  query is already slow.
+- **Dedup on the alt table (V4) is 21 % faster than routing alone**
+  (5.78 s vs 7.28 s). The win is purely engine-side (5.54 s vs 7.04 s);
+  planning is unchanged.
+
+**Decision:** ship routing only. The dedup adds non-trivial query-shape
+complexity (CTE-style WITH clauses, `arbitrary()` wrappers on every
+value column, single-key joins, and a separate eligibility check
+duplicating the routing one) for a marginal 21 % win on top of the
+2× routing-only gain. Defer until concrete workloads in production
+sit at the V2 baseline regularly.
+
+The benchmark script and `dedup_benchmark.json` artifact are committed
+as a reproducible record so this decision can be revisited later.
 
 ## Cost guardrails inside `investigate_partitions.py`
 

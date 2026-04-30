@@ -2612,6 +2612,690 @@ def test_applied_buildings_set_identities_via_query(
         )
 
 
+# --- applied filter: subquery encoding equals materialized id-list encoding --
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_filter_subquery_equals_id_list(request, bsq_fixture, schema):
+    """The applied-buildings filter has two equivalent encodings:
+      (1) `restrict=[get_applied_buildings_filter(all_of=[a])]` — IN-subquery
+      (2) `restrict=[(bldg_id_col, materialized_ids_list)]` — IN literal list
+    Both must produce identical aggregated results when applied to the
+    same effective set of buildings. Also pins:
+      - Idempotency: `restrict=[f, f]` == `restrict=[f]`.
+      - Cardinality identity: `n_applied + n_avoided == n_universe` (exact int).
+
+    To avoid Athena's 262144-char query length limit, the comparison is
+    performed against a small curated bldg_id universe (top ~20 applied
+    ids) rather than the full applied set. This is sufficient: the
+    point of the test is to exercise the IN-subquery vs IN-list code
+    paths under identical filter semantics, not to exhaustively scan.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    a, _ = _pick_meaningful_upgrade_pair(bsq, state=state_list[0])
+
+    # On schemas with composite md_key (comstock has (bldg_id, tract, state)
+    # or (bldg_id, county, state)), a single building can have multiple
+    # md-key tuples (one per tract/county slice). Filtering by `(bldg_id, [ids])`
+    # admits ALL slices of a building while the IN-subquery form
+    # `(bldg_id, county, state) IN (subquery)` admits only the specific
+    # slices that satisfied the applied predicate. To make the comparison
+    # apples-to-apples we materialize ALL tuples for a small set of bldg_ids
+    # rather than the first-N tuples (which would partially admit some
+    # buildings and cut others mid-slice).
+    f_a = bsq.get_applied_buildings_filter(all_of=[a])
+    applied_df = bsq.get_building_ids(
+        restrict=[f_a, ("state", state_list)] if f_a else [("state", state_list)],
+    )
+    record_query(bsq, {
+        "restrict": (
+            [{"_applied_filter": {"all_of": [a]}}, ("state", state_list)]
+            if f_a else [("state", state_list)]
+        ),
+    }, method="get_building_ids")
+    if len(applied_df) < 5:
+        pytest.skip(
+            f"applied set for all_of=[{a}] in {state_list} has only "
+            f"{len(applied_df)} rows — too small for a meaningful test."
+        )
+    md_key_cols = tuple(bsq.md_key_cols)  # (bldg_id_col,) for resstock,
+                                          # (bldg_id_col, tract/county, state_col) for comstock.
+
+    # Pick a small set of bldg_ids and use ALL their md-key tuples (so no
+    # building is partially included) — bounded to keep IN-list short.
+    all_tuples = [
+        tuple(row) for row in applied_df.itertuples(index=False, name=None)
+    ]
+    unique_bldgs = sorted({int(t[0]) for t in all_tuples})[:10]
+    bldg_set = set(unique_bldgs)
+    applied_tuples = sorted(t for t in all_tuples if int(t[0]) in bldg_set)
+    applied_ids = unique_bldgs
+
+    bldg_col = bsq.md_bldgid_column
+    # Universe restrict for path 1: bound to the same buildings the
+    # composite-key list mentions, so both paths see the same input.
+    universe_clause = (bldg_col, applied_ids)
+    base_restrict = [("state", state_list), universe_clause]
+
+    f = bsq.get_applied_buildings_filter(all_of=[a])
+    marker = {"_applied_filter": {"all_of": [a]}}
+    enduse = resolve_placeholder(schema, "electricity_total")
+
+    # Path 1: IN-subquery encoding.
+    df_subq = bsq.query(
+        enduses=[enduse],
+        restrict=[f, *base_restrict] if f else list(base_restrict),
+    )
+    record_query(bsq, {
+        "enduses": [enduse],
+        "restrict": [marker, *base_restrict] if f else list(base_restrict),
+    })
+
+    # Path 2: materialized IN-list encoding. Use composite-key form when
+    # md_key has more than one component so the filter grain matches the
+    # subquery's grain.
+    if len(md_key_cols) == 1:
+        # Single-key schema (resstock): a flat (col, ids) clause.
+        list_clause = (bldg_col, applied_ids)
+    else:
+        # Composite-key schema (comstock): (cols_tuple, list_of_tuples) clause.
+        list_clause = (md_key_cols, applied_tuples)
+    df_list = bsq.query(
+        enduses=[enduse],
+        restrict=[list_clause, ("state", state_list)],
+    )
+    record_query(bsq, {
+        "enduses": [enduse],
+        "restrict": [list_clause, ("state", state_list)],
+    })
+
+    enduse_col = _strip_out_prefix(enduse)
+    # Both encodings must agree on units_count, sample_count, and the enduse total.
+    for col in ("units_count", "sample_count", enduse_col):
+        a_val = float(df_subq[col].iloc[0])
+        b_val = float(df_list[col].iloc[0])
+        if not np.isclose(a_val, b_val, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+            pytest.fail(
+                f"subquery vs id-list disagreement on {col}: "
+                f"subquery={a_val:.4f}, id_list={b_val:.4f}, "
+                f"diff={a_val - b_val:.4f}"
+            )
+
+    # Idempotency: applying the same filter twice should not change the result.
+    if f is not None:
+        df_doubled = bsq.query(
+            enduses=[enduse],
+            restrict=[f, f, *base_restrict],
+        )
+        record_query(bsq, {
+            "enduses": [enduse],
+            "restrict": [marker, marker, *base_restrict],
+        })
+        for col in ("units_count", "sample_count", enduse_col):
+            a_val = float(df_subq[col].iloc[0])
+            b_val = float(df_doubled[col].iloc[0])
+            if not np.isclose(a_val, b_val, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+                pytest.fail(
+                    f"applying applied_filter twice changed {col}: "
+                    f"once={a_val:.4f}, twice={b_val:.4f}"
+                )
+
+    # Cardinality identity: n_applied + n_avoided == n_universe.
+    # Use a curated universe (small id set spanning applied + non-applied)
+    # to keep query size bounded while still exercising the partition.
+    # `applied_ids` (above) is a subset of the applied set; pad with a few
+    # known non-applied ids by using `_curate_applied_universe` to ensure
+    # both partitions are non-empty.
+    curated, regions, _ = _curate_applied_universe(bsq, state=state_list[0])
+    cardinality_restrict = [("state", state_list), (bldg_col, sorted(curated))]
+    n_universe = len(bsq.get_building_ids(restrict=cardinality_restrict))
+    record_query(bsq, {"restrict": cardinality_restrict}, method="get_building_ids")
+    n_applied = len(bsq.get_building_ids(
+        restrict=[f, *cardinality_restrict] if f else list(cardinality_restrict),
+    ))
+    record_query(bsq, {
+        "restrict": [marker, *cardinality_restrict] if f else list(cardinality_restrict),
+    }, method="get_building_ids")
+    n_avoided = len(bsq.get_building_ids(
+        restrict=cardinality_restrict,
+        avoid=[f] if f else [],
+    ))
+    record_query(bsq, {
+        "restrict": cardinality_restrict, "avoid": [marker] if f else [],
+    }, method="get_building_ids")
+    if n_applied + n_avoided != n_universe:
+        pytest.fail(
+            f"cardinality identity failed: applied={n_applied} + avoided="
+            f"{n_avoided} = {n_applied + n_avoided}, universe={n_universe}"
+        )
+
+
+# --- applied filter: composite key + multi-state composition ----------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_filter_multi_state_composition(request, bsq_fixture, schema):
+    """Across multi-state restrict, the building-key tuples returned by an
+    applied filter must respect the composite key (e.g. comstock's
+    `(bldg_id, tract, state)`) — not project to bldg_id only. Per-state
+    keys must be disjoint as tuples (catches state leakage).
+
+    Also: per-state `units_count` totals under the applied filter must
+    sum to the multi-state total (catches state-partition handling
+    bugs in the TS pivot or tract fan-out).
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_pair = resolve_placeholder(schema, "multi_state_pair")
+    a, b = _pick_meaningful_upgrade_pair(bsq, state="CO")
+    f = bsq.get_applied_buildings_filter(any_of=[a, b])
+    marker = {"_applied_filter": {"any_of": [a, b]}}
+    enduse = resolve_placeholder(schema, "electricity_total")
+
+    s1, s2 = state_pair[0], state_pair[1]
+    # Per-state key sets (composite tuple for comstock, single-element for resstock).
+    df_s1 = bsq.get_building_ids(restrict=[f, ("state", [s1])] if f else [("state", [s1])])
+    record_query(bsq, {
+        "restrict": [marker, ("state", [s1])] if f else [("state", [s1])],
+    }, method="get_building_ids")
+    df_s2 = bsq.get_building_ids(restrict=[f, ("state", [s2])] if f else [("state", [s2])])
+    record_query(bsq, {
+        "restrict": [marker, ("state", [s2])] if f else [("state", [s2])],
+    }, method="get_building_ids")
+    keys_s1 = set(map(tuple, df_s1.itertuples(index=False, name=None)))
+    keys_s2 = set(map(tuple, df_s2.itertuples(index=False, name=None)))
+
+    # If the schema's md_key includes state, per-state tuples must be disjoint
+    # even if bldg_id values collide. Resstock has only (bldg_id,) so the
+    # check reduces to "no bldg_id appears in both" which is also a real check.
+    overlap = keys_s1 & keys_s2
+    if overlap:
+        sample = sorted(overlap)[:5]
+        pytest.fail(
+            f"per-state key sets overlap ({len(overlap)} tuples) for "
+            f"states={state_pair} under applied filter — composite key "
+            f"may be projecting only bldg_id. Sample: {sample}"
+        )
+
+    # Aggregated units_count: per-state sums should equal multi-state sum
+    # (under the same applied filter).
+    df_pair = bsq.query(
+        enduses=[enduse],
+        restrict=[f, ("state", state_pair)] if f else [("state", state_pair)],
+    )
+    record_query(bsq, {
+        "enduses": [enduse],
+        "restrict": [marker, ("state", state_pair)] if f else [("state", state_pair)],
+    })
+    df_only_s1 = bsq.query(
+        enduses=[enduse],
+        restrict=[f, ("state", [s1])] if f else [("state", [s1])],
+    )
+    record_query(bsq, {
+        "enduses": [enduse],
+        "restrict": [marker, ("state", [s1])] if f else [("state", [s1])],
+    })
+    df_only_s2 = bsq.query(
+        enduses=[enduse],
+        restrict=[f, ("state", [s2])] if f else [("state", [s2])],
+    )
+    record_query(bsq, {
+        "enduses": [enduse],
+        "restrict": [marker, ("state", [s2])] if f else [("state", [s2])],
+    })
+    sum_per_state = float(df_only_s1["units_count"].iloc[0]) + float(df_only_s2["units_count"].iloc[0])
+    sum_pair = float(df_pair["units_count"].iloc[0])
+    if not np.isclose(sum_pair, sum_per_state, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+        pytest.fail(
+            f"multi-state units_count {sum_pair:.4f} != sum of per-state "
+            f"({s1}: {float(df_only_s1['units_count'].iloc[0]):.4f}, "
+            f"{s2}: {float(df_only_s2['units_count'].iloc[0]):.4f}) "
+            f"= {sum_per_state:.4f}"
+        )
+
+
+# --- applied filter: empty-set degeneracy -----------------------------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_filter_empty_set_degeneracy(request, bsq_fixture, schema):
+    """When the applied set is provably empty (intersection of many upgrades),
+    `restrict=[applied_filter]` must return zero rows and `avoid=[applied_filter]`
+    must return all rows in the universe. SQL's `IN ()` is implementation-defined
+    in some dialects — pin the behavior here so a planner change can't silently
+    flip it.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    base_restrict = [("state", state_list)]
+
+    # Construct a guaranteed-empty applied set. all_of=[1,2,3,...,N] for many
+    # upgrade ids — buildings applying to ALL of them is virtually impossible.
+    # Pick a list large enough to be empty without scanning every upgrade id.
+    impossible_all_of = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    f = bsq.get_applied_buildings_filter(all_of=impossible_all_of)
+    marker = {"_applied_filter": {"all_of": impossible_all_of}}
+    if f is None:
+        pytest.skip("get_applied_buildings_filter returned None for impossible all_of")
+
+    # Verify the set is actually empty before testing degeneracy.
+    applied_df = bsq.get_applied_buildings(all_of=impossible_all_of)
+    record_query(bsq, {"all_of": impossible_all_of}, method="get_applied_buildings")
+    if not applied_df.empty:
+        pytest.skip(
+            f"empty-set construction failed: all_of={impossible_all_of} "
+            f"returned {len(applied_df)} buildings; pick a larger/different "
+            f"set to guarantee empty applied set."
+        )
+
+    universe_df = bsq.get_building_ids(restrict=base_restrict)
+    record_query(bsq, {"restrict": base_restrict}, method="get_building_ids")
+    n_universe = len(universe_df)
+
+    restrict_df = bsq.get_building_ids(restrict=[f, *base_restrict])
+    record_query(bsq, {
+        "restrict": [marker, *base_restrict],
+    }, method="get_building_ids")
+    if len(restrict_df) != 0:
+        pytest.fail(
+            f"restrict=[empty_applied_filter] should return 0 rows but "
+            f"returned {len(restrict_df)} — likely SQL `IN ()` quirk or "
+            f"empty-subquery short-circuit treating it as TRUE."
+        )
+
+    avoid_df = bsq.get_building_ids(restrict=base_restrict, avoid=[f])
+    record_query(bsq, {
+        "restrict": base_restrict, "avoid": [marker],
+    }, method="get_building_ids")
+    if len(avoid_df) != n_universe:
+        pytest.fail(
+            f"avoid=[empty_applied_filter] should return all {n_universe} "
+            f"universe rows but returned {len(avoid_df)} — NOT-IN against "
+            f"empty subquery may be evaluating to UNKNOWN/NULL instead of TRUE."
+        )
+
+
+# --- applied filter: restrict order independence + de Morgan ---------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_filter_order_and_de_morgan(request, bsq_fixture, schema):
+    """Two algebraic properties of the restrict/avoid combinator:
+
+    (a) Order-independence: restrict=[A, B] must produce identical results
+        to restrict=[B, A]. Catches position-dependent classification in
+        `_split_restrict` (e.g. first clause wins) or restrict-list mutation
+        bugs.
+
+    (b) de Morgan: `avoid=[applied(any_of=[a, b])]` (NOT (A∪B)) must equal
+        `avoid=[applied(all_of=[a]), applied(all_of=[b])]` (NOT A AND NOT B).
+        Catches cases where multiple avoid clauses are OR'd instead of AND'd
+        through `_add_avoid`'s where_clauses chaining.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    a, b = _pick_meaningful_upgrade_pair(bsq, state=state_list[0])
+    f_or = bsq.get_applied_buildings_filter(any_of=[a, b])
+    f_a = bsq.get_applied_buildings_filter(all_of=[a])
+    f_b = bsq.get_applied_buildings_filter(all_of=[b])
+    marker_or = {"_applied_filter": {"any_of": [a, b]}}
+    marker_a = {"_applied_filter": {"all_of": [a]}}
+    marker_b = {"_applied_filter": {"all_of": [b]}}
+
+    # (a) Order-independence on restrict.
+    state_clause = ("state", state_list)
+    df_AB = bsq.get_building_ids(
+        restrict=[f_or, state_clause] if f_or else [state_clause],
+    )
+    record_query(bsq, {
+        "restrict": [marker_or, state_clause] if f_or else [state_clause],
+    }, method="get_building_ids")
+    df_BA = bsq.get_building_ids(
+        restrict=[state_clause, f_or] if f_or else [state_clause],
+    )
+    record_query(bsq, {
+        "restrict": [state_clause, marker_or] if f_or else [state_clause],
+    }, method="get_building_ids")
+    keys_AB = set(map(tuple, df_AB.itertuples(index=False, name=None)))
+    keys_BA = set(map(tuple, df_BA.itertuples(index=False, name=None)))
+    if keys_AB != keys_BA:
+        pytest.fail(
+            f"restrict order matters: [filter, state]={len(keys_AB)} keys, "
+            f"[state, filter]={len(keys_BA)} keys, symmetric_diff="
+            f"{len(keys_AB ^ keys_BA)}"
+        )
+
+    # (b) de Morgan: avoid(any_of) == avoid(all_of[a]) AND avoid(all_of[b]).
+    df_avoid_or = bsq.get_building_ids(
+        restrict=[state_clause],
+        avoid=[f_or] if f_or else [],
+    )
+    record_query(bsq, {
+        "restrict": [state_clause],
+        "avoid": [marker_or] if f_or else [],
+    }, method="get_building_ids")
+    avoid_list = [x for x in (f_a, f_b) if x is not None]
+    avoid_marker_list = []
+    if f_a is not None:
+        avoid_marker_list.append(marker_a)
+    if f_b is not None:
+        avoid_marker_list.append(marker_b)
+    df_avoid_separate = bsq.get_building_ids(
+        restrict=[state_clause],
+        avoid=avoid_list,
+    )
+    record_query(bsq, {
+        "restrict": [state_clause], "avoid": avoid_marker_list,
+    }, method="get_building_ids")
+    keys_or = set(map(tuple, df_avoid_or.itertuples(index=False, name=None)))
+    keys_sep = set(map(tuple, df_avoid_separate.itertuples(index=False, name=None)))
+    if keys_or != keys_sep:
+        only_in_or = sorted(keys_or - keys_sep)[:5]
+        only_in_sep = sorted(keys_sep - keys_or)[:5]
+        pytest.fail(
+            f"de Morgan failed: avoid[any_of=[{a},{b}]]={len(keys_or)} keys, "
+            f"avoid[all_of=[{a}], all_of=[{b}]]={len(keys_sep)} keys.\n"
+            f"  in any-of-form but not separate: {only_in_or}\n"
+            f"  in separate but not any-of-form: {only_in_sep}"
+        )
+
+
+# --- applied filter: applied_only=True equals explicit all_of restrict ------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_only_equals_explicit_all_of(request, bsq_fixture, schema):
+    """`applied_only=True` for upgrade_id=u internally injects a
+    `_build_applied_subquery(all_of=[u])` filter into bs_restrict
+    (per aggregate_query.py). The same query with `applied_only=False`
+    and an explicit `restrict=[applied_filter(all_of=[u])]` should
+    produce identical results. Pins the equivalence so future drift
+    between the internal injection path and the public API path
+    surfaces immediately.
+
+    Also pins: under `avoid=[applied_filter(all_of=[u])]` (i.e. on
+    buildings the upgrade did NOT apply to), savings should be ~0
+    because baseline == upgrade for inapplicable buildings.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    u = 1  # use upgrade 1; the explicit/implicit equivalence is independent
+           # of which upgrade applies to which buildings — only that the
+           # set of applied buildings matches.
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
+    f = bsq.get_applied_buildings_filter(all_of=[u])
+    marker = {"_applied_filter": {"all_of": [u]}}
+
+    df_implicit = bsq.query(
+        enduses=[enduse], upgrade_id=str(u), applied_only=True,
+        group_by=[group_col], restrict=[("state", state_list)],
+    )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": str(u), "applied_only": True,
+        "group_by": [group_col], "restrict": [("state", state_list)],
+    })
+    df_explicit = bsq.query(
+        enduses=[enduse], upgrade_id=str(u), applied_only=False,
+        group_by=[group_col],
+        restrict=[f, ("state", state_list)] if f else [("state", state_list)],
+    )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": str(u), "applied_only": False,
+        "group_by": [group_col],
+        "restrict": (
+            [marker, ("state", state_list)] if f else [("state", state_list)]
+        ),
+    })
+
+    # Per-group equality on units_count, sample_count, and enduse total.
+    enduse_col = _strip_out_prefix(enduse)
+    a_idx = df_implicit.set_index(group_col).sort_index()
+    b_idx = df_explicit.set_index(group_col).sort_index()
+    if set(a_idx.index) != set(b_idx.index):
+        pytest.fail(
+            f"applied_only=True vs explicit all_of disagree on group keys: "
+            f"only_implicit={set(a_idx.index) - set(b_idx.index)}, "
+            f"only_explicit={set(b_idx.index) - set(a_idx.index)}"
+        )
+    diffs = []
+    for col in ("units_count", "sample_count", enduse_col):
+        for key in a_idx.index:
+            av = float(a_idx.loc[key, col])
+            bv = float(b_idx.loc[key, col])
+            if not np.isclose(av, bv, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+                diffs.append(f"  {key}/{col}: implicit={av:.4f}, explicit={bv:.4f}")
+    if diffs:
+        pytest.fail(
+            f"applied_only=True vs explicit all_of=[{u}] disagree:\n"
+            + "\n".join(diffs[:10])
+        )
+
+    # Savings under avoid: |savings| ~= 0 for buildings the upgrade didn't apply to.
+    df_avoid = bsq.query(
+        enduses=[enduse], upgrade_id=str(u), applied_only=False,
+        group_by=[group_col],
+        restrict=[("state", state_list)],
+        avoid=[f] if f else [],
+        include_baseline=True, include_upgrade=True, include_savings=True,
+    )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": str(u), "applied_only": False,
+        "group_by": [group_col],
+        "restrict": [("state", state_list)],
+        "avoid": [marker] if f else [],
+        "include_baseline": True, "include_upgrade": True, "include_savings": True,
+    })
+    savings_col = _find_first_col(
+        df_avoid, suffix="__savings", contains="electricity.total",
+    )
+    bad = []
+    for _, row in df_avoid.iterrows():
+        savings = float(row[savings_col])
+        units = float(row["units_count"])
+        # Allow per-row tolerance scaled by units_count (a building consuming
+        # 1e7 kWh/yr has float drift larger than INVARIANT_ATOL).
+        bound = max(INVARIANT_ATOL, abs(units) * INVARIANT_RTOL * 100)
+        if abs(savings) > bound:
+            bad.append(
+                f"  {row[group_col]}: savings={savings:.4f}, units={units:.4f}, "
+                f"bound={bound:.4f}"
+            )
+    if bad:
+        pytest.fail(
+            "non-zero savings on inapplicable buildings (avoid=[applied_filter]):\n"
+            + "\n".join(bad[:10])
+        )
+
+
+# --- applied filter: ternary any_of and singleton all_of/any_of equivalence -
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_filter_ternary_union_and_singleton(request, bsq_fixture, schema):
+    """Higher-arity `any_of=[a, b, c]` must equal the union of three
+    `all_of=[]` calls. Catches bugs in the HAVING-count machinery that
+    only manifest at N>2 (e.g. counting distinct upgrades wrong).
+
+    Also: `all_of=[a]` and `any_of=[a]` should produce identical sets
+    on the singleton case — pins the edge where the HAVING-count is
+    `>=1` vs `==1`.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    state_clause = ("state", state_list)
+    a, b = _pick_meaningful_upgrade_pair(bsq, state=state_list[0])
+    # Pick c distinct from a, b that also has a non-trivial applied set.
+    # Try upgrades 1..16 in order and skip a, b.
+    c = next(u for u in range(1, 17) if u not in (a, b))
+
+    def _ids(filter_kwargs):
+        f = bsq.get_applied_buildings_filter(**filter_kwargs)
+        marker = {"_applied_filter": filter_kwargs}
+        df = bsq.get_building_ids(
+            restrict=[f, state_clause] if f else [state_clause],
+        )
+        record_query(bsq, {
+            "restrict": [marker, state_clause] if f else [state_clause],
+        }, method="get_building_ids")
+        return set(map(tuple, df.itertuples(index=False, name=None)))
+
+    keys_or3 = _ids({"any_of": [a, b, c]})
+    keys_a = _ids({"all_of": [a]})
+    keys_b = _ids({"all_of": [b]})
+    keys_c = _ids({"all_of": [c]})
+    expected_or3 = keys_a | keys_b | keys_c
+    if keys_or3 != expected_or3:
+        only_actual = sorted(keys_or3 - expected_or3)[:5]
+        only_expected = sorted(expected_or3 - keys_or3)[:5]
+        pytest.fail(
+            f"ternary union failed: any_of=[{a},{b},{c}] returned "
+            f"{len(keys_or3)} keys, union of singletons returned "
+            f"{len(expected_or3)} keys.\n"
+            f"  in any_of but not in union: {only_actual}\n"
+            f"  in union but not in any_of: {only_expected}"
+        )
+
+    # Singleton equivalence: all_of=[a] == any_of=[a].
+    keys_any_a = _ids({"any_of": [a]})
+    if keys_any_a != keys_a:
+        pytest.fail(
+            f"singleton mismatch: all_of=[{a}]={len(keys_a)} keys, "
+            f"any_of=[{a}]={len(keys_any_a)} keys, symmetric_diff="
+            f"{len(keys_a ^ keys_any_a)}"
+        )
+
+
+# --- applied filter: NOT-IN of materialized id-list equals avoid of subquery -
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_filter_avoid_id_list_equals_avoid_subquery(
+    request, bsq_fixture, schema,
+):
+    """`avoid=[(bldg_id_col, materialized_applied_ids)]` must produce the
+    same complement set as `avoid=[applied_filter]`. Both encode
+    "everyone except the applied set" via NOT-IN — the first against an
+    explicit list, the second against a correlated subquery. Catches
+    NOT-IN-list vs NOT-IN-subquery semantic drift.
+
+    Bounded via a curated 8-bldg universe (some applied, some not) so
+    the IN-list stays under Athena's 262144-char query length cap.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    state_clause = ("state", state_list)
+    a, _ = _pick_meaningful_upgrade_pair(bsq, state=state_list[0])
+
+    # Curate a small universe that spans applied/non-applied splits, then
+    # the materialized "applied_ids" is just the curated buildings that
+    # ARE in the applied set. NOT-IN against this small list stays short.
+    curated, regions, (a_pair, _) = _curate_applied_universe(bsq, state=state_list[0])
+    universe_clause = (bsq.md_bldgid_column, sorted(curated))
+    # `regions["only_a"] | regions["both"]` is the applied-to-a set; intersect
+    # with the curated universe.
+    applied_in_curated = sorted(
+        (regions["only_a"] | regions["both"]) & set(curated)
+    )
+    if not applied_in_curated:
+        pytest.skip(
+            "curated universe contains no buildings applied to the discovery "
+            f"upgrade {a_pair} — discovery may have picked an upgrade pair "
+            f"that doesn't include the test's `a={a}`."
+        )
+
+    # Use the discovery upgrade `a_pair` for the filter (since regions are
+    # defined on it), not the test-local `a` that may differ.
+    f = bsq.get_applied_buildings_filter(all_of=[a_pair])
+    marker = {"_applied_filter": {"all_of": [a_pair]}}
+
+    bldg_col = bsq.md_bldgid_column
+
+    # Path 1: avoid the IN-subquery filter, restricted to curated universe.
+    df_subq = bsq.get_building_ids(
+        restrict=[state_clause, universe_clause],
+        avoid=[f],
+    )
+    record_query(bsq, {
+        "restrict": [state_clause, universe_clause], "avoid": [marker],
+    }, method="get_building_ids")
+
+    # Path 2: avoid an explicit (bldg_id, applied_in_curated) clause,
+    # restricted to the same curated universe.
+    df_list = bsq.get_building_ids(
+        restrict=[state_clause, universe_clause],
+        avoid=[(bldg_col, applied_in_curated)],
+    )
+    record_query(bsq, {
+        "restrict": [state_clause, universe_clause],
+        "avoid": [(bldg_col, applied_in_curated)],
+    }, method="get_building_ids")
+
+    keys_subq = set(map(tuple, df_subq.itertuples(index=False, name=None)))
+    keys_list = set(map(tuple, df_list.itertuples(index=False, name=None)))
+    if keys_subq != keys_list:
+        only_subq = sorted(keys_subq - keys_list)[:5]
+        only_list = sorted(keys_list - keys_subq)[:5]
+        pytest.fail(
+            f"avoid-subquery vs avoid-id-list disagree: "
+            f"subquery={len(keys_subq)} keys, id_list={len(keys_list)} keys.\n"
+            f"  in subquery but not list: {only_subq}\n"
+            f"  in list but not subquery: {only_list}"
+        )
+
+
+# --- applied filter: calc column composition with applied filter ------------
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_filter_calc_column_composition(request, bsq_fixture, schema):
+    """A calculated column (`bsq.get_calculated_column`) used as an enduse
+    under an applied filter must produce values consistent with computing
+    the same expression manually from the underlying enduses.
+    Specifically, calc(elec - gas) summed over the applied set must equal
+    the difference of elec and gas summed over the same applied set.
+
+    Catches: the calc column's underlying SA Label losing the applied
+    filter context, double-filtering, or label rebinding bugs (the
+    ClauseAdapter path).
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    curated, _regions, (a, _) = _curate_applied_universe(bsq, state=state_list[0])
+    f = bsq.get_applied_buildings_filter(all_of=[a])
+    marker = {"_applied_filter": {"all_of": [a]}}
+
+    elec = resolve_placeholder(schema, "electricity_total")
+    gas = resolve_placeholder(schema, "natural_gas_total")
+    # SA-built calc column; the snapshot recorder skips it gracefully (calc
+    # columns can't JSON-serialize) but the live test runs.
+    calc_col = bsq.get_calculated_column(
+        "elec_minus_gas", f"{elec} - {gas}",
+    )
+
+    # Bound query cost via the curated universe.
+    universe_clause = (bsq.md_bldgid_column, sorted(curated))
+    base_restrict = [("state", state_list), universe_clause]
+    restrict = [f, *base_restrict] if f else list(base_restrict)
+    record_restrict = (
+        [marker, *base_restrict] if f else list(base_restrict)
+    )
+
+    # Calc column path.
+    df_calc = bsq.query(enduses=[calc_col], restrict=restrict)
+    # No record_query here — calc columns can't serialize to JSON.
+
+    # Manual decomposition: compute elec and gas separately, take difference.
+    df_manual = bsq.query(enduses=[elec, gas], restrict=restrict)
+    record_query(bsq, {
+        "enduses": [elec, gas], "restrict": record_restrict,
+    })
+
+    elec_col = _strip_out_prefix(elec)
+    gas_col = _strip_out_prefix(gas)
+    expected = float(df_manual[elec_col].iloc[0]) - float(df_manual[gas_col].iloc[0])
+    actual = float(df_calc["elec_minus_gas"].iloc[0])
+    if not np.isclose(actual, expected, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+        pytest.fail(
+            f"calc(elec - gas) under applied filter all_of=[{a}]:\n"
+            f"  calc column total: {actual:.4f}\n"
+            f"  manual elec - gas: {expected:.4f}\n"
+            f"  diff: {actual - expected:.4f}"
+        )
+
+
 # --- savings magnitude bounded by baseline ----------------------------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)

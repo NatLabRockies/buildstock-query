@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "d4bc100e-8a31-40b0-8f76-96f6020d1655",
+  "Query": "UNLOAD (SELECT bs.\"in.comstock_building_type\" AS comstock_building_type, sum(1) AS sample_count, sum(bs.weight) AS units_count, sum(CASE WHEN (up.applicability = true) THEN up.\"out.electricity.total.energy_consumption..kwh\" ELSE bs.\"out.electricity.total.energy_consumption..kwh\" END * bs.weight) AS \"electricity.total.energy_consumption..kwh\" FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs LEFT OUTER JOIN comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS up ON bs.bldg_id = up.bldg_id AND bs.county = up.county AND bs.state = up.state AND bs.upgrade = 0 AND up.upgrade = 1 AND up.applicability = true WHERE bs.applicability = true AND bs.upgrade = 0 AND (bs.bldg_id, bs.county, bs.state) IN (SELECT bs.bldg_id, bs.county, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1) AND bs.applicability = true GROUP BY bs.bldg_id, bs.county, bs.state HAVING count(distinct(bs.upgrade)) = 1) AND bs.state = 'CO' GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/d1695069205efd069c1ab5fb644b1d28d4327e26938e1432eb49057543f984e5/4abfc9d6-96ea-48de-a916-042bc2c42fe2/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/d4bc100e-8a31-40b0-8f76-96f6020d1655"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-29 22:00:06.725000-05:00",
+    "CompletionDateTime": "2026-04-29 22:01:09.483000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 62476,
+    "DataScannedInBytes": 5021123,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/d4bc100e-8a31-40b0-8f76-96f6020d1655-manifest.csv",
+    "TotalExecutionTimeInMillis": 62758,
+    "QueryQueueTimeInMillis": 92,
+    "ServicePreProcessingTimeInMillis": 117,
+    "QueryPlanningTimeInMillis": 13256,
+    "ServiceProcessingTimeInMillis": 73,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

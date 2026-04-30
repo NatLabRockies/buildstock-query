@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "544b684e-6336-47d0-8ecc-3019146e9433",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND bs.state = 'CO' AND (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) IN (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1, 11) AND bs.applicability = true GROUP BY bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state)) \n TO 's3://resstock-core/bsq_athena_unload_results/4b5c1c3f1befc1c7d251db079f49b6fa14d952ffae83d5ec5afbc9377be1369f/a82cd501-ed98-47c5-8640-000d55b3c42d/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/544b684e-6336-47d0-8ecc-3019146e9433"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-29 21:36:38.071000-05:00",
+    "CompletionDateTime": "2026-04-29 21:37:40.944000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 62685,
+    "DataScannedInBytes": 27467406,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/544b684e-6336-47d0-8ecc-3019146e9433-manifest.csv",
+    "TotalExecutionTimeInMillis": 62873,
+    "QueryQueueTimeInMillis": 46,
+    "ServicePreProcessingTimeInMillis": 58,
+    "QueryPlanningTimeInMillis": 12888,
+    "ServiceProcessingTimeInMillis": 84,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

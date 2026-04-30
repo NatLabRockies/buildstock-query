@@ -11,18 +11,25 @@
       "column_name": "elec_minus_gas",
       "column_expr": "$ELECTRICITY_TOTAL - $NATURAL_GAS_TOTAL",
       "table": "baseline",
-      "group_by": ["$BUILDING_TYPE_COL"],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
       "restrict": [
-        ["state", ["CO"]]
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
       ]
     }
   },
   {
     "name": "calculated_column_ts_pivot_upgrade_pair",
     "sql_hash": {
-      "resstock_oedi": "9fff07e9bd2d54703e4e2885b3b0a02d5af45bcad0718833a696136e2f319edd",
-      "comstock_oedi": "cdb77fa1204293439c961823ae8722dcffc106cf51cf009d871541dc89931866",
-      "comstock_oedi_agg": "b1f0c233261a625dc74d8d0878b8f16aa873cbbb6c49f1500902284b7ae5c353"
+      "resstock_oedi": "e9abce463641dc0c62e3975658e63199701977e5dd3b55880d2c5939bc228e8b",
+      "comstock_oedi": "99638d8105a65d90c39604f3adcd5d3cb6eb0b6051a8d767908d474d1f947837",
+      "comstock_oedi_agg": "f67ba414c5939cfa1239bc7f9b8e566d027d25c83b073d8d8de61422b1be48a4"
     },
     "description": "TS calculated column on the pivot path: table='timeseries' + annual_only=False + upgrade_id != 0 + applied_only=False forces the upgrade-pair pivot subquery (NOT the upgrade_only short-circuit). The Label produced by get_calculated_column wraps an arithmetic expression of raw ts columns; the pivot must wrap that whole expression in a per-side CASE, not look up Label.name on ts.c. Without this entry, the pivot path's calculated-column handling is uncovered.",
     "args": {
@@ -33,18 +40,26 @@
       "upgrade_id": "1",
       "applied_only": false,
       "timestamp_grouping_func": "month",
-      "group_by": ["state", "time"],
+      "group_by": [
+        "state",
+        "time"
+      ],
       "restrict": [
-        ["state", ["CO"]]
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
       ]
     }
   },
   {
     "name": "calculated_column_ts_pivot_with_baseline",
     "sql_hash": {
-      "resstock_oedi": "8bebdba59c1e820cebbc239331c2c982edfb0d1d48ba8240593a4b72183d7d10",
-      "comstock_oedi": "f5dc895e08d596da3191d1e419bb4cbb91458cdf29a05f019063e5bc9e084850",
-      "comstock_oedi_agg": "e6fde917a28b08029cd601639be4ad9957a9e210be525e9b0e8b8d3bbac649c9"
+      "resstock_oedi": "7b64c485e1aa20b40bfcd999aa857eeff8f946110007e1dd630925e39123383e",
+      "comstock_oedi": "b510919f34f5dccbe9ab4e4929e7c715116e2d3b6cec9bac6b532068b30e9ef0",
+      "comstock_oedi_agg": "7395e6fc44ac335c9fb0d7fb0fa72d09bd0dd96b30f12cde9c380e6b969e2634"
     },
     "description": "TS calculated column on the pivot path with include_baseline=True + applied_only=True. This combination forces the pivot subquery (upgrade_only short-circuit only fires when both include_baseline and include_savings are False) AND exercises the internal applied-buildings filter synthesis (TS path appends `_build_applied_subquery(all_of=[upgrade_id])` to filter to applicable buildings). Together with the upgrade_pair entry above, these two pin both branches of the TS pivot's calculated-column handling.",
     "args": {
@@ -56,9 +71,17 @@
       "applied_only": true,
       "include_baseline": true,
       "timestamp_grouping_func": "month",
-      "group_by": ["state", "time"],
+      "group_by": [
+        "state",
+        "time"
+      ],
       "restrict": [
-        ["state", ["CO"]]
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
       ]
     }
   }

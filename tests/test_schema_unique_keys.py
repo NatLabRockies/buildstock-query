@@ -164,7 +164,7 @@ def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.M
     - Innermost `ts_flat` subquery projects per-row enduse scalars (arithmetic
       pushed into scan).
     - Outer `ts_pivot` subquery GROUPs BY (ts_keys + timestamp) with FILTER
-      aggregates per side: `SUM(_v__col) FILTER (WHERE upgrade=N)`.
+      aggregates per side: `SUM(ts__col) FILTER (WHERE upgrade=N)`.
     - Outer SELECT joins to metadata once on the ts unique keys.
     """
     bsq = _custom_join_key_bsq(monkeypatch, buildstock_type="resstock")
@@ -174,7 +174,7 @@ def test_timeseries_savings_uses_unique_keys_in_subqueries(monkeypatch: pytest.M
         enduses=["out.electricity.total.energy_consumption"],
         get_query_only=True,
     )
-    # Per-side FILTER aggregates over the precomputed `_v__<enduse>` columns
+    # Per-side FILTER aggregates over the precomputed `ts__<enduse>` columns
     assert "FILTER (WHERE ts_flat.upgrade = '0')" in query
     assert "FILTER (WHERE ts_flat.upgrade = '1')" in query
     # Outer pivot GROUP BY uses the ts unique keys + timestamp (state-first

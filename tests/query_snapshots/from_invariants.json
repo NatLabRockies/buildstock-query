@@ -187,7 +187,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "c4d31eba45bdc3840954a5b65665d05b538def4b8eadb95d10b53d7a7dacef06"
+      "resstock_oedi": "935d5db0e585a1247e0b3d305109d96b4afb206aa168e9f4b7abf0e05886275b"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -218,7 +218,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "4cf6f6d3ec998e67e11351061cc260926af51ad50b13188868015d2a594601e4"
+      "resstock_oedi": "f73e06e49be12682cf431dc7d72048aafa17bc7b4a2457ef1dada6b6ef238987"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -283,7 +283,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "18e0295ef12526cbff8c2469840c4cfca3e8a4f3b535962f6803d0f5b7e8a05f"
+      "resstock_oedi": "9d804d372ae2bbbd0762d83b848424a4af01613b7802364b99fd1abc3fd19312"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -318,7 +318,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "b30857700277561b5c3ff9cc75cdb07fdd61b64d1e0d0369f472136dc024f4c7"
+      "resstock_oedi": "d90d9de5cd8855ea6f80d0078fcb438d4677b567b1b2b1e21ae4ca5e39db6d42"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -387,7 +387,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "ccb1d51e2cf3111e0b266e4e03116708335950105088a76cc813b65132c36cb2"
+      "resstock_oedi": "dda79d322d898c9a323c40c6e09d8411acd8191f1f68b3ee92c187a49d3682c8"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -422,7 +422,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "7eda4d9d3160f2e9e5360f0d6fe1bb696efdf52a74521b104c81d7b360f0761c"
+      "resstock_oedi": "b3b82aaaa8eb05b1b2dec464dcb4b750a0945953f4d8a05c60a8dad4eb732ed4"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -499,7 +499,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "59d9cc0d98765167013ccd89f549c4b9b4534dd0668588603e080ae723c68324"
+      "resstock_oedi": "44756720ad06fc0216e4bc38599e4fd8d36cc2b70661d0f87c74781eb2a0772d"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -542,7 +542,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "67488b61f8b53f99da110ca0efb3e9b894bfb4c6d5fa00c1d9dfd38149e521c6"
+      "resstock_oedi": "d1a272ed3e0af495f225977bcd7a4b10fcebeab71055b155df08400a6f2975a3"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -615,7 +615,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "99dc16e29457f5ac6b62e1da549cd0ceaaa8376afea44e5afbbcd74e12e9b2c6"
+      "comstock_oedi": "14250caa4555bf350e535fcf312e1d10202c78a6208770d457ac3beeb5bd68cd"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -646,7 +646,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "d515f0e4855852a38685c01fb7baf3baaeda8593fd1878941bc4ccaefa409a3a"
+      "comstock_oedi": "933c24707a04dc99112fbe97acae2fb3a056ff43fb9d84ad46e73d8cc6c045bd"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -711,7 +711,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "450af0f7449f9d51364273b321fb71087b9a9a5d2943bdeeca84bf6d3d98579e"
+      "comstock_oedi": "a3d57ff5656769afab50a53d49ed0df398e4e5802e54c33c92d4adc8ad699686"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -746,7 +746,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "b3a985bd7020ab3560103b80d869f1c9b90a18e7f25403ab4cd5eaa246cf071f"
+      "comstock_oedi": "54a720e7364946d4a76c4daa9f1b34587594b74c3d395848f1bbafec2e625a04"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -815,7 +815,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "a03b2dea8ff64c32193d0471f31e9bc7b6f30c760e076330e8de0691d3c3a327"
+      "comstock_oedi": "d8081fd1f5a49ee3d8dc0df1cd1685526fb02db503affe1c9f1ba0c14a589e5b"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -850,7 +850,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "3fc7d71e5dcb71bf97abe520418b9ee9e249bb083698610d9d4dd778f66fe33d"
+      "comstock_oedi": "bffb22bada405dfbc45a9a3d748ca8fa56c674aca26ff9b8850adcd7e1d77502"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -927,7 +927,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "4e9200a42297c2cf2fefbc867385d344f2f81e949af50c1fadf78fd5285dc735"
+      "comstock_oedi": "95464006237fcd6bb23c630626dad6adce2f6530c249b545737374a6d3ed2a72"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -970,7 +970,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "bbeb6c14c58dce524c4e0f96cf165722e966bd32ed3b75a8813043833f8cf62a"
+      "comstock_oedi": "6c2af081c98733f0c761610a667acd2c52b752e7331b82f1241a79bede21a0f1"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -1043,7 +1043,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "84865d3f6f8a7cac880d14bed4018f01d940107824a7ae8c5ff50075b8c3a7f3"
+      "comstock_oedi_agg": "3ad40e617ba274a081c7fbeeff56923dba7c9decd85780786a977985f408934f"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1074,7 +1074,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "877273af3c24b369b88543d6c43c97380fa7143ac56f10447b392b206acfc700"
+      "comstock_oedi_agg": "886f078cd7d22b1d244ac224bc8b2fe5c7212db279cc47cbc2ad5512dec5f2b2"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1139,7 +1139,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "96c2bd95d2742b32fc862bf9d7d1ba32362d874ac07de083e2c48dda383fe48b"
+      "comstock_oedi_agg": "3fb0ddf4321a0439cd63b0a5f4c23827127c0c8bd27a1e36c8d9fdf6e048b769"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1174,7 +1174,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "e6402084078159e70b8bdf1e0659d22c38d326af38709ae9768a6caaf0ef7c20"
+      "comstock_oedi_agg": "ad4f278b0f247bbca24b09c1a540b76fb88a5c4e8a4113ec2f5c5a96fa04d3f7"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1243,7 +1243,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "a936195d1bc365d19b6fe3815cacc8f2e2c3555b18add6ddc704304013a3b6fe"
+      "comstock_oedi_agg": "509ba43d2cdc6b352f5c7a1fe49d44eb2ded37a52019b3095893050e129654ed"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1278,7 +1278,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "1ad87a3c8cb018a7985e244b5c3c02144a76cab798e00d7d1a3284b296bacdb1"
+      "comstock_oedi_agg": "1feddbebdc9782a5490d3cb39800eab54acc7c2ec7751c67209563554e43f71b"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1355,7 +1355,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "03280db942e0cf68e36aa31980180c2853ad4e836bd07953c17afe6cae400cb3"
+      "comstock_oedi_agg": "367b15ae96a354f11978eaaefce882a0b80035059e6c35d8b4dc71a7fddf8fa7"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1398,7 +1398,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "2d28a06dedb664f13e073a6930f483c0ac74e415baf3ab06a116af5d497b9e7a"
+      "comstock_oedi_agg": "5c368e292deab7abf5c725b21f9e58a6a3cdc5ba2ae4c691c86cab31ea268aaa"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1472,7 +1472,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "3aa19a37b828f7424eaf31c594d97163d46f1b4e4157462173e31130fc116ef6"
+      "resstock_oedi": "ab99a8801e9d49bd63745488690e5a3d53a02b9856bdef839204ba7eb56d8bed"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -1504,7 +1504,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "d6ff7f05b867ec911b7cbbf82e7463b42a7e04fba962698e778771e42b74469d"
+      "resstock_oedi": "64d485ee9165c8dbc53c8654c3792b8b3343e279ca11a3eb8ba188424b301128"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -1567,7 +1567,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "acd486e0a1b7539c03d811f5ab230d92fa9d87b2f6375e01c0d240e40df829d5"
+      "resstock_oedi": "c08b68e9f4adeeafe2b795a42f9baf8de4e63b00eb35d8c6cdbc644a0429568f"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -1599,7 +1599,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "15a94d0ab05648b39f1b0064b990677441309ae462876bc8632fe7080c0c8d71"
+      "resstock_oedi": "9acf19b7d704939fab26f333e98c04ac46ce8420d8a786ae86e045db113994fe"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -1662,7 +1662,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "6ca82b0d792e1e4b77c585c3e0f285aba4e532ee0a9c2be9b1f1c202e0a21f66"
+      "comstock_oedi": "840ebcf4c07342ebe293f00645fcec6c973d56baf112902838e3908740b7224e"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -1694,7 +1694,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "ab8cf5a8eb8748d8a766b07a6f94bd5baf3427f4ea59144b479055a6d23e55fe"
+      "comstock_oedi": "37ab3a7cd81fbbdf6445d0ece9656af08871ff5a72f2087b59cb88c643c9c201"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -1757,7 +1757,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "764438ae09718bc2a3ef3022e7fca90d34e64aeaef745d443aaa151ef451c479"
+      "comstock_oedi": "7c4bcd0ce6a05ece6bb8a63ffc03c99a124972f5f96c5b01658f19d065772e66"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -1789,7 +1789,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "7cbfd9faac6e031e8f76b7fd27e53de78a6b1e0e0d587f68d1ce19a33567f7e2"
+      "comstock_oedi": "42ec4369ea1daca6f47f4dd0d8ba77eb3ffd7af2c6b27ff71c3503334dffb854"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -1852,7 +1852,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "15b4fbfe1a35b2f94025d3249d0f4eeb365fa392286520130c3d21548eb89fc9"
+      "comstock_oedi_agg": "5b978a80531c4c5e4f4e54597a2942fa6bd036061dbc8742395b5d7685ad6003"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1884,7 +1884,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "86a60be02ab8b388da03d22839f92e65c6fb4c2d549eba129ee264eafdd60fbe"
+      "comstock_oedi_agg": "8405fc3ac24f5c0a97af1e8f628e762824b394e903b0a110c90107ec091147aa"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1947,7 +1947,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "12355c0c9f2ca11c247c860b2c3937ddfb5c11e595a9cf690c06653fd5f481cf"
+      "comstock_oedi_agg": "10b703236fc6b902d3c6e2ee597b3a7221f86eb7c4e69518683dc07899681d4c"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -1979,7 +1979,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "6d29d01468612658981e0e804069bccc6c3692d7c4ad2ab1b8d969f0c654076e"
+      "comstock_oedi_agg": "137a359207dc33294f24550e2bb223b9019c8f8dbe67935afb0a91ed7ee86441"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -2012,7 +2012,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "24c7ba1e70306cb694b49b3a138729bb8611b26ca4c2e0fb412a8bc4a71367c5"
+      "comstock_oedi": "33819028e3ad6e4ad4a8af1290df83e3756084e128339ee16a31862f65fa2576"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -2038,7 +2038,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "506bf5a3f646d625013c9c44b3f59511b0ea0c7815ab203c2208d65509777740"
+      "comstock_oedi": "25f9cfcc402f0399b08a0a021d2630eaf54e8025c764a54adb237cc144ade287"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -2067,7 +2067,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "edd2817c1587d427bbafea96c1839b55567144046303e5a45581404597ac8712"
+      "comstock_oedi": "e23aebdba19ff7d642f63429c2daf084b0274d4b82feefbd7487f3e31f51d720"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -2357,7 +2357,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "83ad28ec29290eca3739654883276f3a48298c6b3a5820736d76888f368819a5"
+      "resstock_oedi": "0d5df38ead50f5280521908f07e1b70665980ddc1b90c53e739a949a332a1e8c"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -2386,7 +2386,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "5a44db15568986c857f1d8d36c6dbe203d36bc46b6c783ef16b21b72984e2e97"
+      "resstock_oedi": "01e61f5bb7ab925a26c9f5d9e36dbe69e06084884569e56e4ec31812d0ed6cfa"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -2416,7 +2416,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "f45afba34183811ddb982d97de7d67dde079a0ac5fa250bb5439c4629ba89ed2"
+      "comstock_oedi": "70e21d78e4e199163ca27af92808813b7da1c233359fc1d91ea6119d7540b7c7"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -2445,7 +2445,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "80026f6ca4154f9d7eb9f2b86df3e94471eccd60e740c2f04c84209eb80f0343"
+      "comstock_oedi": "f8ad5a39f4b8a4f199fd7234fef6b680b2f88eec505de43df4fe4a2f4e680d89"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -2475,7 +2475,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "d599dfbe7301aa34db2290d6eba434aea3592f16a63f3293d8c38e4fd1bce24f"
+      "comstock_oedi_agg": "b799ff65e1119381c316375735637b3d7b31b60f05f91c4cd9ff2bdaeedaf105"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -2504,7 +2504,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "427c464f6d1f7a8e1a0043a1d9ec59ddd9610e02dde27e959bf72053ed302cf4"
+      "comstock_oedi_agg": "53fe04bc837bcd76943399b7c5b44cf695c5e5de1d24627ee256c51ff179969c"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -2534,7 +2534,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "d8334dd7b46dcca62dc303d2a8635cc45e66d784f7267495519c4588f89448df"
+      "resstock_oedi": "9f64a800d495530e3add4a399d0e22431fc4efe15b544c1c2881027f6c57f04a"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -2564,7 +2564,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "290ed9aec7334bbb1d706a222241639fd5edd2eb122e5d896bbc2b6a4d9ccdff"
+      "comstock_oedi": "1a2a4a01363722328fe70948db90093ffe5b9f3c3c14898e82a768c170278de1"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -2594,7 +2594,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "b435709a975b2db60d1ed874bee6b7cb28a33cb98f1f3baa0f0c63bb07ef7187"
+      "comstock_oedi_agg": "3ec6f6ee80834aa6e18548ab1a944d9e8a784e8c64e7bb2462b14ca50968d5e9"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -2624,7 +2624,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "b0b250dc16cb6f35aa662727c3c9f749eabd4b757e3916b270e077c9e5d97300"
+      "resstock_oedi": "c9707eaccdf4ee4c27bc72cb8a3a203dd1c0fa1a94d969d10e6dbc0b97447e7f"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -2654,7 +2654,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "f7fbb43ad35f336993759649228195260c1187efd12f56e0fbce8fa27a53e2dc"
+      "comstock_oedi": "2fc1c30b8653699db7c729084863cdeaf9c579e790977df0cd02be580bd634cd"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -2684,7 +2684,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "4740ab9f8715150a5e3d0ff42a5cbe6a2ed6070a51f7ffea4caa3263a8f55656"
+      "comstock_oedi_agg": "585720544f59835822f47afb192004e2656798fdf3c242dc95f6b36b82e7ff62"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -4679,7 +4679,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "cab665063321e02478d6f1e39070a006416eb20e40afc548e4943066c80461cd"
+      "comstock_oedi": "8e3438f66a612748583c7d6c9fcec4434ba03917ec9a98ef4fb2544ab40a8faa"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -4718,7 +4718,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "d8c2c9e6244192e93d896fc3c788ecdcc60728ef3d7412e3af70667b45580ed9"
+      "comstock_oedi": "0c52273c5327a41f374ed61f16504a334bbd88dadd8d81b073638c158a71d71c"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -4795,7 +4795,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "beb0ae18ca5120a7b16bf12b0d9fdb176b3e94bf8823c0f19522819e43e6edf3"
+      "comstock_oedi": "3565011847d2094c9ca19d8232b26796f8f34e938aca39467418e6184162dd35"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -4834,7 +4834,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "8984f86f60e5e0f70ee43dc6a9e792f4f326d6bc925afb42a04313cbb0b345eb"
+      "comstock_oedi": "261b205648cc453701dc88ca3142479315e8cfb07952f5c2797a485f56c20642"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -4874,7 +4874,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "e68977e04c4346bfbd7f7f8d47b9bc3a6fae4d45baa602531c61a698606f6999"
+      "comstock_oedi_agg": "593b0eeec3df4094fa4c944b95a667723640dc0be79f39fa82c0f8ba9fef5cde"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -4913,7 +4913,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "209380d03850faed5f69accd77dd8cb261341dfb4e1335427f1f0eb6c0127227"
+      "comstock_oedi_agg": "9dffc6c6cfd86af31bf05a4e5df23ca6f08c6553680d414cc4181512acea5a79"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -4990,7 +4990,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "ef0300c1423fb3ac8ea2d9ade875b14a2ccde03ba1f0b8a5a954ae3a17dc06c2"
+      "comstock_oedi_agg": "8bbff8ef0f6e30a0a4240b6031ac632a0b7db4b6b93fe3577f72d487edd4a452"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -5029,7 +5029,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "b61f5662139a4f9419a7b6dc349dfecaf96fe1219af21d9d17616eba6ec40bb0"
+      "comstock_oedi_agg": "a1c842441b0ac725ebaaaf2b83477bcd948752c8dc709b4ae9d356ead4d0b735"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -5104,7 +5104,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "fec3f63ab7cdf84333351e7d6bc01f2c50997e74bfa1da42598cc3ea215fda0c"
+      "resstock_oedi": "2c85ed409eed7389b6cdafcdf7c0f618cfb3f3f5c460b2f59bb26d33f9eeb8ab"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -5141,7 +5141,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "990f8f405ffc745af56552849602bd28f5ef9eb94e52537ddcb9fa632530ae41"
+      "resstock_oedi": "50ad38dbdffeb273161fc6506067b71dfbd1efeccb6f8600d830394b71de0fb8"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -5214,7 +5214,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "bd6b0895d332e1245df4b96c5fbbf59be9c99b2d4d598a7ecd5b171abdc9cc26"
+      "resstock_oedi": "07bd01d93b63363a5d052a21dad1d8b2f487111fb9be4165fcffa8b7d51eaf7c"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -5251,7 +5251,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "f8d0eb3dde140be08cfc99ceea97441e341d03473c757610d44b4ed998200976"
+      "resstock_oedi": "a540473273c8483aa06c42d0790483e27afc2f1553f6a21f55de2be0b0477983"
     },
     "description": "Auto-recorded from test_invariants (query, resstock_oedi).",
     "args": {
@@ -5324,7 +5324,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "e8e0705cc3f54c914b59c57e3ff51461161a0c0c75e76ca8c08f1181f5b3ff3c"
+      "comstock_oedi": "a0025da5301131e67ecaeae8c4f6f0f754a4f0c8808885ce5899db3f90b3b0ea"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -5361,7 +5361,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "8853ecb4d2bf37c6fbbe7c2a1c5199d5855855cfd38036ac0fd8e0e7c9616dd9"
+      "comstock_oedi": "f2c7916e98cb53933e0dd15089676424366460b2d9ae64c19c546c9005a32d67"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -5434,7 +5434,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "6ef2729e8ee7366a78328481e25c2c0b1d4c58b8aff0501f1ec292918cedd002"
+      "comstock_oedi": "8173bf1432b3c7367728f65cfd1816221124f89116c8b7d4a2b1ac6f9f9e262d"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -5471,7 +5471,7 @@
       "comstock_oedi"
     ],
     "sql_hash": {
-      "comstock_oedi": "b8f1744b886274cd8f8044fe0cf9b24a1f8b66ea0a1c6b83a11929347ce4fffa"
+      "comstock_oedi": "76f4a3cf814374f190757105bd62e34b3c7589b2fc8bf70df82c144dd32812ef"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi).",
     "args": {
@@ -5544,7 +5544,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "033511610c6f39e7da1a6f194b3a956b48493a7cff58adfd7b9f1b334ca885fe"
+      "comstock_oedi_agg": "6b3d40015ab8173e6135a3a6c17fa78e3e3f313c4b027e9283c7a52bfe60da4c"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -5581,7 +5581,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "51fb9a11dcb71325e545e7711d1c7855be37678c588516eac74cb563fbcd0edb"
+      "comstock_oedi_agg": "3126b7422128a55328b0b15dafffb495762abcaa3d189623b24c7322ec76521d"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -5654,7 +5654,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "8a16c09113f0eea534bede868081076dda2284a7a32e252b92d309a3b6e6f080"
+      "comstock_oedi_agg": "f32715a82ffb434373803565f380df401d61df5cea6a87ba0dea707702047333"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {
@@ -5691,7 +5691,7 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi_agg": "87d20f68fb02e809397f31e4bc7bc0ea6b6ae754a72df81dfdf15eee0e77a912"
+      "comstock_oedi_agg": "61bcae12199b91c37ad093682fdaec8126c24c772e454ca75a3a5fedf9aef5a4"
     },
     "description": "Auto-recorded from test_invariants (query, comstock_oedi_agg).",
     "args": {

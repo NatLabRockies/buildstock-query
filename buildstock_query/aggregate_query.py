@@ -76,9 +76,9 @@ class BuildStockAggregate:
         #
         # ts_flat: per-row scalar projection. Each enduse expression
         #   (whether bare ts column or calc-col Label) is materialized as
-        #   `_v__<name>`. This pushes arithmetic into the scan layer.
+        #   `ts__<name>`. This pushes arithmetic into the scan layer.
         # ts_aggr: per-(bldg_id, bucketed_time, state, ...) aggregate.
-        #   Single-upgrade: SUM(_v__name) → bs__<name>. Upgrade-pair:
+        #   Single-upgrade: SUM(ts__name) → bs__<name>. Upgrade-pair:
         #   SUM(...) FILTER (WHERE upgrade=0/N) → bs__<name> / up__<name>.
         # outer: JOIN to bs (once) for weights/metadata, then user's GROUP BY.
         #
@@ -197,7 +197,7 @@ class BuildStockAggregate:
             flat_select_cols.append(ts.c["upgrade"].label("upgrade"))
         for e in flat_enduses:
             value_expr = e.element if isinstance(e, SALabel) else e
-            flat_select_cols.append(value_expr.label(f"_v__{e.name}"))
+            flat_select_cols.append(value_expr.label(f"ts__{e.name}"))
 
         # FROM: ts alone unless we have a mixed enduse referencing bs from
         # within an arithmetic expression. _baseline_timeseries_join_condition
@@ -230,14 +230,14 @@ class BuildStockAggregate:
         enduse_aggr_cols = []
         if single_upgrade:
             for e in flat_enduses:
-                v = ts_flat_subq.c[f"_v__{e.name}"]
+                v = ts_flat_subq.c[f"ts__{e.name}"]
                 enduse_aggr_cols.append(safunc.sum(v).label(f"bs__{e.name}"))
             inner_rows = safunc.count(sa.text("*")).label("_inner_rows")
         else:
             bs_filter = ts_flat_subq.c["upgrade"] == typed_literal(ts.c["upgrade"], "0")
             up_filter = ts_flat_subq.c["upgrade"] == typed_literal(ts.c["upgrade"], upgrade_id)
             for e in flat_enduses:
-                v = ts_flat_subq.c[f"_v__{e.name}"]
+                v = ts_flat_subq.c[f"ts__{e.name}"]
                 enduse_aggr_cols.append(safunc.sum(v).filter(bs_filter).label(f"bs__{e.name}"))
                 enduse_aggr_cols.append(safunc.sum(v).filter(up_filter).label(f"up__{e.name}"))
             inner_rows = safunc.count(sa.text("*")).filter(bs_filter).label("_inner_rows")

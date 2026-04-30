@@ -152,15 +152,45 @@ predicate into a `IN (SELECT ...)` with `GROUP BY ... HAVING`**, so the
 inner side scans all 3,133 partitions. This is a SQL-generation
 limitation in `buildstock-query`, not a data-layout issue.
 
+## Fix #1 shipped: predicate propagation in `_get_restrict_clauses`
+
+Implemented in `buildstock_query/query_core.py` via two new helpers:
+`_collect_propagatable_predicates()` and `_inject_propagated()`. When
+`_get_restrict_clauses` processes a subquery-valued restrict entry, it
+now scans sibling restrict entries for safe single-column predicates
+(literal/sequence RHS, target resolves to a `bs_table` column via the
+existing `in.` prefix logic) and injects them into the subquery's
+`WHERE`. Propagation only fires when the column is *both* projected by
+the subquery *and* part of the outer query's IN-clause column tuple,
+keeping the change semantics-preserving by construction.
+
+Verified end-to-end on shape C against all four ComStock metadata
+table variants (re-run via `investigate_partitions.py` after the fix):
+
+| Table layout                          | Pre-fix (C) | Post-fix (C2) | Speedup |
+|---------------------------------------|------------:|--------------:|--------:|
+| `_md_by_state_and_county_parquet`     | 59.84 s     | **4.14 s**    | **14.4×** |
+| `_md_agg_by_state_and_county_parquet` | 58.07 s     | **4.38 s**    | **13.3×** |
+| `_md_agg_by_state_parquet`            | 3.16 s      | 1.76 s        | 1.8× |
+| `_md_agg_national_parquet`            | 2.47 s      | 2.00 s        | 1.2× |
+
+The big speedups (>13×) land exactly on the tables the framework uses
+today by default. After this fix, ComStock metadata at the
+state-filtered case is within **3.5×** of ResStock's `_metadata`
+baseline (4.14 s vs 1.21 s) — a far smaller gap than the 50× we started
+with. Auto-table-selection (Fix #2) would close most of the remainder.
+
+Snapshot impact: 44 of 425 ComStock variants emit drifted SQL (one
+extra `AND bs.<state_col> = <value>` in the inner subquery). Zero
+ResStock drift. The drift is provably semantics-preserving — the
+inner predicate is logically implied by the outer IN-tuple match — so
+`--update-snapshot` regenerates these cleanly without any data drift.
+
 ## Recommended priority order
 
-1. **Highest leverage, smallest change — propagate restricts into inner
-   subqueries.** When the framework emits `IN (SELECT ... HAVING ...)`
-   on the same table, copy any partition-column predicates from the
-   outer `WHERE` into the inner subquery's `WHERE`. Likely a small
-   surgical change in the SQL builder. Recovers ~12× on the
-   savings/applied-buildings shape (the most common slow ComStock
-   shape) with no data changes.
+1. ~~**Highest leverage, smallest change — propagate restricts into inner
+   subqueries.**~~ **DONE** — see "Fix #1 shipped" section above. Recovers
+   13–14× on the slow ComStock shapes; 44 snapshots regenerated cleanly.
 2. **Auto-route to less-sharded tables.** Add a `_pick_metadata_table()`
    selector in `buildstock_query/main.py` that picks among the four
    ComStock tables based on the query's `group_by` / `restrict`. Decision

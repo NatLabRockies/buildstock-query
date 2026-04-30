@@ -1,0 +1,88 @@
+{
+  "probe": {
+    "name": "shape_C_after_propagation",
+    "sql": "SELECT bs.\"in.comstock_building_type\" AS comstock_building_type, sum(1) AS sample_count, sum(bs.weight) AS units_count, sum(bs.\"out.electricity.total.energy_consumption..kwh\" * bs.weight) AS \"electricity.total.energy_consumption..kwh\" FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND bs.state = 'CO' AND (bs.bldg_id, bs.county, bs.state) IN (SELECT bs.bldg_id, bs.county, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1) AND bs.applicability = true AND bs.state = 'CO' GROUP BY bs.bldg_id, bs.county, bs.state HAVING count(distinct(bs.upgrade)) = 1) GROUP BY 1 ORDER BY 1",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "FullServiceRestaurant",
+        "2056",
+        "4222.612916952576",
+        "1.073776264060651E9"
+      ],
+      [
+        "LargeOffice",
+        "22",
+        "8.92707044697105",
+        "7665759.518917614"
+      ],
+      [
+        "MediumOffice",
+        "527",
+        "603.9172581720335",
+        "1.913053071464051E8"
+      ],
+      [
+        "Outpatient",
+        "408",
+        "1387.4281421185779",
+        "1.654028405616289E8"
+      ],
+      [
+        "PrimarySchool",
+        "475",
+        "1108.926330631975",
+        "2.634046958103118E8"
+      ],
+      [
+        "QuickServiceRestaurant",
+        "794",
+        "1933.9722444591544",
+        "2.9074359706732005E8"
+      ],
+      [
+        "RetailStandalone",
+        "1495",
+        "8092.181990338668",
+        "8.325759696680766E8"
+      ],
+      [
+        "RetailStripmall",
+        "1418",
+        "8691.902097033399",
+        "9.76755901263901E8"
+      ],
+      [
+        "SecondarySchool",
+        "384",
+        "772.5885162222654",
+        "1.9060739427710572E8"
+      ],
+      [
+        "SmallOffice",
+        "1758",
+        "14684.36099199573",
+        "6.463743511406049E8"
+      ],
+      [
+        "Warehouse",
+        "1110",
+        "11319.815166059238",
+        "1.416398146181321E9"
+      ]
+    ],
+    "columns": [
+      "comstock_building_type",
+      "sample_count",
+      "units_count",
+      "electricity.total.energy_consumption..kwh"
+    ],
+    "bytes_scanned": 564352,
+    "engine_ms": 4250,
+    "planning_ms": 968,
+    "queue_ms": 96,
+    "total_ms": 4448,
+    "execution_id": "f5fcf7c6-caf9-4b84-9430-729ba88f309d"
+  }
+}

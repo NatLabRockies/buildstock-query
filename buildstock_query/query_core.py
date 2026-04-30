@@ -1389,15 +1389,38 @@ class QueryCore:
         )
 
     def _get_restrict_clauses(self, restrict, annual_only=False):
+        # Pre-compute single-column equality/IN predicates that target bs_table
+        # columns. These are pushed into any subquery-valued restrict entry
+        # whose projection includes the same column — Athena does not propagate
+        # the outer WHERE into IN-subqueries automatically, so a `state='CO'`
+        # filter on the outer query was leaving the inner side unconstrained
+        # (forcing an enumeration of all 3,133 (state,county) partitions on
+        # ComStock metadata). See INVESTIGATION_partition_overhead.md for the
+        # 11.6× speedup measurement on shape C.
+        propagatable = self._collect_propagatable_predicates(restrict)
+
         clauses = []
         for col_ref, criteria in restrict:
             if self._is_column_tuple(col_ref):
+                # Tuple LHS — the RHS may be a Select carrying an applied-buildings
+                # subquery. Inject propagatable predicates into that subquery's
+                # WHERE before wrapping it in `tuple_(...).in_(subquery)`.
+                col_names = {c.name for c in col_ref if isinstance(c, sa.Column)}
+                if isinstance(criteria, SelectBase):
+                    criteria = self._inject_propagated(criteria, propagatable, col_names)
+                elif isinstance(criteria, Subquery):
+                    base = sa.select(*criteria.c)
+                    base = self._inject_propagated(base, propagatable, col_names)
+                    criteria = base
                 clauses.append(self._multi_column_membership(col_ref, criteria))
                 continue
 
             col = self._get_column(col_ref, annual_only=annual_only)
             subquery = self._normalize_restrict_subquery(criteria)
             if subquery is not None:
+                # Single-column subquery: same propagation idea, scoped to the
+                # column projected by the subquery (typically just bldg_id).
+                subquery = self._inject_propagated(subquery, propagatable, {col.name})
                 clauses.append(col.in_(subquery))
             elif isinstance(criteria, Sequence) and not isinstance(criteria, str):
                 typed = [typed_literal(col, v) for v in criteria]
@@ -1410,6 +1433,93 @@ class QueryCore:
             else:
                 clauses.append(col == typed_literal(col, criteria))
         return clauses
+
+    def _collect_propagatable_predicates(self, restrict):
+        """Return a list of (column_name, sqla_clause_factory) for restrict
+        entries that are safe to push into a sibling subquery's WHERE.
+
+        A clause is propagatable iff:
+          - LHS is a single column (not a tuple).
+          - That column resolves to a bs_table column (after `in.` prefix
+            resolution — schemas like ResStock expose state as `in.state`
+            but accept `state` in user-facing restrict entries).
+          - RHS is a literal scalar or a sequence of literals (not a subquery).
+
+        The returned `clause_factory` is a callable that takes the target
+        Column inside the subquery and emits the equivalent equality / IN
+        clause. We can't reuse the outer-scope clause directly because the
+        Column object would still bind to the outer FROM in the compiled SQL.
+        """
+        out: list[tuple[str, typing.Callable]] = []
+        if not restrict:
+            return out
+        for col_ref, criteria in restrict:
+            if self._is_column_tuple(col_ref):
+                continue
+            if isinstance(criteria, (SelectBase, Subquery)):
+                continue
+            # Resolve to a bs_table column. _get_column already handles the
+            # `in.` prefix logic, so user-supplied "state" maps to
+            # bs_table.c["in.state"] on ResStock and bs_table.c["state"] on
+            # ComStock. Restrict to annual_only=True since we're propagating
+            # into metadata-side subqueries.
+            try:
+                resolved_col = self._get_column(col_ref, annual_only=True)
+            except (ValueError, AttributeError):
+                continue
+            # Only propagate when the resolved column lives on the bs alias
+            # (skips MappedColumns, calculated labels, ts-only columns).
+            if not isinstance(resolved_col, sa.Column):
+                continue
+            if resolved_col.table is not self.bs_table:
+                continue
+            name = resolved_col.name
+
+            # Capture criteria by closure (`crit=criteria` to avoid loop
+            # rebind).
+            def _factory(col, crit=criteria):
+                if isinstance(crit, Sequence) and not isinstance(crit, str):
+                    typed = [typed_literal(col, v) for v in crit]
+                    if len(typed) > 1:
+                        return col.in_(typed)
+                    if len(typed) == 1:
+                        return col == typed[0]
+                    return None
+                return col == typed_literal(col, crit)
+
+            out.append((name, _factory))
+        return out
+
+    def _inject_propagated(self, select, propagatable, scope_col_names):
+        """Inject propagatable predicates into `select`'s WHERE for any
+        column in `scope_col_names` that's also in `select`'s output columns.
+
+        `select` is a SQLA Select; `scope_col_names` is the set of column
+        names the outer query is matching against. We only propagate
+        predicates on those columns — i.e. columns that the outer IN clause
+        is about to compare against the subquery's projection.
+        """
+        if not propagatable:
+            return select
+        # Names of columns this Select projects. `select.selected_columns` is
+        # the SA-1.4+ public accessor.
+        try:
+            proj_names = {c.name for c in select.selected_columns}
+        except AttributeError:
+            return select
+        # Only push predicates that (a) target a column the subquery projects,
+        # and (b) target a column the outer is matching on.
+        target_names = proj_names & set(scope_col_names)
+        for name, factory in propagatable:
+            if name not in target_names:
+                continue
+            inner_col = self.bs_table.c.get(name)
+            if inner_col is None:
+                continue
+            clause = factory(inner_col)
+            if clause is not None:
+                select = select.where(clause)
+        return select
 
     def _add_restrict(self, query, restrict, *, annual_only=False):
         if not restrict:

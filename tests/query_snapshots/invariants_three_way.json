@@ -210,8 +210,8 @@
     "name": "inv_upgrade1_applied_in_1_2_annual_by_building_type",
     "sql_hash": {
       "resstock_oedi": "2864001d25877b1e8c178b37e7213eee1da95b5ba7027b3addea8b2e25fa4b77",
-      "comstock_oedi": "0c857d9acb648783b57af6e198700683fd4dd51b3f4d511f1378d66a5ad0d24a",
-      "comstock_oedi_agg": "02d83c62462f92be925bee83cf424ed168e6118d3f8b846060f2128e3d9fd0bb"
+      "comstock_oedi": "4590b64ee48e033c012f2a17986dff0c0135cb9225e259490498ff8ff48aeb05",
+      "comstock_oedi_agg": "be75da0c2b7dbd38c9be4f3e48d5dc67db5c164902d2aac3a241e5e4ceb5e343"
     },
     "description": "Three-way invariant: annual leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied. Two fuels. Migrated from legacy applied_in=[1,2] to get_applied_buildings_filter(all_of=[1,2]).",
     "args": {
@@ -326,8 +326,8 @@
       "comstock_oedi_agg"
     ],
     "sql_hash": {
-      "comstock_oedi": "0325b2def3cf31eabc4c29dd2dfdb2e80d59f1577b56646beec669bd733e34ae",
-      "comstock_oedi_agg": "212b06cae824bd40e2f750b08ab12731fac879c1574f8766b6c322de61274cce"
+      "comstock_oedi": "398cfee3786693cf622d8f07015d2c36e21f6fccabe638ac32948ea72965a65a",
+      "comstock_oedi_agg": "5da9ac3eaf7fb7de084f956f93935c47bd794422718c837c03ba5523e9a4befa"
     },
     "description": "Three-way invariant: annual leg, upgrade 1, applied_only=True, restricted to buildings where both upgrades 1 and 2 applied, grouped by county. Comstock-only \u2014 exercises the county group-by axis (the column whose arbitrary()-collapse silently broke before commit 182ff21). Pairs with the ts_year and ts_monthly siblings to verify the recent bs_per_bldg group-by fix interacts correctly with the applied-buildings HAVING-count subquery on a partition-key column.",
     "args": {

@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "d156a013-29d8-4d5f-a97a-fee37de3824d",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND bs.state IN ('CO', 'NM') AND (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) IN (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1) AND bs.applicability = true AND bs.state IN ('CO', 'NM') GROUP BY bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state HAVING count(distinct(bs.upgrade)) = 1)) \n TO 's3://resstock-core/bsq_athena_unload_results/388f91601db32f07d487f5fbd55428b42f5eda4cd5c34ab8b348a78a9d773f31/7462aab6-0faa-4c85-bf2d-abb6df22d41e/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/d156a013-29d8-4d5f-a97a-fee37de3824d"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-30 15:28:49.842000-05:00",
+    "CompletionDateTime": "2026-04-30 15:29:02.648000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 11736,
+    "DataScannedInBytes": 639756,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/d156a013-29d8-4d5f-a97a-fee37de3824d-manifest.csv",
+    "TotalExecutionTimeInMillis": 12806,
+    "QueryQueueTimeInMillis": 119,
+    "ServicePreProcessingTimeInMillis": 923,
+    "QueryPlanningTimeInMillis": 7169,
+    "ServiceProcessingTimeInMillis": 28,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

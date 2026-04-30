@@ -610,6 +610,33 @@ def workload_probes(
     )
     probes["wC_self_join_applied"] = run_probe(bsq, cache, "wC_self_join_applied", sql_c)
 
+    # Shape C2: shape C but with the state filter ALSO pushed into the inner
+    # subquery. This is the SQL the framework now emits after the predicate-
+    # propagation fix in `_get_restrict_clauses`. Comparing C vs C2 directly
+    # measures the win attributable to that fix, holding the rest of the
+    # query (and the table) constant.
+    if state_col:
+        sc = col(state_col)
+        # Splice an extra `AND bs.<state_col> = 'CO'` into the inner WHERE,
+        # right after the existing predicates.
+        inner_extra = f" AND bs.{sc} = 'CO'"
+        sql_c2 = (
+            f'SELECT bs."in.comstock_building_type" AS comstock_building_type, '
+            f"sum(1) AS sample_count, sum(bs.weight) AS units_count "
+            f"FROM {table_full} AS bs "
+            f"WHERE bs.applicability = true AND bs.upgrade = 0 "
+            f"AND {key_tuple} IN ("
+            f"SELECT {select_cols} FROM {table_full} AS bs "
+            f"WHERE bs.upgrade IN (1) AND bs.applicability = true"
+            f"{inner_extra} "
+            f"GROUP BY {groupby_cols} HAVING count(distinct(bs.upgrade)) = 1)"
+            f"{outer_state_filter} "
+            f'GROUP BY 1 ORDER BY 1'
+        )
+        probes["wC2_self_join_propagated"] = run_probe(
+            bsq, cache, "wC2_self_join_propagated", sql_c2
+        )
+
     return {name: p.to_dict() for name, p in probes.items()}
 
 
@@ -619,9 +646,10 @@ def print_workload_table(workload_results: list[dict]) -> None:
     print("WORKLOAD COMPARISON — same logical query across ComStock table variants")
     print("=" * 100)
     shapes = [
-        ("wA_count_no_state",    "A. count(*) WHERE upgrade=0 AND applicability=true (NO state filter)"),
-        ("wB_groupby_state",     "B. GROUP BY state, sum(weight)"),
-        ("wC_self_join_applied", "C. state=CO + self-join applied-buildings, GROUP BY building_type"),
+        ("wA_count_no_state",        "A. count(*) WHERE upgrade=0 AND applicability=true (NO state filter)"),
+        ("wB_groupby_state",         "B. GROUP BY state, sum(weight)"),
+        ("wC_self_join_applied",     "C. state=CO + self-join applied (filter on OUTER only — pre-fix shape)"),
+        ("wC2_self_join_propagated", "C2. state=CO + self-join applied (filter on BOTH sides — post-fix shape)"),
     ]
     for shape_key, label in shapes:
         print(f"\n  {label}")

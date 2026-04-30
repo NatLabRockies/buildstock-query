@@ -1,0 +1,41 @@
+{
+  "QueryExecutionId": "acd5313e-a330-4b4b-8acb-4961dce0b49a",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) IN (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (2) AND bs.applicability = true AND bs.state = 'CO' GROUP BY bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state HAVING count(distinct(bs.upgrade)) = 1) AND bs.state = 'CO') \n TO 's3://resstock-core/bsq_athena_unload_results/558ff720fe7e61bae686400b928d909e77dcde2f34fab13b8c8b601e78a1526d/fba915ee-62f8-4872-80b3-17cb64122065/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/acd5313e-a330-4b4b-8acb-4961dce0b49a"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-30 15:31:49.224000-05:00",
+    "CompletionDateTime": "2026-04-30 15:31:53.616000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 4236,
+    "DataScannedInBytes": 472982,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/acd5313e-a330-4b4b-8acb-4961dce0b49a-manifest.csv",
+    "TotalExecutionTimeInMillis": 4392,
+    "QueryQueueTimeInMillis": 53,
+    "ServicePreProcessingTimeInMillis": 71,
+    "ServiceProcessingTimeInMillis": 32,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

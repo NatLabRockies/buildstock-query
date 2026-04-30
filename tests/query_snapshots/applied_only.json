@@ -107,8 +107,8 @@
     "name": "baseline_with_applied_in_upgrade1",
     "sql_hash": {
       "resstock_oedi": "3fd9dc45319dd9d56211997e6b577f93484a75ebc2f77023f25825de706fe047",
-      "comstock_oedi": "f534cd62905c86e808029aba7783f3370ba56c29cec7a09c87cffd0936c97f78",
-      "comstock_oedi_agg": "1db388093beed5f6339ef2bbc804cb6480e685756c247df2b5c36f54343afe32"
+      "comstock_oedi": "87a77a4da36123f512cb2352b861ffbe9331fbd44954f5c78b679430562c45d0",
+      "comstock_oedi_agg": "0f4dd32213489d0bc5934e07719387b7463b40e5c96682871b075f0a3f41f849"
     },
     "description": "Annual baseline (upgrade_id=0) restricted to buildings where upgrade 1 applied — composes `get_applied_buildings_filter(all_of=[1])` into restrict. Pins the SQL shape that test_savings_equals_independent_baseline_minus_upgrade depends on. Migrated from legacy applied_in=[1] with byte-stable SQL.",
     "args": {

@@ -1,0 +1,22 @@
+{
+  "probe": {
+    "name": "preflight_path_pseudocol",
+    "sql": "SELECT \"$path\" FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet LIMIT 1",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "s3://oedi-data-lake/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2025/comstock_amy2018_release_2/metadata_and_annual_results/by_state_and_county/full/parquet/state=CA/county=G0600030/CA_G0600030_upgrade12.parquet"
+      ]
+    ],
+    "columns": [
+      "$path"
+    ],
+    "bytes_scanned": 0,
+    "engine_ms": 4334,
+    "planning_ms": 2750,
+    "queue_ms": 68,
+    "total_ms": 4491,
+    "execution_id": "b9376d5f-ed6b-4425-90f4-e52025a58511"
+  }
+}

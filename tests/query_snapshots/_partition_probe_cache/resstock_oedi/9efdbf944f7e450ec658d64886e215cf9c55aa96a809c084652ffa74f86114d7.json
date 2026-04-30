@@ -1,0 +1,40 @@
+{
+  "probe": {
+    "name": "files_per_state",
+    "sql": "SELECT \"in.state\" AS state, count(DISTINCT \"$path\") AS files FROM resstock_2024_amy2018_release_2_metadata GROUP BY \"in.state\" ORDER BY 2 DESC LIMIT 5",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "VA",
+        "17"
+      ],
+      [
+        "ID",
+        "17"
+      ],
+      [
+        "NH",
+        "17"
+      ],
+      [
+        "WA",
+        "17"
+      ],
+      [
+        "NJ",
+        "17"
+      ]
+    ],
+    "columns": [
+      "state",
+      "files"
+    ],
+    "bytes_scanned": 7032662,
+    "engine_ms": 1350,
+    "planning_ms": 219,
+    "queue_ms": 57,
+    "total_ms": 1519,
+    "execution_id": "dba98f12-af18-4716-8871-17493b4393e6"
+  }
+}

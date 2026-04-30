@@ -1,0 +1,16 @@
+{
+  "probe": {
+    "name": "files_per_county_upgrade_CO",
+    "sql": "SELECT county, upgrade, count(DISTINCT \"$path\") AS files, count(*) AS rows, sum(\"$file_size\") AS total_bytes FROM resstock_2024_amy2018_release_2_metadata WHERE state = 'CO' GROUP BY county, upgrade ORDER BY files DESC LIMIT 10",
+    "state": "FAILED",
+    "reason": "COLUMN_NOT_FOUND: line 1:162: Column 'state' cannot be resolved or requester is not authorized to access requested resources",
+    "rows": [],
+    "columns": [],
+    "bytes_scanned": 0,
+    "engine_ms": 168,
+    "planning_ms": 0,
+    "queue_ms": 100,
+    "total_ms": 473,
+    "execution_id": "2ca0c256-469f-47de-b935-283fad76385a"
+  }
+}

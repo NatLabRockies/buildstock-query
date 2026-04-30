@@ -1,0 +1,22 @@
+{
+  "probe": {
+    "name": "preflight_path_pseudocol",
+    "sql": "SELECT \"$path\" FROM comstock_amy2018_r2_2025_md_agg_by_state_parquet LIMIT 1",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "s3://oedi-data-lake/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2025/comstock_amy2018_release_2/metadata_and_annual_results_aggregates/by_state/full/parquet/state=WI/WI_upgrade4_agg.parquet"
+      ]
+    ],
+    "columns": [
+      "$path"
+    ],
+    "bytes_scanned": 0,
+    "engine_ms": 2658,
+    "planning_ms": 1396,
+    "queue_ms": 104,
+    "total_ms": 2900,
+    "execution_id": "2872db56-0858-4bf9-925e-2ec56f3b626d"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "probe": {
+    "name": "total_files",
+    "sql": "SELECT count(DISTINCT \"$path\") AS files, sum(\"$file_size\") AS total_bytes FROM comstock_amy2018_r2_2025_md_agg_national_parquet",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "62",
+        "6153992767037376"
+      ]
+    ],
+    "columns": [
+      "files",
+      "total_bytes"
+    ],
+    "bytes_scanned": 0,
+    "engine_ms": 1323,
+    "planning_ms": 132,
+    "queue_ms": 62,
+    "total_ms": 1468,
+    "execution_id": "0809bc41-7bf6-42c9-a386-bdabd20c3a8b"
+  }
+}

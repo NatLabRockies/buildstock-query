@@ -1,0 +1,16 @@
+{
+  "probe": {
+    "name": "files_per_state",
+    "sql": "SELECT state, count(DISTINCT \"$path\") AS files FROM comstock_amy2018_r2_2025_md_agg_national_parquet GROUP BY state ORDER BY 2 DESC LIMIT 5",
+    "state": "FAILED",
+    "reason": "COLUMN_NOT_FOUND: line 1:8: Column 'state' cannot be resolved or requester is not authorized to access requested resources",
+    "rows": [],
+    "columns": [],
+    "bytes_scanned": 0,
+    "engine_ms": 232,
+    "planning_ms": 0,
+    "queue_ms": 95,
+    "total_ms": 501,
+    "execution_id": "6d20ac6c-41a1-4e62-94fc-63c3efa4ce4d"
+  }
+}

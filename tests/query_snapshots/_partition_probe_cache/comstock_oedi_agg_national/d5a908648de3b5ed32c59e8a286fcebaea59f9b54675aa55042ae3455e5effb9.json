@@ -1,0 +1,22 @@
+{
+  "probe": {
+    "name": "wA_count_no_state",
+    "sql": "SELECT count(*) AS count FROM comstock_amy2018_r2_2025_md_agg_national_parquet WHERE upgrade = 0 AND applicability = true",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "158952"
+      ]
+    ],
+    "columns": [
+      "count"
+    ],
+    "bytes_scanned": 179,
+    "engine_ms": 1497,
+    "planning_ms": 180,
+    "queue_ms": 91,
+    "total_ms": 1691,
+    "execution_id": "36da21b2-0cc6-45d6-b0b0-79dd4c96bb4f"
+  }
+}

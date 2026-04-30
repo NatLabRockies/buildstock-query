@@ -3545,6 +3545,280 @@ def test_count_integrity_annual_vs_ts_year_collapse(
         )
 
 
+# --- Round 3: combinatorial invariants — applied filter × {savings shape,
+#     mean agg_func, MappedColumn, monthly TS}. The existing single-axis tests
+#     don't compose with applied filter; these cover that gap.
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_filter_savings_decomposition_per_row(
+    request, bsq_fixture, schema,
+):
+    """Under an applied filter and `include_baseline=include_upgrade=
+    include_savings=True`, the row-level identity `b - u ≈ s` must hold
+    on EVERY row, not just the per-group totals (which the existing
+    cross-flow test pins). This catches savings-column wiring bugs
+    where the savings expression resolves against a different bs/up
+    pair than the baseline/upgrade columns.
+
+    Bounded to the curated 8-bldg universe.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    curated, _regions, (a, _) = _curate_applied_universe(bsq, state=state_list[0])
+    bldg_col = bsq.md_bldgid_column
+    universe_clause = (bldg_col, sorted(curated))
+    f = bsq.get_applied_buildings_filter(all_of=[a])
+    marker = {"_applied_filter": {"all_of": [a]}}
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
+
+    base_restrict = (
+        [f, ("state", state_list), universe_clause]
+        if f else [("state", state_list), universe_clause]
+    )
+    record_restrict = (
+        [marker, ("state", state_list), universe_clause]
+        if f else [("state", state_list), universe_clause]
+    )
+
+    df = bsq.query(
+        enduses=[enduse], upgrade_id="1", applied_only=True,
+        group_by=[group_col], restrict=base_restrict,
+        include_baseline=True, include_upgrade=True, include_savings=True,
+    )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": "1", "applied_only": True,
+        "group_by": [group_col], "restrict": record_restrict,
+        "include_baseline": True, "include_upgrade": True, "include_savings": True,
+    })
+
+    base_col = _find_first_col(df, suffix="__baseline", contains="electricity.total")
+    up_col = _find_first_col(df, suffix="__upgrade", contains="electricity.total")
+    sav_col = _find_first_col(df, suffix="__savings", contains="electricity.total")
+
+    bad = []
+    for _, row in df.iterrows():
+        b = float(row[base_col])
+        u = float(row[up_col])
+        s = float(row[sav_col])
+        # Use a per-row tolerance scaled by units_count so large groups don't
+        # fail on float drift while small groups stay strict.
+        units = float(row["units_count"]) or 1.0
+        bound = max(INVARIANT_ATOL, units * INVARIANT_RTOL * 100)
+        if abs((b - u) - s) > bound:
+            bad.append(
+                f"  {row[group_col]}: b={b:.4f}, u={u:.4f}, s={s:.4f}, "
+                f"b-u={b - u:.4f}, diff={(b - u) - s:.4f}, bound={bound:.4f}"
+            )
+    if bad:
+        pytest.fail(
+            f"row-level b - u ≈ s identity failed under applied filter:\n"
+            + "\n".join(bad[:10])
+        )
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_filter_mean_sum_consistency(
+    request, bsq_fixture, schema,
+):
+    """Under an applied filter, the `agg_func='mean'` and default-sum query
+    flavors must produce per-group results that satisfy a consistent
+    relationship: `sum / (mean × sample_count)` is a positive finite
+    "mean weight per building in this group" — strictly between the
+    minimum and maximum possible weights in the schema. Catches:
+      - sample_count divergence between sum and mean branches.
+      - mean column flipping sign or swallowing weight inappropriately.
+      - sum branch dropping rows the mean branch keeps (or vice versa).
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    curated, _regions, (a, _) = _curate_applied_universe(bsq, state=state_list[0])
+    bldg_col = bsq.md_bldgid_column
+    universe_clause = (bldg_col, sorted(curated))
+    f = bsq.get_applied_buildings_filter(all_of=[a])
+    marker = {"_applied_filter": {"all_of": [a]}}
+    enduse = resolve_placeholder(schema, "electricity_total")
+    group_col = resolve_placeholder(schema, "building_type_col")
+
+    base_restrict = (
+        [f, ("state", state_list), universe_clause]
+        if f else [("state", state_list), universe_clause]
+    )
+    record_restrict = (
+        [marker, ("state", state_list), universe_clause]
+        if f else [("state", state_list), universe_clause]
+    )
+
+    df_sum = bsq.query(
+        enduses=[enduse], group_by=[group_col],
+        restrict=base_restrict, agg_func="sum",
+    )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [group_col],
+        "restrict": record_restrict, "agg_func": "sum",
+    })
+    df_mean = bsq.query(
+        enduses=[enduse], group_by=[group_col],
+        restrict=base_restrict, agg_func="mean",
+    )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": [group_col],
+        "restrict": record_restrict, "agg_func": "mean",
+    })
+
+    sum_col = _strip_out_prefix(enduse)
+    mean_col = sum_col if sum_col in df_mean.columns else f"{sum_col}__mean"
+    if mean_col not in df_mean.columns:
+        pytest.fail(
+            f"could not find mean column for {sum_col!r} in {list(df_mean.columns)}"
+        )
+
+    # sample_count must agree between sum and mean queries — same building
+    # set, same group_by, same restrict, so this is integer-exact.
+    sum_idx = df_sum.set_index(group_col).sort_index()
+    mean_idx = df_mean.set_index(group_col).sort_index()
+    if set(sum_idx.index) != set(mean_idx.index):
+        pytest.fail(
+            f"group keys diverge between sum and mean: "
+            f"only_sum={set(sum_idx.index) - set(mean_idx.index)}, "
+            f"only_mean={set(mean_idx.index) - set(sum_idx.index)}"
+        )
+    sum_n = sum_idx["sample_count"].astype(int)
+    mean_n = mean_idx["sample_count"].astype(int)
+    if not sum_n.equals(mean_n):
+        pytest.fail(
+            f"sample_count diverges between sum and mean under applied filter:\n"
+            f"  sum side: {sum_n.to_dict()}\n  mean side: {mean_n.to_dict()}"
+        )
+
+    # `sum / (mean × n)` is the average weight per building in the group.
+    # ResStock weights are typically O(100); ComStock O(1)–O(10). A bug
+    # that flipped sign, applied weight twice, or stripped weight would
+    # surface as a negative, near-zero, or wildly out-of-range ratio.
+    bad = []
+    for key in sum_idx.index:
+        sum_val = float(sum_idx.loc[key, sum_col])
+        mean_val = float(mean_idx.loc[key, mean_col])
+        n = int(sum_idx.loc[key, "sample_count"])
+        if mean_val == 0 and sum_val != 0:
+            bad.append(f"  {key}: mean=0 but sum={sum_val:.4f} (impossible)")
+            continue
+        if mean_val == 0:
+            continue
+        ratio = sum_val / (mean_val * n)
+        if not (1e-3 < ratio < 1e6) or not np.isfinite(ratio):
+            bad.append(
+                f"  {key}: sum/(mean*n) ratio = {ratio:.4f} (out of plausible "
+                f"weight range; sum={sum_val:.4f}, mean={mean_val:.4f}, n={n})"
+            )
+    if bad:
+        pytest.fail(
+            "implausible mean/sum weight ratio under applied filter:\n"
+            + "\n".join(bad)
+        )
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_applied_filter_15min_sums_to_monthly(
+    request, bsq_fixture, schema,
+):
+    """For an applied-filter query at 15-min resolution, summing over time
+    to monthly must equal a direct `timestamp_grouping_func='month'`
+    query. Existing `test_15min_raw_sums_to_monthly` does this without
+    an applied filter; this one composes with the filter so any
+    drift between the inner `ts_flat` filter and the
+    monthly-aggregation pivot under applied-filter composition surfaces.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    curated, _regions, (a, _) = _curate_applied_universe(bsq, state=state_list[0])
+    bldg_col = bsq.md_bldgid_column
+    universe_clause = (bldg_col, sorted(curated))
+    f = bsq.get_applied_buildings_filter(all_of=[a])
+    marker = {"_applied_filter": {"all_of": [a]}}
+    enduse_ts = resolve_placeholder(schema, "electricity_total", annual=False)
+    group_col = resolve_placeholder(schema, "building_type_col")
+
+    base_restrict = (
+        [f, ("state", state_list), universe_clause]
+        if f else [("state", state_list), universe_clause]
+    )
+    record_restrict = (
+        [marker, ("state", state_list), universe_clause]
+        if f else [("state", state_list), universe_clause]
+    )
+
+    # Monthly query directly via timestamp_grouping_func.
+    df_monthly = bsq.query(
+        enduses=[enduse_ts], upgrade_id="1", applied_only=True,
+        annual_only=False, timestamp_grouping_func="month",
+        group_by=[group_col, "time"], restrict=base_restrict,
+    )
+    record_query(bsq, {
+        "enduses": [enduse_ts], "upgrade_id": "1", "applied_only": True,
+        "annual_only": False, "timestamp_grouping_func": "month",
+        "group_by": [group_col, "time"], "restrict": record_restrict,
+    })
+
+    # 15-min query, then aggregate to monthly in pandas.
+    df_15min = bsq.query(
+        enduses=[enduse_ts], upgrade_id="1", applied_only=True,
+        annual_only=False, group_by=[group_col, "time"],
+        restrict=base_restrict,
+    )
+    record_query(bsq, {
+        "enduses": [enduse_ts], "upgrade_id": "1", "applied_only": True,
+        "annual_only": False, "group_by": [group_col, "time"],
+        "restrict": record_restrict,
+    })
+
+    enduse_col = _strip_out_prefix(enduse_ts)
+    # The result frame names the timestamp column after the schema's
+    # timestamp column (typically "timestamp"), not "time" — even when
+    # `group_by` uses the alias "time".
+    ts_name = bsq.timestamp_column_name
+    # Bucket 15-min raw rows into months. The library uses
+    # `date_trunc('month', ts - 900s)` so :15-aligned timestamps belong
+    # to the PRIOR month at the boundary; mirror that here.
+    df_15min = df_15min.copy()
+    df_15min["month"] = (
+        pd.to_datetime(df_15min[ts_name]) - pd.Timedelta(seconds=900)
+    ).dt.to_period("M").dt.to_timestamp()
+    rolled = (
+        df_15min.groupby([group_col, "month"], dropna=False)[enduse_col]
+        .sum()
+        .reset_index()
+    )
+    df_monthly_aligned = df_monthly.copy()
+    df_monthly_aligned["month"] = pd.to_datetime(
+        df_monthly_aligned[ts_name]
+    ).dt.to_period("M").dt.to_timestamp()
+
+    rolled_idx = rolled.set_index([group_col, "month"]).sort_index()
+    direct_idx = df_monthly_aligned.set_index([group_col, "month"]).sort_index()
+
+    bad = []
+    for key in direct_idx.index:
+        if key not in rolled_idx.index:
+            bad.append(f"  {key}: missing in 15min-aggregated frame")
+            continue
+        a_val = float(direct_idx.loc[key, enduse_col])
+        b_val = float(rolled_idx.loc[key, enduse_col])
+        # Allow generous tolerance because monthly = 12 × 30 × 24 × 4 row sum.
+        bound = max(INVARIANT_ATOL, abs(a_val) * INVARIANT_RTOL * 10)
+        if not np.isclose(a_val, b_val, atol=bound, rtol=INVARIANT_RTOL):
+            bad.append(
+                f"  {key}: monthly={a_val:.4f}, "
+                f"sum(15min)={b_val:.4f}, diff={a_val - b_val:.4f}"
+            )
+    if bad:
+        pytest.fail(
+            "15min-aggregated-to-monthly != direct monthly under applied filter:\n"
+            + "\n".join(bad[:10])
+        )
+
+
 # --- savings magnitude bounded by baseline ----------------------------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)

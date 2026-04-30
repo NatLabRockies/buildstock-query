@@ -3819,6 +3819,395 @@ def test_applied_filter_15min_sums_to_monthly(
         )
 
 
+# --- Round 4: multi-state × county-grain × TS-baseline-join invariants -----
+#
+# Targets the specific worry that buildings can be miscounted at county
+# grain under multi-state restricts, and that TS baseline join may drop
+# or double-count tract-county slices when the partition key spans
+# multiple states. Existing tests use single-state CO almost everywhere
+# and rarely group by county at the same time as multi-state restrict.
+
+
+def _county_col_for_schema(schema: str) -> str:
+    """Per-schema county-grain column choice — comstock_oedi has only
+    tract gisjoin (fan-out grain); comstock_oedi_agg has flat county;
+    resstock has in.county_name.
+    """
+    if schema == "resstock_oedi":
+        return "in.county_name"
+    if schema == "comstock_oedi_agg":
+        return "county"
+    # comstock_oedi
+    return "in.nhgis_tract_gisjoin"
+
+
+def _county_result_col(county_col: str) -> str:
+    """The result-frame column name corresponding to a `group_by` entry.
+    `_simple_label` strips the `in.` / `out.` prefix in the projected
+    label, so `"in.county_name"` becomes `"county_name"` in the output.
+    """
+    for prefix in ("in.", "out."):
+        if county_col.startswith(prefix):
+            return county_col[len(prefix):]
+    return county_col
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_multistate_county_partition(request, bsq_fixture, schema):
+    """Under a multi-state restrict, the (state, county)-grouped totals
+    must compose cleanly with state-grouped totals and with the
+    overall total. Specifically:
+
+      sum_{(s, c)} units_count = sum_{s} units_count = total units_count
+
+    Same for sample_count at integer precision.
+
+    Then the same multi-state restrict expressed as `group_by=[state]`
+    (no county) must give per-state totals that match per-state queries
+    issued one state at a time. Catches:
+      - state-partition wiring leaking rows across the boundary,
+      - county-grain dropping rows with NULL county code,
+      - cross-state county-name collisions (e.g. "Adams County" exists
+        in CO, IL, NE, OH, PA, etc.) being miscounted as one bucket.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_pair = list(resolve_placeholder(schema, "multi_state_pair"))
+    enduse = resolve_placeholder(schema, "electricity_total")
+    county_col = _county_col_for_schema(schema)
+    multi_restrict = [("state", state_pair)]
+
+    # Three group_by axes over the same multi-state restrict.
+    df_total = bsq.query(enduses=[enduse], restrict=multi_restrict)
+    record_query(bsq, {"enduses": [enduse], "restrict": multi_restrict})
+    df_state = bsq.query(
+        enduses=[enduse], group_by=["state"], restrict=multi_restrict,
+    )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": ["state"], "restrict": multi_restrict,
+    })
+    df_state_county = bsq.query(
+        enduses=[enduse], group_by=["state", county_col], restrict=multi_restrict,
+    )
+    record_query(bsq, {
+        "enduses": [enduse], "group_by": ["state", county_col],
+        "restrict": multi_restrict,
+    })
+
+    total_units = float(df_total["units_count"].iloc[0])
+    total_samples = int(df_total["sample_count"].iloc[0])
+    state_units = float(df_state["units_count"].sum())
+    state_samples = int(df_state["sample_count"].sum())
+    state_county_units = float(df_state_county["units_count"].sum())
+    state_county_samples = int(df_state_county["sample_count"].sum())
+
+    failures = []
+    if not np.isclose(state_units, total_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+        failures.append(
+            f"  state grouping units={state_units:.4f} vs total={total_units:.4f} "
+            f"(diff={state_units - total_units:.4f})"
+        )
+    if state_samples != total_samples:
+        failures.append(
+            f"  state grouping sample_count={state_samples} vs total={total_samples}"
+        )
+    if not np.isclose(
+        state_county_units, total_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+    ):
+        failures.append(
+            f"  (state, county) grouping units={state_county_units:.4f} vs "
+            f"total={total_units:.4f} "
+            f"(diff={state_county_units - total_units:.4f})"
+        )
+    if state_county_samples != total_samples:
+        failures.append(
+            f"  (state, county) grouping sample_count={state_county_samples} "
+            f"vs total={total_samples}"
+        )
+
+    # state-grouped totals must equal sum of per-state-restrict totals.
+    s1, s2 = state_pair[0], state_pair[1]
+    df_s1 = bsq.query(enduses=[enduse], restrict=[("state", [s1])])
+    record_query(bsq, {"enduses": [enduse], "restrict": [("state", [s1])]})
+    df_s2 = bsq.query(enduses=[enduse], restrict=[("state", [s2])])
+    record_query(bsq, {"enduses": [enduse], "restrict": [("state", [s2])]})
+    state_idx = df_state.set_index("state")
+    if s1 not in state_idx.index or s2 not in state_idx.index:
+        failures.append(
+            f"  state-grouped frame missing one of {state_pair}: "
+            f"got {sorted(state_idx.index)}"
+        )
+    else:
+        for s, df_one in ((s1, df_s1), (s2, df_s2)):
+            multi_units_s = float(state_idx.loc[s, "units_count"])
+            multi_samples_s = int(state_idx.loc[s, "sample_count"])
+            single_units_s = float(df_one["units_count"].iloc[0])
+            single_samples_s = int(df_one["sample_count"].iloc[0])
+            if not np.isclose(
+                multi_units_s, single_units_s,
+                rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+            ):
+                failures.append(
+                    f"  state={s}: multi-state units={multi_units_s:.4f} vs "
+                    f"single-state={single_units_s:.4f} "
+                    f"(diff={multi_units_s - single_units_s:.4f})"
+                )
+            if multi_samples_s != single_samples_s:
+                failures.append(
+                    f"  state={s}: multi-state sample_count={multi_samples_s} "
+                    f"vs single-state={single_samples_s}"
+                )
+
+    if failures:
+        pytest.fail(
+            f"multi-state county partition failed for {state_pair}:\n"
+            + "\n".join(failures)
+        )
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_multistate_county_x_bldg_type_decomposition(request, bsq_fixture, schema):
+    """Under a multi-state restrict, the (state, county, bldg_type)-grouped
+    sums must decompose into (state, county)-grouped sums when the
+    bldg_type axis is summed over. This is the tightest grouping
+    decomposition test: catches losses in any of the three axes.
+
+      sum_{bt} U[s, c, bt] = U[s, c]   for every (s, c)
+
+    Same for sample_count at integer precision. Multi-state to surface
+    state-boundary issues; multi-key group_by to surface composite-key
+    aggregation drops.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_pair = list(resolve_placeholder(schema, "multi_state_pair"))
+    enduse = resolve_placeholder(schema, "electricity_total")
+    county_col = _county_col_for_schema(schema)
+    county_result_col = _county_result_col(county_col)
+    bldg_type_col = resolve_placeholder(schema, "building_type_col")
+    multi_restrict = [("state", state_pair)]
+
+    df_full = bsq.query(
+        enduses=[enduse],
+        group_by=["state", county_col, bldg_type_col],
+        restrict=multi_restrict,
+    )
+    record_query(bsq, {
+        "enduses": [enduse],
+        "group_by": ["state", county_col, bldg_type_col],
+        "restrict": multi_restrict,
+    })
+    df_county = bsq.query(
+        enduses=[enduse],
+        group_by=["state", county_col],
+        restrict=multi_restrict,
+    )
+    record_query(bsq, {
+        "enduses": [enduse],
+        "group_by": ["state", county_col],
+        "restrict": multi_restrict,
+    })
+
+    rolled = (
+        df_full.groupby(["state", county_result_col], dropna=False)
+        [["units_count", "sample_count"]]
+        .sum()
+        .sort_index()
+    )
+    direct = df_county.set_index(["state", county_result_col]).sort_index()
+    if set(rolled.index) != set(direct.index):
+        only_rolled = sorted(set(rolled.index) - set(direct.index))[:5]
+        only_direct = sorted(set(direct.index) - set(rolled.index))[:5]
+        pytest.fail(
+            f"(state, county) keys diverge between full-grouped and county-only "
+            f"queries:\n  only_full_rolled: {only_rolled}\n"
+            f"  only_county_direct: {only_direct}"
+        )
+    failures = []
+    for key in direct.index:
+        u_full = float(rolled.loc[key, "units_count"])
+        u_direct = float(direct.loc[key, "units_count"])
+        n_full = int(rolled.loc[key, "sample_count"])
+        n_direct = int(direct.loc[key, "sample_count"])
+        if not np.isclose(u_full, u_direct, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+            failures.append(
+                f"  {key}: units rolled={u_full:.4f} vs direct={u_direct:.4f} "
+                f"(diff={u_full - u_direct:.4f})"
+            )
+        if n_full != n_direct:
+            failures.append(
+                f"  {key}: sample_count rolled={n_full} vs direct={n_direct}"
+            )
+    if failures:
+        pytest.fail(
+            "(state, county, bldg_type) sum != (state, county) for "
+            f"states={state_pair}:\n" + "\n".join(failures[:10])
+        )
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_annual_vs_ts_year_at_county_grain_multistate(
+    request, bsq_fixture, schema,
+):
+    """The smoking-gun test for the user's worry: under a multi-state
+    restrict and `group_by=[state, county]`, the annual baseline and
+    TS year-collapse baseline must agree per (state, county) on
+    integer sample_count and float-close units_count.
+
+    Bounded to a curated 8-bldg universe so the TS scan is small
+    even with multi-state. Pins the bs_per_bldg pre-aggregation +
+    state-partition-key wiring at the most stressful grain.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_pair = list(resolve_placeholder(schema, "multi_state_pair"))
+    enduse_annual = resolve_placeholder(schema, "electricity_total")
+    enduse_ts = resolve_placeholder(schema, "electricity_total", annual=False)
+    county_col = _county_col_for_schema(schema)
+    county_result_col = _county_result_col(county_col)
+
+    # Curated universe across both states. _curate_applied_universe runs
+    # in CO; for multi-state we expand by also picking from the second
+    # state. Simplest: pull a small set of bldg_ids from each state.
+    s1, s2 = state_pair[0], state_pair[1]
+    bldg_col = bsq.md_bldgid_column
+    df_s1_ids = bsq.get_building_ids(restrict=[("state", [s1])])
+    record_query(bsq, {"restrict": [("state", [s1])]}, method="get_building_ids")
+    df_s2_ids = bsq.get_building_ids(restrict=[("state", [s2])])
+    record_query(bsq, {"restrict": [("state", [s2])]}, method="get_building_ids")
+    if df_s1_ids.empty or df_s2_ids.empty:
+        pytest.skip(f"empty building list in one of {state_pair}")
+    s1_ids = sorted({int(r[0]) for r in df_s1_ids.itertuples(index=False, name=None)})[:8]
+    s2_ids = sorted({int(r[0]) for r in df_s2_ids.itertuples(index=False, name=None)})[:8]
+    curated = sorted(set(s1_ids) | set(s2_ids))
+
+    universe_clause = (bldg_col, curated)
+    base_restrict = [("state", state_pair), universe_clause]
+
+    df_annual = bsq.query(
+        enduses=[enduse_annual], upgrade_id="0",
+        group_by=["state", county_col], restrict=base_restrict,
+    )
+    record_query(bsq, {
+        "enduses": [enduse_annual], "upgrade_id": "0",
+        "group_by": ["state", county_col], "restrict": base_restrict,
+    })
+    df_ts = bsq.query(
+        enduses=[enduse_ts], upgrade_id="0", annual_only=False,
+        timestamp_grouping_func="year",
+        group_by=["state", county_col], restrict=base_restrict,
+    )
+    record_query(bsq, {
+        "enduses": [enduse_ts], "upgrade_id": "0", "annual_only": False,
+        "timestamp_grouping_func": "year",
+        "group_by": ["state", county_col], "restrict": base_restrict,
+    })
+
+    a_idx = df_annual.set_index(["state", county_result_col]).sort_index()
+    t_idx = df_ts.set_index(["state", county_result_col]).sort_index()
+    if set(a_idx.index) != set(t_idx.index):
+        only_a = sorted(set(a_idx.index) - set(t_idx.index))[:5]
+        only_t = sorted(set(t_idx.index) - set(a_idx.index))[:5]
+        pytest.fail(
+            f"(state, county) keys diverge between annual and TS-year-collapse:\n"
+            f"  only_annual: {only_a}\n  only_ts: {only_t}"
+        )
+    failures = []
+    for key in a_idx.index:
+        a_units = float(a_idx.loc[key, "units_count"])
+        t_units = float(t_idx.loc[key, "units_count"])
+        a_samples = int(a_idx.loc[key, "sample_count"])
+        t_samples = int(t_idx.loc[key, "sample_count"])
+        if not np.isclose(a_units, t_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+            failures.append(
+                f"  {key}: units annual={a_units:.4f} vs ts={t_units:.4f} "
+                f"(diff={a_units - t_units:.4f})"
+            )
+        if a_samples != t_samples:
+            failures.append(
+                f"  {key}: sample_count annual={a_samples} vs ts={t_samples}"
+            )
+    if failures:
+        pytest.fail(
+            f"annual vs TS-year-collapse at county grain divergence "
+            f"for {state_pair}:\n" + "\n".join(failures[:10])
+        )
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_multistate_savings_shape_at_county_grain(request, bsq_fixture, schema):
+    """Maximum combinatorial stress: multi-state restrict + group_by=[state,
+    county] + include_baseline + include_upgrade + include_savings + applied
+    filter on the upgrade leg. Per-row, `b - u ≈ s` must hold and units_count
+    / sample_count totals must be consistent with no upstream filter.
+
+    Bounded to a curated cross-state universe. Catches savings-column
+    join misalignment that only surfaces when all axes are activated.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_pair = list(resolve_placeholder(schema, "multi_state_pair"))
+    enduse = resolve_placeholder(schema, "electricity_total")
+    county_col = _county_col_for_schema(schema)
+    county_result_col = _county_result_col(county_col)
+
+    s1, s2 = state_pair[0], state_pair[1]
+    bldg_col = bsq.md_bldgid_column
+    df_s1_ids = bsq.get_building_ids(restrict=[("state", [s1])])
+    record_query(bsq, {"restrict": [("state", [s1])]}, method="get_building_ids")
+    df_s2_ids = bsq.get_building_ids(restrict=[("state", [s2])])
+    record_query(bsq, {"restrict": [("state", [s2])]}, method="get_building_ids")
+    if df_s1_ids.empty or df_s2_ids.empty:
+        pytest.skip(f"empty building list in one of {state_pair}")
+    curated = sorted(
+        {int(r[0]) for r in df_s1_ids.itertuples(index=False, name=None)} |
+        {int(r[0]) for r in df_s2_ids.itertuples(index=False, name=None)}
+    )[:16]
+
+    universe_clause = (bldg_col, curated)
+    base_restrict = [("state", state_pair), universe_clause]
+
+    df = bsq.query(
+        enduses=[enduse], upgrade_id="1", applied_only=True,
+        group_by=["state", county_col], restrict=base_restrict,
+        include_baseline=True, include_upgrade=True, include_savings=True,
+    )
+    record_query(bsq, {
+        "enduses": [enduse], "upgrade_id": "1", "applied_only": True,
+        "group_by": ["state", county_col], "restrict": base_restrict,
+        "include_baseline": True, "include_upgrade": True, "include_savings": True,
+    })
+
+    base_col = _find_first_col(df, suffix="__baseline", contains="electricity.total")
+    up_col = _find_first_col(df, suffix="__upgrade", contains="electricity.total")
+    sav_col = _find_first_col(df, suffix="__savings", contains="electricity.total")
+
+    bad = []
+    for _, row in df.iterrows():
+        b = float(row[base_col])
+        u = float(row[up_col])
+        s = float(row[sav_col])
+        units = float(row["units_count"]) or 1.0
+        bound = max(INVARIANT_ATOL, units * INVARIANT_RTOL * 100)
+        if abs((b - u) - s) > bound:
+            bad.append(
+                f"  ({row['state']}, {row[county_result_col]}): "
+                f"b={b:.4f}, u={u:.4f}, s={s:.4f}, "
+                f"b-u={b - u:.4f}, diff={(b - u) - s:.4f}"
+            )
+        if int(row["sample_count"]) <= 0:
+            bad.append(
+                f"  ({row['state']}, {row[county_result_col]}): "
+                f"sample_count={int(row['sample_count'])} <= 0 (impossible)"
+            )
+        if float(row["units_count"]) <= 0:
+            bad.append(
+                f"  ({row['state']}, {row[county_result_col]}): "
+                f"units_count={float(row['units_count']):.4f} <= 0 (impossible)"
+            )
+    if bad:
+        pytest.fail(
+            f"savings shape at multi-state county grain failed for {state_pair}:\n"
+            + "\n".join(bad[:10])
+        )
+
+
 # --- savings magnitude bounded by baseline ----------------------------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)

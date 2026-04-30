@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "2e49f104-ddc1-4965-a63c-6dddc97fb065",
+  "Query": "UNLOAD (SELECT bs.state AS state, bs.county AS county, sum(1) AS sample_count, sum(bs.weight) AS units_count, sum(bs.\"out.electricity.total.energy_consumption..kwh\" * bs.weight) AS \"electricity.total.energy_consumption..kwh\" FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND bs.state IN ('CO', 'NM') AND bs.bldg_id IN (7225, 7226, 7227, 7228, 7229, 7230, 7231, 7232, 46369, 46370, 46371, 46372, 46373, 46374, 46375, 46376) GROUP BY 1, 2 ORDER BY 1, 2) \n TO 's3://resstock-core/bsq_athena_unload_results/e6a586a88319be4de3c4a322a9176fbd60bb061d745e7f8054b1ef44a8155acf/58ab5b90-d866-4db3-840d-585730ee7fc5/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/2e49f104-ddc1-4965-a63c-6dddc97fb065"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-30 09:04:39.695000-05:00",
+    "CompletionDateTime": "2026-04-30 09:04:50.930000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 10968,
+    "DataScannedInBytes": 151548,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/2e49f104-ddc1-4965-a63c-6dddc97fb065-manifest.csv",
+    "TotalExecutionTimeInMillis": 11235,
+    "QueryQueueTimeInMillis": 55,
+    "ServicePreProcessingTimeInMillis": 96,
+    "QueryPlanningTimeInMillis": 7402,
+    "ServiceProcessingTimeInMillis": 116,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

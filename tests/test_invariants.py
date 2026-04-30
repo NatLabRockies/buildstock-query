@@ -3296,6 +3296,255 @@ def test_applied_filter_calc_column_composition(request, bsq_fixture, schema):
         )
 
 
+# --- Round 2: counting integrity across group_by × baseline-join × TS ------
+#
+# These tests target the user's specific worry that buildings might be
+# miscounted in subtle ways across different code paths (group_by axes,
+# annual-vs-TS, baseline-join wiring). Each catches a different class
+# of count-related bug: tract fan-out, group_by NULL drops, TS-baseline
+# join wires, integer-vs-float drift on sample_count.
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_count_partition_under_group_by(request, bsq_fixture, schema):
+    """For any categorical column used as `group_by`, the per-group
+    `sum(sample_count)` and `sum(units_count)` must equal the total
+    over the same universe (no group_by). This is the definition of a
+    partition: every row belongs to exactly one group, with no leakage
+    or double-counting.
+
+    `sample_count` is checked at integer precision (no rtol) — counts
+    are integers and any float drift means a real bug.
+
+    Five group_by axes are exercised: `[bldg_id]`, `[county]`,
+    `[bldg_type]`, `[county, bldg_type]`, and a NULL-friendly
+    characteristic column. Each tests a different aggregation grain
+    and surfaces tract-fan-out / arbitrary()-collapse / GROUP BY NULL
+    handling bugs.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    base_restrict = [("state", state_list)]
+    enduse = resolve_placeholder(schema, "electricity_total")
+
+    bldg_col = bsq.md_bldgid_column
+    bldg_type_col = resolve_placeholder(schema, "building_type_col")
+    if schema == "resstock_oedi":
+        county_col = "in.county_name"
+    elif schema == "comstock_oedi_agg":
+        county_col = "county"
+    else:  # comstock_oedi
+        county_col = "in.nhgis_tract_gisjoin"
+
+    group_by_axis = {
+        "bldg_id": [bldg_col],
+        "county": [county_col],
+        "bldg_type": [bldg_type_col],
+        "county_x_bldg_type": [county_col, bldg_type_col],
+    }
+
+    # Ungrouped totals.
+    df_total = bsq.query(enduses=[enduse], restrict=base_restrict)
+    record_query(bsq, {"enduses": [enduse], "restrict": base_restrict})
+    total_units = float(df_total["units_count"].iloc[0])
+    total_samples = int(df_total["sample_count"].iloc[0])
+
+    failures = []
+    for gname, group_by in group_by_axis.items():
+        df = bsq.query(enduses=[enduse], group_by=group_by, restrict=base_restrict)
+        record_query(bsq, {
+            "enduses": [enduse], "group_by": group_by, "restrict": base_restrict,
+        })
+        units_sum = float(df["units_count"].sum())
+        samples_sum = int(df["sample_count"].sum())
+        # units_count: float compare with tolerance.
+        if not np.isclose(units_sum, total_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+            failures.append(
+                f"  group_by={gname}: units_count sum={units_sum:.4f}, "
+                f"total={total_units:.4f}, diff={units_sum - total_units:.4f}"
+            )
+        # sample_count: integer-exact.
+        if samples_sum != total_samples:
+            failures.append(
+                f"  group_by={gname}: sample_count sum={samples_sum}, "
+                f"total={total_samples}, diff={samples_sum - total_samples}"
+            )
+
+    if failures:
+        pytest.fail(
+            "group_by partition failed (per-group sums don't equal total):\n"
+            + "\n".join(failures)
+        )
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_count_partition_under_applied_filter(
+    request, bsq_fixture, schema,
+):
+    """Same partition invariant as `test_count_partition_under_group_by`
+    but composed with an applied filter — ensures grouping behaves the
+    same way under both restrict + applied subquery composition.
+
+    Uses the curated 8-bldg universe so the test is bounded.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    curated, _regions, (a, _) = _curate_applied_universe(bsq, state=state_list[0])
+    bldg_col = bsq.md_bldgid_column
+    universe_clause = (bldg_col, sorted(curated))
+    f = bsq.get_applied_buildings_filter(all_of=[a])
+    marker = {"_applied_filter": {"all_of": [a]}}
+
+    base_restrict = (
+        [f, ("state", state_list), universe_clause]
+        if f else [("state", state_list), universe_clause]
+    )
+    record_restrict = (
+        [marker, ("state", state_list), universe_clause]
+        if f else [("state", state_list), universe_clause]
+    )
+
+    enduse = resolve_placeholder(schema, "electricity_total")
+    bldg_type_col = resolve_placeholder(schema, "building_type_col")
+    if schema == "resstock_oedi":
+        county_col = "in.county_name"
+    elif schema == "comstock_oedi_agg":
+        county_col = "county"
+    else:
+        county_col = "in.nhgis_tract_gisjoin"
+
+    group_by_axis = {
+        "bldg_id": [bldg_col],
+        "county": [county_col],
+        "bldg_type": [bldg_type_col],
+        "county_x_bldg_type": [county_col, bldg_type_col],
+    }
+
+    df_total = bsq.query(enduses=[enduse], restrict=base_restrict)
+    record_query(bsq, {"enduses": [enduse], "restrict": record_restrict})
+    total_units = float(df_total["units_count"].iloc[0])
+    total_samples = int(df_total["sample_count"].iloc[0])
+
+    failures = []
+    for gname, group_by in group_by_axis.items():
+        df = bsq.query(enduses=[enduse], group_by=group_by, restrict=base_restrict)
+        record_query(bsq, {
+            "enduses": [enduse], "group_by": group_by, "restrict": record_restrict,
+        })
+        units_sum = float(df["units_count"].sum())
+        samples_sum = int(df["sample_count"].sum())
+        if not np.isclose(units_sum, total_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
+            failures.append(
+                f"  group_by={gname}: units_count sum={units_sum:.4f}, "
+                f"total={total_units:.4f}, diff={units_sum - total_units:.4f}"
+            )
+        if samples_sum != total_samples:
+            failures.append(
+                f"  group_by={gname}: sample_count sum={samples_sum}, "
+                f"total={total_samples}, diff={samples_sum - total_samples}"
+            )
+
+    if failures:
+        pytest.fail(
+            f"group_by partition failed under applied filter all_of=[{a}]:\n"
+            + "\n".join(failures)
+        )
+
+
+@pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
+def test_count_integrity_annual_vs_ts_year_collapse(
+    request, bsq_fixture, schema,
+):
+    """For each of (no filter, applied filter), the annual baseline query
+    and the TS-with-year-collapse baseline query must agree on
+    `sum(units_count)` (float-close) and `sum(sample_count)`
+    (integer-exact). Pins the bs ↔ ts join wiring through the
+    bs_per_bldg pre-aggregation: if the TS path drops or duplicates
+    rows on the upgrade=0 side, integer sample_count diverges from
+    annual immediately.
+
+    Runs across multiple group_by axes so per-grain count drift surfaces.
+    """
+    bsq = request.getfixturevalue(bsq_fixture)
+    state_list = ["CO"]
+    curated, _regions, (a, _) = _curate_applied_universe(bsq, state=state_list[0])
+    bldg_col = bsq.md_bldgid_column
+    universe_clause = (bldg_col, sorted(curated))
+    bldg_type_col = resolve_placeholder(schema, "building_type_col")
+
+    enduse_annual = resolve_placeholder(schema, "electricity_total")
+    enduse_ts = resolve_placeholder(schema, "electricity_total", annual=False)
+
+    f = bsq.get_applied_buildings_filter(all_of=[a])
+    marker = {"_applied_filter": {"all_of": [a]}}
+
+    scenarios = [
+        ("no_filter",
+         [("state", state_list), universe_clause],
+         [("state", state_list), universe_clause]),
+        ("applied",
+         [f, ("state", state_list), universe_clause] if f else
+         [("state", state_list), universe_clause],
+         [marker, ("state", state_list), universe_clause] if f else
+         [("state", state_list), universe_clause]),
+    ]
+    group_by_axis = {
+        "none": [],
+        "bldg_id": [bldg_col],
+        "bldg_type": [bldg_type_col],
+    }
+
+    failures = []
+    for sname, restrict, record_restrict in scenarios:
+        for gname, group_by in group_by_axis.items():
+            # Annual baseline (upgrade_id="0").
+            df_annual = bsq.query(
+                enduses=[enduse_annual], upgrade_id="0",
+                group_by=group_by, restrict=restrict,
+            )
+            record_query(bsq, {
+                "enduses": [enduse_annual], "upgrade_id": "0",
+                "group_by": group_by, "restrict": record_restrict,
+            })
+            # TS baseline with year-collapse.
+            df_ts = bsq.query(
+                enduses=[enduse_ts], upgrade_id="0", annual_only=False,
+                timestamp_grouping_func="year",
+                group_by=group_by, restrict=restrict,
+            )
+            record_query(bsq, {
+                "enduses": [enduse_ts], "upgrade_id": "0", "annual_only": False,
+                "timestamp_grouping_func": "year",
+                "group_by": group_by, "restrict": record_restrict,
+            })
+
+            ann_units = float(df_annual["units_count"].sum())
+            ts_units = float(df_ts["units_count"].sum())
+            ann_samples = int(df_annual["sample_count"].sum())
+            ts_samples = int(df_ts["sample_count"].sum())
+
+            if not np.isclose(
+                ann_units, ts_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
+            ):
+                failures.append(
+                    f"  scenario={sname}, group_by={gname}: units_count "
+                    f"annual={ann_units:.4f}, ts_year={ts_units:.4f}, "
+                    f"diff={ann_units - ts_units:.4f}"
+                )
+            if ann_samples != ts_samples:
+                failures.append(
+                    f"  scenario={sname}, group_by={gname}: sample_count "
+                    f"annual={ann_samples}, ts_year={ts_samples}, "
+                    f"diff={ann_samples - ts_samples}"
+                )
+
+    if failures:
+        pytest.fail(
+            "annual vs ts_year_collapse count integrity failed:\n"
+            + "\n".join(failures)
+        )
+
+
 # --- savings magnitude bounded by baseline ----------------------------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)

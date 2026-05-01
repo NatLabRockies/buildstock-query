@@ -3,17 +3,29 @@ from typing import Optional
 
 
 class TableSuffix(BaseModel):
-    """Suffixes for the two underlying physical tables.
+    """Suffixes for the underlying physical tables.
 
     `annual_and_metadata` is one parquet that holds every upgrade's annual
     results plus the building characteristics, with `upgrade=0` rows being
     the baseline. `timeseries` is the per-timestamp parquet, also covering
     every upgrade. Upgrade selection is a WHERE clause on the relevant
     table at query time — there is no separate baseline parquet.
+
+    `annual_and_metadata_state_agg` (optional) names a *coarser-grained*
+    alternative metadata table that the framework can route eligible
+    queries to. It must contain the same logical content as
+    `annual_and_metadata` but at state-or-coarser grain (e.g. tract
+    columns absent, weights pre-summed across tract slices per state).
+    Routing is automatic: when a query's `group_by` and `restrict`
+    reference only columns present on the alt table,
+    `_pick_metadata_table` picks `state_agg` and the query scans the
+    smaller table. Schemas without this field always use
+    `annual_and_metadata`.
     """
 
     annual_and_metadata: str
     timeseries: str
+    annual_and_metadata_state_agg: Optional[str] = None
 
 
 class ColumnPrefix(BaseModel):
@@ -53,6 +65,12 @@ class Structure(BaseModel):
 class UniqueKeys(BaseModel):
     metadata: Optional[list[str]] = None
     timeseries: Optional[list[str]] = None
+    # Unique-keys for the optional alt metadata table. Defaults to
+    # [bldg_id] when omitted (one row per (bldg, state) is fine — the
+    # alt table is *coarser* than primary, so its key is typically a
+    # subset of primary's). No subset check vs metadata: the alt table
+    # is allowed to have a narrower key.
+    metadata_state_agg: Optional[list[str]] = None
 
     @model_validator(mode="after")
     def _timeseries_subset_of_metadata(self) -> "UniqueKeys":

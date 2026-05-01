@@ -1,0 +1,104 @@
+{
+  "probe": {
+    "name": "CASE_C_single_state_restrict_NEW",
+    "sql": "SELECT ts_dedup.timestamp,\n       sum(md_per_bldg.bldg_metadata_rows) AS metadata_rows_count,\n       count(distinct md_per_bldg.bldg_id) AS model_count,\n       sum(md_per_bldg.bldg_weight) AS units_count,\n       sum(ts_dedup.bs_elec * md_per_bldg.bldg_weight) AS elec_baseline\nFROM (\n  SELECT ts.bldg_id,\n         date_trunc('month', date_add('second', -900, ts.timestamp)) AS timestamp,\n         CAST(sum(ts.\"out.electricity.total.energy_consumption\") FILTER (WHERE ts.upgrade=0) AS DOUBLE) / count(distinct ts.state) AS bs_elec\n  FROM comstock_amy2018_r2_2025_ts_by_state AS ts\n  WHERE ts.upgrade IN (0, 1) AND ts.state='CO' AND (ts.bldg_id, ts.state) IN (\n      SELECT bs.bldg_id, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs\n      WHERE bs.upgrade IN (1) AND bs.applicability=true AND bs.state IN ('CO')\n      GROUP BY bs.bldg_id, bs.state HAVING count(distinct(bs.upgrade))=1\n    )\n  GROUP BY ts.bldg_id, date_trunc('month', date_add('second', -900, ts.timestamp))\n) AS ts_dedup\nJOIN (\n  SELECT bs.bldg_id, sum(bs.weight) AS bldg_weight, count(*) AS bldg_metadata_rows\n  FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade=0 AND bs.state='CO' AND (bs.bldg_id, bs.state) IN (\n      SELECT bs2.bldg_id, bs2.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs2\n      WHERE bs2.upgrade IN (1) AND bs2.applicability=true AND bs2.state IN ('CO')\n      GROUP BY bs2.bldg_id, bs2.state HAVING count(distinct(bs2.upgrade))=1\n    )\n  GROUP BY bs.bldg_id\n) AS md_per_bldg ON ts_dedup.bldg_id = md_per_bldg.bldg_id\nGROUP BY 1 ORDER BY 1",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "total_ms": 10287,
+    "engine_ms": 10087,
+    "bytes_scanned": 521673146,
+    "rows": [
+      [
+        "timestamp",
+        "metadata_rows_count",
+        "model_count",
+        "units_count",
+        "elec_baseline"
+      ],
+      [
+        "2018-01-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.632724430594",
+        "5.271446999270296E8"
+      ],
+      [
+        "2018-02-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.632724430594",
+        "4.853564910485123E8"
+      ],
+      [
+        "2018-03-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.6327244306",
+        "4.6878538410374165E8"
+      ],
+      [
+        "2018-04-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.63272443059",
+        "4.425014509106776E8"
+      ],
+      [
+        "2018-05-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.63272443058",
+        "4.835679614442308E8"
+      ],
+      [
+        "2018-06-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.63272443062",
+        "5.458102075345007E8"
+      ],
+      [
+        "2018-07-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.632724430594",
+        "5.758746934223814E8"
+      ],
+      [
+        "2018-08-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.63272443057",
+        "5.4940255385032E8"
+      ],
+      [
+        "2018-09-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.63272443058",
+        "5.099995808334521E8"
+      ],
+      [
+        "2018-10-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.63272443061",
+        "4.6606488793826056E8"
+      ],
+      [
+        "2018-11-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.632724430594",
+        "4.765793618390412E8"
+      ],
+      [
+        "2018-12-01 00:00:00.000",
+        "10447",
+        "998",
+        "52826.63272443062",
+        "5.239228859888705E8"
+      ]
+    ]
+  }
+}

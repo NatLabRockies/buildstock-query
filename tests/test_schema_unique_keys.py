@@ -283,9 +283,9 @@ def test_applied_filter_single_key_preserves_scalar_in_clause(monkeypatch: pytes
 
 
 def test_aggregate_uses_multi_column_count_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
-    """sample_count for TS-aggregated queries collapses tract fan-out via
+    """metadata_rows_count for TS-aggregated queries collapses tract fan-out via
     `bs_per_bldg`: GROUP BY ts_unique_keys, count(*) AS tract_count. Outer
-    sample_count = sum(bs_per_bldg.tract_count). For the custom_join_key
+    metadata_rows_count = sum(bs_per_bldg.tract_count). For the custom_join_key
     fixture, ts_unique_keys = (bldg_id, state), and tract_count = number of
     metadata rows (i.e., distinct counties) per (bldg, state). Outer
     sum(tract_count) per (state, hour) bucket equals the prior
@@ -301,13 +301,13 @@ def test_aggregate_uses_multi_column_count_distinct(monkeypatch: pytest.MonkeyPa
     # bs_per_bldg subquery groups by ts unique keys (bldg, state) with count(*).
     assert "GROUP BY bs.bldg_id, bs.state" in query
     assert "count(*) AS tract_count" in query
-    # Outer sample_count sums the per-bldg tract counts.
-    assert "sum(bs_per_bldg.tract_count) AS sample_count" in query
+    # Outer metadata_rows_count sums the per-bldg tract counts.
+    assert "sum(bs_per_bldg.tract_count) AS metadata_rows_count" in query
 
 
 def test_aggregate_single_key_preserves_scalar_count_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
     """Single-key schema: bs_per_bldg GROUPs BY bldg_id alone (no tuple).
-    Outer sample_count = sum(tract_count) follows the same pattern as the
+    Outer metadata_rows_count = sum(tract_count) follows the same pattern as the
     multi-column case."""
     bsq = _custom_join_key_bsq(monkeypatch)
     bsq.db_schema.unique_keys.metadata = None
@@ -324,7 +324,7 @@ def test_aggregate_single_key_preserves_scalar_count_distinct(monkeypatch: pytes
     assert "GROUP BY bs.bldg_id" in query
     assert "GROUP BY bs.bldg_id, bs.state" not in query  # not the multi-key form
     assert "count(*) AS tract_count" in query
-    assert "sum(bs_per_bldg.tract_count) AS sample_count" in query
+    assert "sum(bs_per_bldg.tract_count) AS metadata_rows_count" in query
 
 
 # ---------------------------------------------------------------------------

@@ -2,9 +2,9 @@
   {
     "name": "applied_only_upgrade1_annual",
     "sql_hash": {
-      "resstock_oedi": "70b1a9f0504ee34c82776b4bd181690d755fe4050ab0e704a8f7632ceb5843a8",
-      "comstock_oedi": "6b5e79b2127d6883394178ead1d8bd40c9bac992eb3037aaa5a63c29c6467389",
-      "comstock_oedi_agg": "6399c76621ce20ce2fa8e6d1f2a083214ee6f5878731d674eb3a5f9b400c2a61"
+      "resstock_oedi": "d27b5bc0d092fcfd35f53e944675f18667db8528fb5beea455d8ad819f6257fc",
+      "comstock_oedi": "83ecb48c8464236e093fd97f759f415770f3646edc34c52ba3d305b7c4fd5608",
+      "comstock_oedi_agg": "a90fd9bb2ba91bb16d42d03bad0ef3b26dd94b72b3576302528ec6dc7b063ba3"
     },
     "description": "Annual upgrade 1 electricity restricted to applied buildings only, CO.",
     "args": {
@@ -29,9 +29,9 @@
   {
     "name": "all_buildings_upgrade1_annual",
     "sql_hash": {
-      "resstock_oedi": "509530d0818b7679ff7471f6f2afa3ae9f7373bcd9332a6f3d1d7545a586ee44",
-      "comstock_oedi": "2374cafeb8b4b5c2a3d2187878f4faf8a1669fbcbaa37a324adf45e9ad55e451",
-      "comstock_oedi_agg": "a8cf9c1525f653c8a219e02622a7697062c60adbce62f2e6f4bc01a9918efd9c"
+      "resstock_oedi": "b220d4f6503979f827b17b8fe73f77add18bbeb1b44e2f04fcbcdbd178d60328",
+      "comstock_oedi": "47cb6cc2f1c20baff13520542b8069b7fb45ba725060bd106118c66385723239",
+      "comstock_oedi_agg": "f62e28058938419301389558fad7eb6ed0f5eda3d8dab26dc373e2f352aed644"
     },
     "description": "Annual upgrade 1 including unapplied buildings, CO. Two variants \u2014 upgrade_id as string '1' vs int 1 \u2014 must compile to the same SQL since _validate_upgrade normalizes both to str.",
     "args": [
@@ -76,9 +76,9 @@
   {
     "name": "include_baseline_upgrade1_annual",
     "sql_hash": {
-      "resstock_oedi": "bf976a81143914bc331af4b16d6732a35e32ba50651ee7e1af55a079f2e8ede8",
-      "comstock_oedi": "a17a19865b9a15ad85ae069dec8010ee46a99406e007650e201e80036a3d01e9",
-      "comstock_oedi_agg": "62ee5ccd044ae7665f871099c39c28ab536bda00e36f43a6650bfe377100dbc8"
+      "resstock_oedi": "40f43ffa217cf29f643eba964d2bfaa0f69079a521062f0983e2c98a69f1fdb1",
+      "comstock_oedi": "631856470c8ff98b6a7230900285ab7b4e17025598a8dae1da3648a897c7ba35",
+      "comstock_oedi_agg": "de4db59162f8b33074c3427d02d54b718e9e1208bc621e76145b572e3b6b5ab6"
     },
     "description": "Annual upgrade 1 with include_baseline=true and include_savings=false. Mirrors the comstock notebook pattern that exposes baseline + upgrade columns side-by-side without the savings subtraction.",
     "args": {
@@ -106,9 +106,9 @@
   {
     "name": "baseline_with_applied_in_upgrade1",
     "sql_hash": {
-      "resstock_oedi": "3fd9dc45319dd9d56211997e6b577f93484a75ebc2f77023f25825de706fe047",
-      "comstock_oedi": "87a77a4da36123f512cb2352b861ffbe9331fbd44954f5c78b679430562c45d0",
-      "comstock_oedi_agg": "0f4dd32213489d0bc5934e07719387b7463b40e5c96682871b075f0a3f41f849"
+      "resstock_oedi": "786e1b3017cc8b03c2baeb05be550d25565cde0c2220725da45ab9f785f92418",
+      "comstock_oedi": "f081cc07b1fce0f458381bf740d8a1dc672c4e81bfcd7c6cb7fd9c445d9e513c",
+      "comstock_oedi_agg": "89e70b9aa817c049ae4d5bb7af8a1dd65c5015d35a4d477cedd2e23148339b37"
     },
     "description": "Annual baseline (upgrade_id=0) restricted to buildings where upgrade 1 applied — composes `get_applied_buildings_filter(all_of=[1])` into restrict. Pins the SQL shape that test_savings_equals_independent_baseline_minus_upgrade depends on. Migrated from legacy applied_in=[1] with byte-stable SQL.",
     "args": {
@@ -139,9 +139,9 @@
   {
     "name": "include_baseline_upgrade1_applied_only_annual",
     "sql_hash": {
-      "resstock_oedi": "665ef6fc2178e2d028998a122eee2e61aeb719e7ed5cae5460b98acc235272eb",
-      "comstock_oedi": "d7a1c6331e1e8149590291e3b97a4afdce7c88f352da24d564313477a4c50e2b",
-      "comstock_oedi_agg": "bf8e4520550f3e6209e78fde5aa7179bc8d6abdcba9253fa1060b4143fb7417c"
+      "resstock_oedi": "4a60bbb39075c481e48691fb88c7490cc177bc494a089c42df9b65482e825d4b",
+      "comstock_oedi": "1e0232fceaf2795f22d3f18b90313c2905541b8ef42992281208ba90840d95fe",
+      "comstock_oedi_agg": "f9a7271b2ab13f4724b55bd4db577a59bf18c2bf532b18336cb767c949f925b7"
     },
     "description": "Same as include_baseline_upgrade1_annual but with applied_only=true. Hits the upgrade_only=False branch (because include_baseline forces the baseline join).",
     "args": {

@@ -1,0 +1,169 @@
+{
+  "probe": {
+    "name": "V_NEW_simplified",
+    "sql": "SELECT ts_dedup.timestamp,\n       sum(md_per_bldg.bldg_metadata_rows) AS metadata_rows_count,\n       max(md_per_bldg.model_count_per_row) AS model_count,\n       sum(md_per_bldg.bldg_weight) AS units_count,\n       sum(ts_dedup.bs_elec * md_per_bldg.bldg_weight) AS elec_baseline,\n       sum(ts_dedup.up_elec * md_per_bldg.bldg_weight) AS elec_upgrade,\n       sum((coalesce(ts_dedup.bs_elec,0) - coalesce(ts_dedup.up_elec,0)) * md_per_bldg.bldg_weight) AS elec_savings,\n       sum(ts_dedup.bs_gas * md_per_bldg.bldg_weight) AS gas_baseline,\n       sum(ts_dedup.up_gas * md_per_bldg.bldg_weight) AS gas_upgrade,\n       sum((coalesce(ts_dedup.bs_gas,0) - coalesce(ts_dedup.up_gas,0)) * md_per_bldg.bldg_weight) AS gas_savings\nFROM (\n  -- TS dedup: collapse cross-state duplicates via arbitrary().\n  -- Inner: per (bldg, state, bucketed_time) \u2014 same shape as today's ts_aggr but selectable.\n  -- Outer: arbitrary() across states for each (bldg, bucketed_time).\n  SELECT bldg_id, timestamp,\n         arbitrary(bs_elec) AS bs_elec,\n         arbitrary(up_elec) AS up_elec,\n         arbitrary(bs_gas) AS bs_gas,\n         arbitrary(up_gas) AS up_gas\n  FROM (\n    SELECT ts_flat.bldg_id, ts_flat.state, ts_flat.timestamp,\n           sum(ts_flat.elec) FILTER (WHERE ts_flat.upgrade=0) AS bs_elec,\n           sum(ts_flat.elec) FILTER (WHERE ts_flat.upgrade=1) AS up_elec,\n           sum(ts_flat.gas) FILTER (WHERE ts_flat.upgrade=0) AS bs_gas,\n           sum(ts_flat.gas) FILTER (WHERE ts_flat.upgrade=1) AS up_gas\n    FROM (\n      SELECT ts.bldg_id, ts.state, ts.upgrade,\n             date_trunc('month', date_add('second', -900, ts.timestamp)) AS timestamp,\n             ts.\"out.electricity.total.energy_consumption\" AS elec,\n             ts.\"out.natural_gas.total.energy_consumption\" AS gas\n      FROM comstock_amy2018_r2_2025_ts_by_state AS ts\n      WHERE ts.upgrade IN (0, 1) AND ts.state IN ('CO', 'NM')\n        AND (ts.bldg_id, ts.state) IN (\n          SELECT bs.bldg_id, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs\n          WHERE bs.upgrade IN (1) AND bs.applicability=true AND bs.state IN ('CO', 'NM')\n          GROUP BY bs.bldg_id, bs.state HAVING count(distinct(bs.upgrade))=1\n        )\n    ) AS ts_flat\n    GROUP BY 1, 2, 3\n  ) AS ts_per_bldg_state\n  GROUP BY bldg_id, timestamp\n) AS ts_dedup\nJOIN (\n  -- MD per-bldg: GROUP BY <user_groupby_cols>, bldg_id. No user_groupby in this query.\n  -- DENSE_RANK pair gives distinct bldgs per outer-group partition (here: PARTITION BY () = single partition).\n  SELECT bs.bldg_id,\n         sum(bs.weight) AS bldg_weight,\n         count(*) AS bldg_metadata_rows,\n         DENSE_RANK() OVER (ORDER BY bs.bldg_id ASC) +\n         DENSE_RANK() OVER (ORDER BY bs.bldg_id DESC) - 1\n         AS model_count_per_row\n  FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs\n  WHERE bs.upgrade=0 AND bs.state IN ('CO', 'NM')\n  GROUP BY bs.bldg_id\n) AS md_per_bldg ON ts_dedup.bldg_id = md_per_bldg.bldg_id\nGROUP BY 1 ORDER BY 1",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "total_ms": 29987,
+    "engine_ms": 29772,
+    "bytes_scanned": 2374396524,
+    "rows": [
+      [
+        "timestamp",
+        "metadata_rows_count",
+        "model_count",
+        "units_count",
+        "elec_baseline",
+        "elec_upgrade",
+        "elec_savings",
+        "gas_baseline",
+        "gas_upgrade",
+        "gas_savings"
+      ],
+      [
+        "2018-01-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931374",
+        "7.064439103063142E8",
+        "8.233948853100662E8",
+        "-1.1695097459429887E8",
+        "8.656119717120092E8",
+        "2.2923778347221154E8",
+        "6.363741883468037E8"
+      ],
+      [
+        "2018-02-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931376",
+        "6.422934776166344E8",
+        "7.921272661884978E8",
+        "-1.4983378839743948E8",
+        "8.270850409148526E8",
+        "2.180337818411133E8",
+        "6.090512605498093E8"
+      ],
+      [
+        "2018-03-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931374",
+        "6.407414739563935E8",
+        "6.298835899143934E8",
+        "1.0857884058207002E7",
+        "4.6914801613205135E8",
+        "1.9019256496785763E8",
+        "2.7895545165707356E8"
+      ],
+      [
+        "2018-04-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931376",
+        "6.183608139676018E8",
+        "5.788536974576966E8",
+        "3.950711650990526E7",
+        "3.4796736251003665E8",
+        "1.7690678660449642E8",
+        "1.7106057564990193E8"
+      ],
+      [
+        "2018-05-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931381",
+        "7.112804815221748E8",
+        "6.09591932174693E8",
+        "1.0168854934748179E8",
+        "1.960439407842507E8",
+        "1.714585512578432E8",
+        "2.4585389587126043E7"
+      ],
+      [
+        "2018-06-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931374",
+        "8.022330235977858E8",
+        "6.769294736511171E8",
+        "1.2530354994666876E8",
+        "1.6213481010196722E8",
+        "1.6094019806503776E8",
+        "1194612.0370935397"
+      ],
+      [
+        "2018-07-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931376",
+        "8.341247026226866E8",
+        "6.925444281079468E8",
+        "1.4158027451474026E8",
+        "1.6498788712942898E8",
+        "1.6455585412168312E8",
+        "432033.00844933005"
+      ],
+      [
+        "2018-08-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931373",
+        "8.021975904457577E8",
+        "6.651819340402042E8",
+        "1.3701565640555418E8",
+        "1.6563037019409868E8",
+        "1.6480191807797086E8",
+        "828452.1170230178"
+      ],
+      [
+        "2018-09-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931374",
+        "7.288022078150448E8",
+        "6.131944487780471E8",
+        "1.1560775903699775E8",
+        "1.6661422076271325E8",
+        "1.608698028210604E8",
+        "5744417.9373032795"
+      ],
+      [
+        "2018-10-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931373",
+        "6.49118967338951E8",
+        "6.028837936612949E8",
+        "4.623517367765617E7",
+        "3.2170398049397117E8",
+        "1.7851169640663138E8",
+        "1.4319228386602092E8"
+      ],
+      [
+        "2018-11-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931376",
+        "6.442468796737884E8",
+        "6.775615613504903E8",
+        "-3.3314681534383073E7",
+        "5.903550671965084E8",
+        "1.9180816687947223E8",
+        "3.9854689980377E8"
+      ],
+      [
+        "2018-12-01 00:00:00.000",
+        "15398",
+        "6627",
+        "76068.48523931374",
+        "6.998780941216662E8",
+        "8.277713834054809E8",
+        "-1.2789328944743538E8",
+        "8.97976994239857E8",
+        "2.2730373125437528E8",
+        "6.70673263858953E8"
+      ]
+    ]
+  }
+}

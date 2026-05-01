@@ -2,9 +2,9 @@
   {
     "name": "annual_totals_overall",
     "sql_hash": {
-      "resstock_oedi": "29fbc6f18f2b90a9a5b151581ca266afa246499c1077feb93b1ac2b2170ac73e",
-      "comstock_oedi": "a37af3c91c7a91f54a1dc6a8aa4e2f5ccb38136eb327500e9e1a0beb2e7c35ec",
-      "comstock_oedi_agg": "0df24aa3c5a31c9ac2e7087df92a6dcdd12e7f4583385522565185a6fe556891"
+      "resstock_oedi": "b720fcd3c98c8676eeaa344cdb91cff7a79ab0696f6d3afc61e93f0dd2b65bef",
+      "comstock_oedi": "004876879e5fc4fe6b36e6dfd56cef5321a89b737ec1351466e1aed7e3f8be35",
+      "comstock_oedi_agg": "cc41a7c37f85edc6b8816be5844cf3be31565969427cdc8c3ea1834b77f31de7"
     },
     "description": "Annual electricity + natural gas totals restricted to CO.",
     "args": {
@@ -25,9 +25,9 @@
   {
     "name": "annual_totals_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "3c91713f4983576320a8af4c4d32b84fb8ac6199df41da75e49341f3e232708d",
-      "comstock_oedi": "f119ed58780d7d80a4dff53956368305c6db8d245b673208f06476e48b315ada",
-      "comstock_oedi_agg": "2fbebaf8e5603b8bf5c350ce587e10840d2aebf3c031106d62bb81ca11eda07d"
+      "resstock_oedi": "619057b02b31266b45885dae28ed122a4ad0677b3719bd234889e17e7b407ced",
+      "comstock_oedi": "ce1668408a25af41b4c3c5456a4c390f0d4188a5f702cc47a013521f0f91fc7f",
+      "comstock_oedi_agg": "154a91d8fbfd524f6ab61c4c68f399afceed77df5fe3cb3dbc4b4c4ff9526337"
     },
     "description": "Annual totals grouped by building type, CO only. Two variants confirm that omitting annual_only (default True) matches passing annual_only=True explicitly.",
     "args": [
@@ -71,9 +71,9 @@
   {
     "name": "annual_electricity_by_vintage_sort",
     "sql_hash": {
-      "resstock_oedi": "bc0e114f778b935b8f457fecd26e34ef49ac38c3329e97956404a456a41dd6d4",
-      "comstock_oedi": "bd4923c5cc1f3b290529fe44e80b22134c513bd3d30ebe9756317cb7220aaa44",
-      "comstock_oedi_agg": "6448022d1f3b64a9b6baf3304d93f7837d546d24824ae32d288e187418a6dea1"
+      "resstock_oedi": "83fb825b37c0433bb1158a94cd58d5b2422418227c3091f280fc5a402113420e",
+      "comstock_oedi": "f426d710cf6d155cadac49e218f93d218f4ed7230763d259105ad656ba073bad",
+      "comstock_oedi_agg": "4ccb3ba466dbed5c9877c8b1aed5ad7ab3634dbd0adca61482357819b8c46194"
     },
     "description": "Annual electricity grouped by vintage with sort, limit 5, CO only.",
     "args": {
@@ -98,9 +98,9 @@
   {
     "name": "annual_electricity_by_vintage_nosort",
     "sql_hash": {
-      "resstock_oedi": "9d3926e579981cff89e6e8ea101df7891ce63d78eda86c2bff84277e452488b6",
-      "comstock_oedi": "3bee3f9900200148f5509aff94a18713387a54b0c1f0357ea405f5c015a588f1",
-      "comstock_oedi_agg": "060111c3029fa64292168047abefa844d3da6fca9ba5873817b295c027bbde34"
+      "resstock_oedi": "65acac1e77d2a0f7fc13b55474a5fa5eecb02e33e8817c6afe26438ccc16459d",
+      "comstock_oedi": "6836253b108f38400fe4220d0c58547dfcbe4424e859b0151f1650e9722212e0",
+      "comstock_oedi_agg": "40d91645c79ea6889a6989c54831ec816ea9c75930b340947071517a15a28c13"
     },
     "nondeterministic": true,
     "description": "Annual electricity by vintage with sort=false + limit. Hits the no-ORDER-BY branch which existing entries never exercise. Marked nondeterministic because LIMIT without ORDER BY makes Trino free to return any 5 rows; only SQL shape is meaningful.",
@@ -126,9 +126,9 @@
   {
     "name": "annual_nonzero_count_natural_gas",
     "sql_hash": {
-      "resstock_oedi": "f45af37ecf23e6565c3a4b2125ad0bcdae0dd0f4f2dce477335b059b20e0df0d",
-      "comstock_oedi": "cf00cfd0775a7322ce225ce3aa5b0d219be5af735198a562b0c1cc9368cae951",
-      "comstock_oedi_agg": "0dade342c2d618ab0d0d5630b50f6ec80ff2d9a6288fc2f96d4ce508125ba9b6"
+      "resstock_oedi": "ef0b5e08712d8eb5db028ca545c3fbf5d5249ee8d62c14aa22a972e2fe9b1e76",
+      "comstock_oedi": "9e4d4a57e17f4e458c3c82d546ae394ac304329a5fe1b13de5f1b7e1d1307afc",
+      "comstock_oedi_agg": "d3f63819109fddbb080d60dae496533588e2de2227649340589b0be86e8dac66"
     },
     "description": "Annual natural gas with nonzero_units_count requested, CO only.",
     "args": {
@@ -152,9 +152,9 @@
   {
     "name": "annual_baseline_quartiles",
     "sql_hash": {
-      "resstock_oedi": "756ce465d196ecb50d69960f6ddecfdc440fa0359914e41f9d9889aa7b175327",
+      "resstock_oedi": "ba658214ac0e05102bfa6850c38b3691d2f4aabbca798d3a6711030c543ff026",
       "comstock_oedi": "e8993c6fb28cdcec4727102ffb7c39408ad63d3f7e1e4a104d0324737258c0cd",
-      "comstock_oedi_agg": "34a571745e20b7d1f96f434116550dab71a81d102fd810bf3e9a955bf0c074e8"
+      "comstock_oedi_agg": "18a9da441f8d00914f795f1e2a790fc5b152968d7278ac36c8d6a822030e74f9"
     },
     "description": "Annual baseline (upgrade=0) electricity with get_quartiles=true. Hits the quartile branch on the upgrade-0 path where there is no upgrade-table join \u2014 the existing quartile coverage is upgrade=1 only.",
     "args": {
@@ -178,9 +178,9 @@
   {
     "name": "annual_agg_func_mean",
     "sql_hash": {
-      "resstock_oedi": "66bdd433dc8cce2c3a4896cf169f1054c3b0afa08b1e04ee9d83e71c555c4be8",
-      "comstock_oedi": "00e4367d612c6595f832c75ba98e6fb61a6b871a1b6bbacf08db3b10b6434ae7",
-      "comstock_oedi_agg": "a1edd3519ca958b3f067edda1678facedbcbc1f5fc76a6a090c3bf0940513f4e"
+      "resstock_oedi": "01927fb17b32bb8786a5a2186660c0a1a8a15e9e11f2c9715ceec02a266e5674",
+      "comstock_oedi": "feaf2b17e15617dd9ccc72cd8ac7a15f4a563373654f69439a2662afa878e11c",
+      "comstock_oedi_agg": "4cb11a40156bfc365e1bfddf452e5f8c899d3b8fecede2dde453dc36f399b9df"
     },
     "description": "Annual electricity with agg_func='mean'. Pins the non-sum aggregation branch (no weight multiplication, AVG instead of SUM).",
     "args": {
@@ -204,9 +204,9 @@
   {
     "name": "annual_agg_func_max",
     "sql_hash": {
-      "resstock_oedi": "c8a71ce050d382ddf9e000b4e0cc61a2f856c9739254f31644b8214c8057d70c",
-      "comstock_oedi": "5b7526c711d4ac5322dbb7cb6fe31d95e105008d3f7715848fee3056498131c8",
-      "comstock_oedi_agg": "ccc2ef6faecdbc771d28ebadaee4070ac99bba493f0d801debb9156dc3be5bf8"
+      "resstock_oedi": "44a81df76762f3223a52842f32c4e756d3114756ff8f45fd425fc57a0d129d43",
+      "comstock_oedi": "3e5ecc39e2fbe01d921ab3e60029cdf28417e3410e41b2b6fe01c5bf005ba45c",
+      "comstock_oedi_agg": "ce30bc3b4b4b526668a1a3989a36da580f0d5fa0a10fdded1c91a3b869cfb80f"
     },
     "description": "Annual electricity with agg_func='max'. Pins the MAX() aggregation branch.",
     "args": {
@@ -230,9 +230,9 @@
   {
     "name": "annual_agg_func_min",
     "sql_hash": {
-      "resstock_oedi": "dd17ab450902282489cc0f890e701bf63f3d372cf200dd9cfe5d3ef8744d2291",
-      "comstock_oedi": "3a64fd79cb057e4dd1ec32f9e2b5315b693000f97c2a0eb7da0d1d9b4a813d10",
-      "comstock_oedi_agg": "a6bba27b24a36ae24bec774674c58182b21dc9bdbc6b76d67a3466a55d4f90ff"
+      "resstock_oedi": "969ef4360243d368643f7383b18f293375cb5fc098c5927c13bdcc985314a2aa",
+      "comstock_oedi": "f6f9442a9130cfa2da263cf54d0498ca0708cfba6c44c0782b4bae2a72f05710",
+      "comstock_oedi_agg": "13fad60a0438c1e5991577a3d9ca5ee918bd0c3182b94b47fb79f02b351f5ad3"
     },
     "description": "Annual electricity with agg_func='min'. Pins the MIN() aggregation branch.",
     "args": {
@@ -256,9 +256,9 @@
   {
     "name": "annual_with_extra_weight_sqft",
     "sql_hash": {
-      "resstock_oedi": "d6d3584aafec0f7d09c041f38a247ec1c483ac384a265a4784257ac6c1377240",
-      "comstock_oedi": "000f2fd3978e61988bf5918c4a4498ba88d3b45cac5f63927b83854b7405f3f6",
-      "comstock_oedi_agg": "e5a36402aaad9bd7f366884af5edfa8669fc7f4f5f222f28fd58825cdf6d9da3"
+      "resstock_oedi": "51488a5de5dbc7b9e220536ea6eb294fe9fb9929111d8e51a23568c75034bbc0",
+      "comstock_oedi": "41ab0bb0e749ed39c8d8019b1b4bb650ea81df3da13ffdd52dc8ab11ef1b252d",
+      "comstock_oedi_agg": "2d204f2255d10391c543f7e638629ff5b22a1f5a63352f069cb7529cc31567d4"
     },
     "description": "Annual electricity with weights=[$SQFT_COL] — resstock 'in.sqft', comstock 'in.sqft..ft2'. Pins the SQL shape where the user supplies an explicit additional weight column on top of the default sample_weight; Athena gets `electricity * sample_weight * sqft`. Internally exercised by utility queries (eiaid_weights.weight); no other entry covers user-supplied weights directly.",
     "args": {
@@ -282,9 +282,9 @@
   {
     "name": "annual_agg_func_arbitrary",
     "sql_hash": {
-      "resstock_oedi": "433860e235d0883a4b58954089c4e0046713fa7eea040f245314716f11e1d8fb",
-      "comstock_oedi": "badf5d198cdfaa8675bcc4017393a7feaa35d2426fe7e314fc4273b59d023681",
-      "comstock_oedi_agg": "37a1ce02ac36c9a93e21c0467da488166acf8df63e6fc2964f767c3b98981ab7"
+      "resstock_oedi": "e994fed80fe1fba62063b6e71db37a87c236ce38502180a5e7217ac76e55f2de",
+      "comstock_oedi": "1198ad1ab345fd9eb025c50a37797ebec16e95406b34bea5b08d04b3601a36ff",
+      "comstock_oedi_agg": "edaf16244ef3604b9635ff8675c8b021dcccced2957e0455c46d754a9a776da4"
     },
     "nondeterministic": true,
     "description": "Annual electricity with agg_func='arbitrary'. Pins the ARBITRARY() (Athena's any-value) aggregation branch. Marked nondeterministic because arbitrary() picks any group value per row; only SQL shape is meaningful.",

@@ -308,7 +308,7 @@ class BuildStockQuery(QueryCore):
         else:
             sample_wt = self.sample_wt
         query = sa.select(
-            tbl.c[column], safunc.sum(1).label("sample_count"), safunc.sum(sample_wt).label("weighted_count")
+            tbl.c[column], safunc.sum(1).label("metadata_rows_count"), safunc.sum(sample_wt).label("weighted_count")
         ).select_from(tbl)
         if table_name is None or tbl is self.bs_table:
             # Default-table case (or user-passed-md): restrict to baseline rows
@@ -1197,6 +1197,125 @@ class BuildStockQuery(QueryCore):
     def _get_success_condition(self, table: AnyTableType):
         col = self._get_completed_status_col(table)
         return col == typed_literal(col, self.db_schema.completion_values.success)
+
+    @property
+    def _state_agg_columns(self) -> set[str]:
+        """Names of columns physically present on the alt metadata table.
+        Empty set when the schema declares no alt table. Used by
+        `_pick_metadata_table` to decide whether routing is safe — if any
+        group_by or restrict column is absent here, we must scan the
+        primary table instead.
+        """
+        if self.bs_table_state_agg is None:
+            return set()
+        return set(self.bs_table_state_agg.c.keys())
+
+    def _column_name_or_none(self, col_ref) -> Optional[str]:
+        """Resolve a user-facing column reference to its physical column
+        name on `bs_table`, or return None if it can't be resolved
+        (calculated columns, MappedColumns, etc., are not propagatable).
+        Mirrors `_get_column`'s `in.` prefix logic so that user-supplied
+        `state` resolves to ResStock's `in.state` and ComStock's bare
+        `state` consistently.
+        """
+        try:
+            resolved = self._get_column(col_ref, annual_only=True)
+        except (ValueError, AttributeError):
+            return None
+        if not isinstance(resolved, sa.Column):
+            return None
+        if resolved.table is not self.bs_table:
+            return None
+        return resolved.name
+
+    def _pick_metadata_table(
+        self,
+        group_by: Sequence,
+        restrict: Sequence,
+    ) -> Literal["primary", "state_agg"]:
+        """Decide whether to scan the primary `annual_and_metadata` table
+        (today's default) or the smaller `annual_and_metadata_state_agg`
+        alt table for this query.
+
+        Routing rule: pick `state_agg` iff the schema declares an alt
+        table AND every column referenced by `group_by` or `restrict`
+        physically exists on the alt table. The alt table omits
+        finer-grain columns (county, tract gisjoin, tract demographics)
+        — any reference to them disqualifies routing.
+
+        Calculated/MappedColumn group-by entries can't be resolved to a
+        single physical column; they conservatively disqualify routing.
+
+        Returns:
+          "primary" — use today's bs_table (always safe).
+          "state_agg" — use bs_table_state_agg (smaller, faster when
+                        eligible; see INVESTIGATION_partition_overhead.md
+                        for measurements).
+        """
+        if self.bs_table_state_agg is None:
+            return "primary"
+        alt_cols = self._state_agg_columns
+        # Check group_by: each entry must resolve to a column present
+        # on the alt table.
+        for g in group_by or ():
+            if isinstance(g, str):
+                # Try both the user-supplied name and the in.-prefixed
+                # form, since the alt table uses the prefixed convention
+                # for some schemas (e.g. ResStock: in.state).
+                char_prefix = self.db_schema.column_prefix.characteristics
+                if g in alt_cols:
+                    continue
+                if g.startswith(char_prefix) and g.removeprefix(char_prefix) in alt_cols:
+                    continue
+                if not g.startswith(char_prefix) and f"{char_prefix}{g}" in alt_cols:
+                    continue
+                return "primary"
+            elif isinstance(g, sa.Column):
+                if g.name not in alt_cols:
+                    return "primary"
+            elif isinstance(g, SALabel):
+                # Calculated columns: conservatively unroutable. They
+                # may reference columns from outside `bs_table` (e.g.
+                # ts-side enduses) which the alt table also lacks.
+                return "primary"
+            elif isinstance(g, MappedColumn):
+                # MappedColumns are user-supplied literal mappings —
+                # they don't depend on table schema, so they're safe.
+                continue
+            else:
+                # Unknown entry shape — be conservative.
+                return "primary"
+        # Check restrict: each col_ref must resolve to a bs_table column
+        # that's also on the alt table.
+        for entry in restrict or ():
+            col_ref = entry[0] if isinstance(entry, (tuple, list)) else None
+            if col_ref is None:
+                continue
+            # Multi-column tuple LHS (e.g. applied-buildings filter):
+            # safe to route iff every component column is on the alt.
+            if isinstance(col_ref, tuple):
+                for c in col_ref:
+                    name = c.name if isinstance(c, sa.Column) else None
+                    if name is None or name not in alt_cols:
+                        return "primary"
+                continue
+            # Single column ref: resolve through the same prefix logic.
+            if isinstance(col_ref, str):
+                char_prefix = self.db_schema.column_prefix.characteristics
+                if col_ref in alt_cols:
+                    continue
+                if col_ref.startswith(char_prefix) and col_ref.removeprefix(char_prefix) in alt_cols:
+                    continue
+                if not col_ref.startswith(char_prefix) and f"{char_prefix}{col_ref}" in alt_cols:
+                    continue
+                return "primary"
+            if isinstance(col_ref, sa.Column):
+                if col_ref.name not in alt_cols:
+                    return "primary"
+                continue
+            # Unknown shape — be conservative.
+            return "primary"
+        return "state_agg"
 
     def _build_applied_subquery(
         self,

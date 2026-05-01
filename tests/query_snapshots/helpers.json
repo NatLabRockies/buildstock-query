@@ -73,9 +73,9 @@
   {
     "name": "distinct_count_state_baseline",
     "sql_hash": {
-      "resstock_oedi": "afd58514bb4d2cd552ec5f5e369b4b383ed1b68e171b2bc2aef215a1643fccc1",
-      "comstock_oedi": "6735debc27c53c2571455742c5bceccc652f74bb257198ed797017e7d4bfc9a6",
-      "comstock_oedi_agg": "49c31912741b91775345b64b8872d35bb80d5b7a5de1b5601f20c3125dad817f"
+      "resstock_oedi": "cd2a3fb0844187116d8fd9ca8f27cefe8ee54ee3bd743a5b50be96a51f720a93",
+      "comstock_oedi": "e377f414e5d036d34324f3949fa7e7e75172cc9e5cec2fb8291a28badae94203",
+      "comstock_oedi_agg": "41e374f67114a6ae6fe5b0035f46fffd682f852569585a5202fab4ea738e80cd"
     },
     "description": "get_distinct_count on the baseline-table state column. Pins the COUNT-with-weighted-sum shape (sample_count + weighted_count per category).",
     "args": {

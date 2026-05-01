@@ -53,9 +53,9 @@
   {
     "name": "query_with_applied_buildings_filter",
     "sql_hash": {
-      "resstock_oedi": "1eba5a5c212065b00772c08cadcac957794defc9e1363aecc30a42f306ddbf62",
-      "comstock_oedi": "46a8a4c1aa4bf7d0366ac305cda149ae091ad4ae2aafb56db3c10fad3e30d611",
-      "comstock_oedi_agg": "b486bd9131f8b47bfd9a51ddf9233ca5f371494dca939fac8850e5ca1af10f5c"
+      "resstock_oedi": "fd8ba61d082e519ed0965310df85c8cd5119d6a12292bb6a25959e909c6f3487",
+      "comstock_oedi": "addae2be360d889190dfa55b566a6d94228dff6ec2abc14934f064f8743a556d",
+      "comstock_oedi_agg": "1fa8bf42226b1445b2e7612c3551b7b5cc82196c4199d07e1d25e801a0729401"
     },
     "description": "Annual baseline restricted via `restrict=[get_applied_buildings_filter(all_of=[1,2]), (state, [CO])]`. Confirms the filter-tuple composes cleanly into the standard restrict pipeline (composite-key tuple-IN on multi-key schemas).",
     "args": {

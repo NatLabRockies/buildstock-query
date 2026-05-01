@@ -25,7 +25,7 @@ Invariants covered in this module
      - `annual_only=False, timestamp_grouping_func='month'` — 12 rows per group,
        summed over the `time` axis.
 
-   Also verifies that `sample_count` and `units_count` agree across all three legs.
+   Also verifies that `metadata_rows_count` and `units_count` agree across all three legs.
    These are per-group metadata (constant on every monthly row), so collapsing the
    monthly frame requires mean-across-time, not sum; catches bugs where the monthly
    query accidentally double-counts rows.
@@ -99,7 +99,7 @@ def _scalar_total_by_group(df: pd.DataFrame, enduse: str, group_cols: list[str])
 def _scalar_mean_by_group(df: pd.DataFrame, col: str, group_cols: list[str]) -> pd.Series:
     """Return a Series keyed by group values, values = mean of `col` over `df`.
 
-    Used for per-row metadata columns (sample_count, units_count) when collapsing a
+    Used for per-row metadata columns (metadata_rows_count, units_count) when collapsing a
     timeseries across the time axis — summing would multiply by the number of
     timestamps.
     """
@@ -511,8 +511,8 @@ def test_annual_equals_ts_year_equals_ts_monthly_sum(
 
     # Counts are per-group metadata (constant across monthly rows), so collapsing
     # the monthly frame uses mean, not sum. This check caught the comstock
-    # sample_count undercount before it was fixed (see 25fa3fa).
-    for count_col in ("sample_count", "units_count"):
+    # metadata_rows_count undercount before it was fixed (see 25fa3fa).
+    for count_col in ("metadata_rows_count", "units_count"):
         annual_counts = _scalar_first_by_group(annual_df, count_col, [group_col])
         ts_year_counts = _scalar_first_by_group(ts_year_df, count_col, [group_col])
         ts_monthly_counts = _scalar_mean_by_group(ts_monthly_df, count_col, [group_col])
@@ -813,8 +813,8 @@ def test_group_by_sum_equals_overall(request, bsq_fixture, schema):
                 f"{col}: overall ({overall_total:.4f}) != sum of grouped "
                 f"({grouped_total:.4f}); diff={overall_total - grouped_total:.4f}"
             )
-    # sample_count and units_count too (sum across groups, since these are per-row totals).
-    for count_col in ("sample_count", "units_count"):
+    # metadata_rows_count and units_count too (sum across groups, since these are per-row totals).
+    for count_col in ("metadata_rows_count", "units_count"):
         overall_total = float(overall_df[count_col].iloc[0])
         grouped_total = float(grouped_df[count_col].sum())
         if not np.isclose(
@@ -905,7 +905,7 @@ def test_ts_year_county_and_tract_disaggregation_matches_overall_comstock(reques
 
     # Counts also must reconcile. units_count is a weight sum; sum across the
     # bs-side group equals the overall (each tract row's weight is counted
-    # exactly once). sample_count counts metadata rows: tract-grouped sum =
+    # exactly once). metadata_rows_count counts metadata rows: tract-grouped sum =
     # county-grouped sum = overall (no bs-side group still counts every md
     # row via `count(*)` inside bs_per_bldg).
     overall_units = float(overall_df["units_count"].iloc[0])
@@ -922,16 +922,16 @@ def test_ts_year_county_and_tract_disaggregation_matches_overall_comstock(reques
             f"({overall_units:.4f})"
         )
 
-    overall_samples = int(overall_df["sample_count"].iloc[0])
-    by_county_samples = int(by_county_df["sample_count"].sum())
-    by_tract_samples = int(by_tract_df["sample_count"].sum())
+    overall_samples = int(overall_df["metadata_rows_count"].iloc[0])
+    by_county_samples = int(by_county_df["metadata_rows_count"].sum())
+    by_tract_samples = int(by_tract_df["metadata_rows_count"].sum())
     if by_county_samples != overall_samples:
         pytest.fail(
-            f"sample_count: sum(by-county)={by_county_samples} != overall={overall_samples}"
+            f"metadata_rows_count: sum(by-county)={by_county_samples} != overall={overall_samples}"
         )
     if by_tract_samples != overall_samples:
         pytest.fail(
-            f"sample_count: sum(by-tract)={by_tract_samples} != overall={overall_samples}"
+            f"metadata_rows_count: sum(by-tract)={by_tract_samples} != overall={overall_samples}"
         )
 
     # by-tract must be at least as granular as by-county (each tract belongs
@@ -985,12 +985,12 @@ def test_co_subset_of_co_plus_wy(request, bsq_fixture, schema):
             f"CO total from CO-only query summed across building types "
             f"({co_total_from_single_state:.4f})"
         )
-    # sample_count too — should be exactly equal (no float drift on integer counts).
-    co_count_two = int(co_row["sample_count"].iloc[0])
-    co_count_single = int(co_only_df["sample_count"].sum())
+    # metadata_rows_count too — should be exactly equal (no float drift on integer counts).
+    co_count_two = int(co_row["metadata_rows_count"].iloc[0])
+    co_count_single = int(co_only_df["metadata_rows_count"].sum())
     if co_count_two != co_count_single:
         pytest.fail(
-            f"CO sample_count mismatch: from CO+WY={co_count_two}, "
+            f"CO metadata_rows_count mismatch: from CO+WY={co_count_two}, "
             f"from CO-only={co_count_single}"
         )
 
@@ -1039,12 +1039,12 @@ def test_avoid_plus_avoided_equals_full(request, bsq_fixture, schema):
             f"({avoided_total:.4f}); diff={full_total - avoid_total - avoided_total:.4f}"
         )
     # Sample counts are integer-exact.
-    full_n = int(full_df["sample_count"].sum())
-    avoid_n = int(avoid_df["sample_count"].sum())
-    avoided_n = int(avoided_row["sample_count"].iloc[0])
+    full_n = int(full_df["metadata_rows_count"].sum())
+    avoid_n = int(avoid_df["metadata_rows_count"].sum())
+    avoided_n = int(avoided_row["metadata_rows_count"].iloc[0])
     if full_n != avoid_n + avoided_n:
         pytest.fail(
-            f"sample_count: full={full_n}, avoid={avoid_n}, avoided={avoided_n}; "
+            f"metadata_rows_count: full={full_n}, avoid={avoid_n}, avoided={avoided_n}; "
             f"avoid + avoided = {avoid_n + avoided_n}"
         )
 
@@ -1767,11 +1767,11 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
       - GROUP BY collapsing on bldg_id alone (loses tract-level breakdown)
 
     Anchored expected values:
-      no group_by, bldg=51037: sample_count=46, units_count≈8.987, kWh≈3.711M
-      bldg=51037, state=CO:    sample_count=2,  units_count≈0.616, kWh≈0.255M
-      bldg=51037, state=NM:    sample_count=30, units_count≈5.694, kWh≈2.352M
-      bldg=51037, state=OK:    sample_count=1,  units_count≈0.043, kWh≈0.018M
-      bldg=51037, state=TX:    sample_count=13, units_count≈2.633, kWh≈1.088M
+      no group_by, bldg=51037: metadata_rows_count=46, units_count≈8.987, kWh≈3.711M
+      bldg=51037, state=CO:    metadata_rows_count=2,  units_count≈0.616, kWh≈0.255M
+      bldg=51037, state=NM:    metadata_rows_count=30, units_count≈5.694, kWh≈2.352M
+      bldg=51037, state=OK:    metadata_rows_count=1,  units_count≈0.043, kWh≈0.018M
+      bldg=51037, state=TX:    metadata_rows_count=13, units_count≈2.633, kWh≈1.088M
 
     Comstock-only — resstock's bldg_ids are globally unique (one bldg_id ↔
     one (state, tract)), so the composite-key behavior under test is
@@ -1808,8 +1808,8 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
         )
     for st, (n, w, kwh) in expected_per_state.items():
         row = by_state_indexed.loc[st]
-        assert int(row["sample_count"]) == n, (
-            f"sample_count for ({bldg}, {st}): expected {n}, got {row['sample_count']}"
+        assert int(row["metadata_rows_count"]) == n, (
+            f"metadata_rows_count for ({bldg}, {st}): expected {n}, got {row['metadata_rows_count']}"
         )
         assert np.isclose(float(row["units_count"]), w, rtol=1e-3), (
             f"units_count for ({bldg}, {st}): expected ~{w:.4f}, got {row['units_count']}"
@@ -1832,8 +1832,8 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
     expected_n = sum(v[0] for v in expected_per_state.values())  # 46
     expected_w = sum(v[1] for v in expected_per_state.values())  # ~8.987
     expected_kwh = sum(v[2] for v in expected_per_state.values())  # ~3.711M
-    assert int(no_grp["sample_count"].iloc[0]) == expected_n, (
-        f"no-group-by sample_count: expected {expected_n}, got {no_grp['sample_count'].iloc[0]}"
+    assert int(no_grp["metadata_rows_count"].iloc[0]) == expected_n, (
+        f"no-group-by metadata_rows_count: expected {expected_n}, got {no_grp['metadata_rows_count'].iloc[0]}"
     )
     assert np.isclose(float(no_grp["units_count"].iloc[0]), expected_w, rtol=1e-3), (
         f"no-group-by units_count: expected ~{expected_w:.4f}, got {no_grp['units_count'].iloc[0]}"
@@ -1844,7 +1844,7 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
     ), f"no-group-by kWh: expected ~{expected_kwh:.0f}"
 
     # Filter composition: state filter should restrict to exactly that state.
-    # bldg=51037 in CO has 2 tracts → sample_count=2.
+    # bldg=51037 in CO has 2 tracts → metadata_rows_count=2.
     co_only = bsq.query(
         enduses=[enduse], upgrade_id="0",
         restrict=[("bldg_id", [bldg]), ("state", ["CO"])],
@@ -1853,8 +1853,8 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
         "enduses": [enduse], "upgrade_id": "0",
         "restrict": [("bldg_id", [bldg]), ("state", ["CO"])],
     })
-    assert int(co_only["sample_count"].iloc[0]) == 2, (
-        f"bldg+state restrict (CO): expected sample_count=2, got {co_only['sample_count'].iloc[0]}"
+    assert int(co_only["metadata_rows_count"].iloc[0]) == 2, (
+        f"bldg+state restrict (CO): expected metadata_rows_count=2, got {co_only['metadata_rows_count'].iloc[0]}"
     )
     assert np.isclose(
         float(co_only["electricity.total.energy_consumption..kwh"].iloc[0]), 254552.65, rtol=1e-3,
@@ -1912,7 +1912,7 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
     # baseline ⋈ upgrade JOIN whose ON clause includes (bldg_id, tract,
     # state) under the canonical schema. Without all three keys, the join
     # would cross-product across (state, tract) for the shared bldg_id and
-    # inflate per-state sample_counts.
+    # inflate per-state metadata_rows_counts.
     try:
         savings_by_state = bsq.query(
             enduses=[enduse], upgrade_id="1", applied_only=True,
@@ -1932,7 +1932,7 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
             f"didn't apply to this archetype): {type(exc).__name__}: {exc}"
         )
     savings_idx = savings_by_state.set_index("state")
-    # Per-state sample_count from the savings JOIN should match the metadata
+    # Per-state metadata_rows_count from the savings JOIN should match the metadata
     # row count per state (i.e. canonical_per_state — same as the baseline-
     # only by_state result). A bldg-only join would multiply these by the
     # cross-state upgrade row count.
@@ -1940,9 +1940,9 @@ def test_comstock_shared_bldg_id_composite_key_handling(request):
         if st not in expected_per_state:
             continue
         expected_n, _, _ = expected_per_state[st]
-        actual_n = int(savings_idx.loc[st, "sample_count"])
+        actual_n = int(savings_idx.loc[st, "metadata_rows_count"])
         assert actual_n == expected_n, (
-            f"savings-shape sample_count for ({bldg}, {st}): expected {expected_n}, "
+            f"savings-shape metadata_rows_count for ({bldg}, {st}): expected {expected_n}, "
             f"got {actual_n} — a bldg_id-only join would inflate this"
         )
 
@@ -1969,9 +1969,9 @@ def test_comstock_composite_key_mutation_breaks_invariants():
 
     Anchor: bldg_id=51037 is deployed in 4 states / 46 tracts. Under the
     canonical schema, the savings query produces a row per state with
-    sample_count matching the per-state metadata count (CO=2, NM=30, etc.).
+    metadata_rows_count matching the per-state metadata count (CO=2, NM=30, etc.).
     Under the mutated schema, each metadata row joins with every same-bldg_id
-    upgrade row across all states, inflating sample_count by ~46x.
+    upgrade row across all states, inflating metadata_rows_count by ~46x.
     """
     import os
     import toml
@@ -2026,9 +2026,9 @@ def test_comstock_composite_key_mutation_breaks_invariants():
 
     # Canonical anchored values for the savings query (upgrade=1, applied_only=True).
     # bldg=51037: CO has 2 metadata rows, NM has 30, OK has 1, TX has 13. The
-    # join under canonical keys produces sample_count == per-state metadata count.
+    # join under canonical keys produces metadata_rows_count == per-state metadata count.
     # Under mutated keys (bldg_id-only join), each baseline row in state X joins
-    # with every upgrade row across all 4 states, producing sample_count that's
+    # with every upgrade row across all 4 states, producing metadata_rows_count that's
     # roughly per_state_count × total_upgrade_rows_for_bldg.
     canonical_per_state = {"CO": 2, "NM": 30, "OK": 1, "TX": 13}
 
@@ -2053,10 +2053,10 @@ def test_comstock_composite_key_mutation_breaks_invariants():
         if st not in by_state_idx.index:
             divergences.append(f"state {st} missing from mutated result")
             continue
-        actual_count = int(by_state_idx.loc[st, "sample_count"])
+        actual_count = int(by_state_idx.loc[st, "metadata_rows_count"])
         if actual_count != canonical_count:
             divergences.append(
-                f"sample_count for {st}: canonical={canonical_count}, "
+                f"metadata_rows_count for {st}: canonical={canonical_count}, "
                 f"mutated={actual_count} (factor of {actual_count/canonical_count:.1f}x)"
             )
 
@@ -2186,9 +2186,9 @@ def test_applied_buildings_intersection(request, bsq_fixture, schema):
                 msg.append(f"  in intersection but not in [1,2] ({len(only_in_expected)} total): {sample}")
             pytest.fail("\n".join(msg))
 
-        # Cross-check against the aggregated `applied_in_1_2` sample_count from
+        # Cross-check against the aggregated `applied_in_1_2` metadata_rows_count from
         # the invariant snapshot. The number of unique-key tuples here should
-        # equal the `sample_count` reported there (which is COUNT(DISTINCT bs_key)
+        # equal the `metadata_rows_count` reported there (which is COUNT(DISTINCT bs_key)
         # at the SQL level).
         applied_filter_12 = bsq.get_applied_buildings_filter(all_of=[1, 2])
         inv_restrict = [applied_filter_12, *restrict] if applied_filter_12 else list(restrict)
@@ -2204,13 +2204,13 @@ def test_applied_buildings_intersection(request, bsq_fixture, schema):
             "enduses": enduses, "upgrade_id": "1", "applied_only": True,
             "group_by": [group_col], "restrict": inv_record_restrict,
         })
-        aggregated_sample_count = int(inv_df["sample_count"].sum())
-        if aggregated_sample_count != len(keys_12):
+        aggregated_metadata_rows_count = int(inv_df["metadata_rows_count"].sum())
+        if aggregated_metadata_rows_count != len(keys_12):
             pytest.fail(
-                f"[{restrict_label}] sample_count mismatch: get_building_ids "
+                f"[{restrict_label}] metadata_rows_count mismatch: get_building_ids "
                 f"returned {len(keys_12)} unique keys, but the aggregated "
                 f"all_of=[1,2] query reports total "
-                f"sample_count={aggregated_sample_count} (sum across building types)."
+                f"metadata_rows_count={aggregated_metadata_rows_count} (sum across building types)."
             )
 
     # Composition check: the multi-state intersection should equal the union of
@@ -2710,8 +2710,8 @@ def test_applied_filter_subquery_equals_id_list(request, bsq_fixture, schema):
     })
 
     enduse_col = _strip_out_prefix(enduse)
-    # Both encodings must agree on units_count, sample_count, and the enduse total.
-    for col in ("units_count", "sample_count", enduse_col):
+    # Both encodings must agree on units_count, metadata_rows_count, and the enduse total.
+    for col in ("units_count", "metadata_rows_count", enduse_col):
         a_val = float(df_subq[col].iloc[0])
         b_val = float(df_list[col].iloc[0])
         if not np.isclose(a_val, b_val, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
@@ -2731,7 +2731,7 @@ def test_applied_filter_subquery_equals_id_list(request, bsq_fixture, schema):
             "enduses": [enduse],
             "restrict": [marker, marker, *base_restrict],
         })
-        for col in ("units_count", "sample_count", enduse_col):
+        for col in ("units_count", "metadata_rows_count", enduse_col):
             a_val = float(df_subq[col].iloc[0])
             b_val = float(df_doubled[col].iloc[0])
             if not np.isclose(a_val, b_val, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
@@ -3043,7 +3043,7 @@ def test_applied_only_equals_explicit_all_of(request, bsq_fixture, schema):
         ),
     })
 
-    # Per-group equality on units_count, sample_count, and enduse total.
+    # Per-group equality on units_count, metadata_rows_count, and enduse total.
     enduse_col = _strip_out_prefix(enduse)
     a_idx = df_implicit.set_index(group_col).sort_index()
     b_idx = df_explicit.set_index(group_col).sort_index()
@@ -3054,7 +3054,7 @@ def test_applied_only_equals_explicit_all_of(request, bsq_fixture, schema):
             f"only_explicit={set(b_idx.index) - set(a_idx.index)}"
         )
     diffs = []
-    for col in ("units_count", "sample_count", enduse_col):
+    for col in ("units_count", "metadata_rows_count", enduse_col):
         for key in a_idx.index:
             av = float(a_idx.loc[key, col])
             bv = float(b_idx.loc[key, col])
@@ -3302,18 +3302,18 @@ def test_applied_filter_calc_column_composition(request, bsq_fixture, schema):
 # miscounted in subtle ways across different code paths (group_by axes,
 # annual-vs-TS, baseline-join wiring). Each catches a different class
 # of count-related bug: tract fan-out, group_by NULL drops, TS-baseline
-# join wires, integer-vs-float drift on sample_count.
+# join wires, integer-vs-float drift on metadata_rows_count.
 
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
 def test_count_partition_under_group_by(request, bsq_fixture, schema):
     """For any categorical column used as `group_by`, the per-group
-    `sum(sample_count)` and `sum(units_count)` must equal the total
+    `sum(metadata_rows_count)` and `sum(units_count)` must equal the total
     over the same universe (no group_by). This is the definition of a
     partition: every row belongs to exactly one group, with no leakage
     or double-counting.
 
-    `sample_count` is checked at integer precision (no rtol) — counts
+    `metadata_rows_count` is checked at integer precision (no rtol) — counts
     are integers and any float drift means a real bug.
 
     Five group_by axes are exercised: `[bldg_id]`, `[county]`,
@@ -3347,7 +3347,7 @@ def test_count_partition_under_group_by(request, bsq_fixture, schema):
     df_total = bsq.query(enduses=[enduse], restrict=base_restrict)
     record_query(bsq, {"enduses": [enduse], "restrict": base_restrict})
     total_units = float(df_total["units_count"].iloc[0])
-    total_samples = int(df_total["sample_count"].iloc[0])
+    total_samples = int(df_total["metadata_rows_count"].iloc[0])
 
     failures = []
     for gname, group_by in group_by_axis.items():
@@ -3356,17 +3356,17 @@ def test_count_partition_under_group_by(request, bsq_fixture, schema):
             "enduses": [enduse], "group_by": group_by, "restrict": base_restrict,
         })
         units_sum = float(df["units_count"].sum())
-        samples_sum = int(df["sample_count"].sum())
+        samples_sum = int(df["metadata_rows_count"].sum())
         # units_count: float compare with tolerance.
         if not np.isclose(units_sum, total_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
             failures.append(
                 f"  group_by={gname}: units_count sum={units_sum:.4f}, "
                 f"total={total_units:.4f}, diff={units_sum - total_units:.4f}"
             )
-        # sample_count: integer-exact.
+        # metadata_rows_count: integer-exact.
         if samples_sum != total_samples:
             failures.append(
-                f"  group_by={gname}: sample_count sum={samples_sum}, "
+                f"  group_by={gname}: metadata_rows_count sum={samples_sum}, "
                 f"total={total_samples}, diff={samples_sum - total_samples}"
             )
 
@@ -3423,7 +3423,7 @@ def test_count_partition_under_applied_filter(
     df_total = bsq.query(enduses=[enduse], restrict=base_restrict)
     record_query(bsq, {"enduses": [enduse], "restrict": record_restrict})
     total_units = float(df_total["units_count"].iloc[0])
-    total_samples = int(df_total["sample_count"].iloc[0])
+    total_samples = int(df_total["metadata_rows_count"].iloc[0])
 
     failures = []
     for gname, group_by in group_by_axis.items():
@@ -3432,7 +3432,7 @@ def test_count_partition_under_applied_filter(
             "enduses": [enduse], "group_by": group_by, "restrict": record_restrict,
         })
         units_sum = float(df["units_count"].sum())
-        samples_sum = int(df["sample_count"].sum())
+        samples_sum = int(df["metadata_rows_count"].sum())
         if not np.isclose(units_sum, total_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
             failures.append(
                 f"  group_by={gname}: units_count sum={units_sum:.4f}, "
@@ -3440,7 +3440,7 @@ def test_count_partition_under_applied_filter(
             )
         if samples_sum != total_samples:
             failures.append(
-                f"  group_by={gname}: sample_count sum={samples_sum}, "
+                f"  group_by={gname}: metadata_rows_count sum={samples_sum}, "
                 f"total={total_samples}, diff={samples_sum - total_samples}"
             )
 
@@ -3457,10 +3457,10 @@ def test_count_integrity_annual_vs_ts_year_collapse(
 ):
     """For each of (no filter, applied filter), the annual baseline query
     and the TS-with-year-collapse baseline query must agree on
-    `sum(units_count)` (float-close) and `sum(sample_count)`
+    `sum(units_count)` (float-close) and `sum(metadata_rows_count)`
     (integer-exact). Pins the bs ↔ ts join wiring through the
     bs_per_bldg pre-aggregation: if the TS path drops or duplicates
-    rows on the upgrade=0 side, integer sample_count diverges from
+    rows on the upgrade=0 side, integer metadata_rows_count diverges from
     annual immediately.
 
     Runs across multiple group_by axes so per-grain count drift surfaces.
@@ -3520,8 +3520,8 @@ def test_count_integrity_annual_vs_ts_year_collapse(
 
             ann_units = float(df_annual["units_count"].sum())
             ts_units = float(df_ts["units_count"].sum())
-            ann_samples = int(df_annual["sample_count"].sum())
-            ts_samples = int(df_ts["sample_count"].sum())
+            ann_samples = int(df_annual["metadata_rows_count"].sum())
+            ts_samples = int(df_ts["metadata_rows_count"].sum())
 
             if not np.isclose(
                 ann_units, ts_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
@@ -3533,7 +3533,7 @@ def test_count_integrity_annual_vs_ts_year_collapse(
                 )
             if ann_samples != ts_samples:
                 failures.append(
-                    f"  scenario={sname}, group_by={gname}: sample_count "
+                    f"  scenario={sname}, group_by={gname}: metadata_rows_count "
                     f"annual={ann_samples}, ts_year={ts_samples}, "
                     f"diff={ann_samples - ts_samples}"
                 )
@@ -3624,10 +3624,10 @@ def test_applied_filter_mean_sum_consistency(
 ):
     """Under an applied filter, the `agg_func='mean'` and default-sum query
     flavors must produce per-group results that satisfy a consistent
-    relationship: `sum / (mean × sample_count)` is a positive finite
+    relationship: `sum / (mean × metadata_rows_count)` is a positive finite
     "mean weight per building in this group" — strictly between the
     minimum and maximum possible weights in the schema. Catches:
-      - sample_count divergence between sum and mean branches.
+      - metadata_rows_count divergence between sum and mean branches.
       - mean column flipping sign or swallowing weight inappropriately.
       - sum branch dropping rows the mean branch keeps (or vice versa).
     """
@@ -3674,7 +3674,7 @@ def test_applied_filter_mean_sum_consistency(
             f"could not find mean column for {sum_col!r} in {list(df_mean.columns)}"
         )
 
-    # sample_count must agree between sum and mean queries — same building
+    # metadata_rows_count must agree between sum and mean queries — same building
     # set, same group_by, same restrict, so this is integer-exact.
     sum_idx = df_sum.set_index(group_col).sort_index()
     mean_idx = df_mean.set_index(group_col).sort_index()
@@ -3684,11 +3684,11 @@ def test_applied_filter_mean_sum_consistency(
             f"only_sum={set(sum_idx.index) - set(mean_idx.index)}, "
             f"only_mean={set(mean_idx.index) - set(sum_idx.index)}"
         )
-    sum_n = sum_idx["sample_count"].astype(int)
-    mean_n = mean_idx["sample_count"].astype(int)
+    sum_n = sum_idx["metadata_rows_count"].astype(int)
+    mean_n = mean_idx["metadata_rows_count"].astype(int)
     if not sum_n.equals(mean_n):
         pytest.fail(
-            f"sample_count diverges between sum and mean under applied filter:\n"
+            f"metadata_rows_count diverges between sum and mean under applied filter:\n"
             f"  sum side: {sum_n.to_dict()}\n  mean side: {mean_n.to_dict()}"
         )
 
@@ -3700,7 +3700,7 @@ def test_applied_filter_mean_sum_consistency(
     for key in sum_idx.index:
         sum_val = float(sum_idx.loc[key, sum_col])
         mean_val = float(mean_idx.loc[key, mean_col])
-        n = int(sum_idx.loc[key, "sample_count"])
+        n = int(sum_idx.loc[key, "metadata_rows_count"])
         if mean_val == 0 and sum_val != 0:
             bad.append(f"  {key}: mean=0 but sum={sum_val:.4f} (impossible)")
             continue
@@ -3860,7 +3860,7 @@ def test_multistate_county_partition(request, bsq_fixture, schema):
 
       sum_{(s, c)} units_count = sum_{s} units_count = total units_count
 
-    Same for sample_count at integer precision.
+    Same for metadata_rows_count at integer precision.
 
     Then the same multi-state restrict expressed as `group_by=[state]`
     (no county) must give per-state totals that match per-state queries
@@ -3894,11 +3894,11 @@ def test_multistate_county_partition(request, bsq_fixture, schema):
     })
 
     total_units = float(df_total["units_count"].iloc[0])
-    total_samples = int(df_total["sample_count"].iloc[0])
+    total_samples = int(df_total["metadata_rows_count"].iloc[0])
     state_units = float(df_state["units_count"].sum())
-    state_samples = int(df_state["sample_count"].sum())
+    state_samples = int(df_state["metadata_rows_count"].sum())
     state_county_units = float(df_state_county["units_count"].sum())
-    state_county_samples = int(df_state_county["sample_count"].sum())
+    state_county_samples = int(df_state_county["metadata_rows_count"].sum())
 
     failures = []
     if not np.isclose(state_units, total_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
@@ -3908,7 +3908,7 @@ def test_multistate_county_partition(request, bsq_fixture, schema):
         )
     if state_samples != total_samples:
         failures.append(
-            f"  state grouping sample_count={state_samples} vs total={total_samples}"
+            f"  state grouping metadata_rows_count={state_samples} vs total={total_samples}"
         )
     if not np.isclose(
         state_county_units, total_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
@@ -3920,7 +3920,7 @@ def test_multistate_county_partition(request, bsq_fixture, schema):
         )
     if state_county_samples != total_samples:
         failures.append(
-            f"  (state, county) grouping sample_count={state_county_samples} "
+            f"  (state, county) grouping metadata_rows_count={state_county_samples} "
             f"vs total={total_samples}"
         )
 
@@ -3939,9 +3939,9 @@ def test_multistate_county_partition(request, bsq_fixture, schema):
     else:
         for s, df_one in ((s1, df_s1), (s2, df_s2)):
             multi_units_s = float(state_idx.loc[s, "units_count"])
-            multi_samples_s = int(state_idx.loc[s, "sample_count"])
+            multi_samples_s = int(state_idx.loc[s, "metadata_rows_count"])
             single_units_s = float(df_one["units_count"].iloc[0])
-            single_samples_s = int(df_one["sample_count"].iloc[0])
+            single_samples_s = int(df_one["metadata_rows_count"].iloc[0])
             if not np.isclose(
                 multi_units_s, single_units_s,
                 rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL,
@@ -3953,7 +3953,7 @@ def test_multistate_county_partition(request, bsq_fixture, schema):
                 )
             if multi_samples_s != single_samples_s:
                 failures.append(
-                    f"  state={s}: multi-state sample_count={multi_samples_s} "
+                    f"  state={s}: multi-state metadata_rows_count={multi_samples_s} "
                     f"vs single-state={single_samples_s}"
                 )
 
@@ -3973,7 +3973,7 @@ def test_multistate_county_x_bldg_type_decomposition(request, bsq_fixture, schem
 
       sum_{bt} U[s, c, bt] = U[s, c]   for every (s, c)
 
-    Same for sample_count at integer precision. Multi-state to surface
+    Same for metadata_rows_count at integer precision. Multi-state to surface
     state-boundary issues; multi-key group_by to surface composite-key
     aggregation drops.
     """
@@ -4008,7 +4008,7 @@ def test_multistate_county_x_bldg_type_decomposition(request, bsq_fixture, schem
 
     rolled = (
         df_full.groupby(["state", county_result_col], dropna=False)
-        [["units_count", "sample_count"]]
+        [["units_count", "metadata_rows_count"]]
         .sum()
         .sort_index()
     )
@@ -4025,8 +4025,8 @@ def test_multistate_county_x_bldg_type_decomposition(request, bsq_fixture, schem
     for key in direct.index:
         u_full = float(rolled.loc[key, "units_count"])
         u_direct = float(direct.loc[key, "units_count"])
-        n_full = int(rolled.loc[key, "sample_count"])
-        n_direct = int(direct.loc[key, "sample_count"])
+        n_full = int(rolled.loc[key, "metadata_rows_count"])
+        n_direct = int(direct.loc[key, "metadata_rows_count"])
         if not np.isclose(u_full, u_direct, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
             failures.append(
                 f"  {key}: units rolled={u_full:.4f} vs direct={u_direct:.4f} "
@@ -4034,7 +4034,7 @@ def test_multistate_county_x_bldg_type_decomposition(request, bsq_fixture, schem
             )
         if n_full != n_direct:
             failures.append(
-                f"  {key}: sample_count rolled={n_full} vs direct={n_direct}"
+                f"  {key}: metadata_rows_count rolled={n_full} vs direct={n_direct}"
             )
     if failures:
         pytest.fail(
@@ -4050,7 +4050,7 @@ def test_annual_vs_ts_year_at_county_grain_multistate(
     """The smoking-gun test for the user's worry: under a multi-state
     restrict and `group_by=[state, county]`, the annual baseline and
     TS year-collapse baseline must agree per (state, county) on
-    integer sample_count and float-close units_count.
+    integer metadata_rows_count and float-close units_count.
 
     Bounded to a curated 8-bldg universe so the TS scan is small
     even with multi-state. Pins the bs_per_bldg pre-aggregation +
@@ -4113,8 +4113,8 @@ def test_annual_vs_ts_year_at_county_grain_multistate(
     for key in a_idx.index:
         a_units = float(a_idx.loc[key, "units_count"])
         t_units = float(t_idx.loc[key, "units_count"])
-        a_samples = int(a_idx.loc[key, "sample_count"])
-        t_samples = int(t_idx.loc[key, "sample_count"])
+        a_samples = int(a_idx.loc[key, "metadata_rows_count"])
+        t_samples = int(t_idx.loc[key, "metadata_rows_count"])
         if not np.isclose(a_units, t_units, rtol=INVARIANT_RTOL, atol=INVARIANT_ATOL):
             failures.append(
                 f"  {key}: units annual={a_units:.4f} vs ts={t_units:.4f} "
@@ -4122,7 +4122,7 @@ def test_annual_vs_ts_year_at_county_grain_multistate(
             )
         if a_samples != t_samples:
             failures.append(
-                f"  {key}: sample_count annual={a_samples} vs ts={t_samples}"
+                f"  {key}: metadata_rows_count annual={a_samples} vs ts={t_samples}"
             )
     if failures:
         pytest.fail(
@@ -4136,7 +4136,7 @@ def test_multistate_savings_shape_at_county_grain(request, bsq_fixture, schema):
     """Maximum combinatorial stress: multi-state restrict + group_by=[state,
     county] + include_baseline + include_upgrade + include_savings + applied
     filter on the upgrade leg. Per-row, `b - u ≈ s` must hold and units_count
-    / sample_count totals must be consistent with no upstream filter.
+    / metadata_rows_count totals must be consistent with no upstream filter.
 
     Bounded to a curated cross-state universe. Catches savings-column
     join misalignment that only surfaces when all axes are activated.
@@ -4191,10 +4191,10 @@ def test_multistate_savings_shape_at_county_grain(request, bsq_fixture, schema):
                 f"b={b:.4f}, u={u:.4f}, s={s:.4f}, "
                 f"b-u={b - u:.4f}, diff={(b - u) - s:.4f}"
             )
-        if int(row["sample_count"]) <= 0:
+        if int(row["metadata_rows_count"]) <= 0:
             bad.append(
                 f"  ({row['state']}, {row[county_result_col]}): "
-                f"sample_count={int(row['sample_count'])} <= 0 (impossible)"
+                f"metadata_rows_count={int(row['metadata_rows_count'])} <= 0 (impossible)"
             )
         if float(row["units_count"]) <= 0:
             bad.append(
@@ -4254,12 +4254,12 @@ def test_savings_magnitude_bounded_by_baseline(request, bsq_fixture, schema):
         pytest.fail("savings magnitude unreasonable:\n" + "\n".join(bad))
 
 
-# --- aggregate sample_count == get_building_ids row count -------------------
+# --- aggregate metadata_rows_count == get_building_ids row count -------------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
-def test_aggregate_sample_count_matches_building_ids(request, bsq_fixture, schema):
+def test_aggregate_metadata_rows_count_matches_building_ids(request, bsq_fixture, schema):
     """For an annual baseline aggregate (no upgrade pairing), the sum of
-    `sample_count` across all groups must equal the number of unique baseline
+    `metadata_rows_count` across all groups must equal the number of unique baseline
     rows under the same restrict — which is what `get_building_ids` returns.
     Any divergence implies the aggregate query is silently dropping or
     duplicating buildings (e.g. a join that fans out, or an applicability
@@ -4271,7 +4271,7 @@ def test_aggregate_sample_count_matches_building_ids(request, bsq_fixture, schem
 
     agg_df = bsq.query(enduses=[enduse], group_by=[group_col], restrict=restrict)
     record_query(bsq, {"enduses": [enduse], "group_by": [group_col], "restrict": restrict})
-    agg_total_count = int(agg_df["sample_count"].sum())
+    agg_total_count = int(agg_df["metadata_rows_count"].sum())
 
     bldg_ids_df = bsq.get_building_ids(restrict=restrict)
     record_query(bsq, {"restrict": restrict}, method="get_building_ids")
@@ -4282,19 +4282,19 @@ def test_aggregate_sample_count_matches_building_ids(request, bsq_fixture, schem
 
     if agg_total_count != bldg_ids_count:
         pytest.fail(
-            f"{schema}: sample_count sum across building_type groups = {agg_total_count}, "
+            f"{schema}: metadata_rows_count sum across building_type groups = {agg_total_count}, "
             f"but get_building_ids returned {bldg_ids_count} rows under the same restrict. "
             f"Diff = {agg_total_count - bldg_ids_count}."
         )
 
 
-# --- sample_count is integer-valued and non-negative ------------------------
+# --- metadata_rows_count is integer-valued and non-negative ------------------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
-def test_sample_count_integer_and_nonnegative(request, bsq_fixture, schema):
-    """sample_count is `sum(1)` over a row set — it must always be a
+def test_metadata_rows_count_integer_and_nonnegative(request, bsq_fixture, schema):
+    """metadata_rows_count is `sum(1)` over a row set — it must always be a
     non-negative integer. Catches sign bugs (negative counts) and bugs that
-    accidentally divide sample_count by something (fractional values)."""
+    accidentally divide metadata_rows_count by something (fractional values)."""
     bsq = request.getfixturevalue(bsq_fixture)
     enduse = resolve_placeholder(schema, "electricity_total")
     group_col = resolve_placeholder(schema, "building_type_col")
@@ -4305,15 +4305,15 @@ def test_sample_count_integer_and_nonnegative(request, bsq_fixture, schema):
     record_query(bsq, {
         "enduses": [enduse], "group_by": [group_col], "restrict": [("state", ["CO"])],
     })
-    counts = df["sample_count"].astype(float)
+    counts = df["metadata_rows_count"].astype(float)
     bad = []
     for key, val in zip(df[group_col], counts):
         if val < 0:
-            bad.append(f"  {key}: sample_count={val} < 0")
+            bad.append(f"  {key}: metadata_rows_count={val} < 0")
         if not float(val).is_integer():
-            bad.append(f"  {key}: sample_count={val} not integer")
+            bad.append(f"  {key}: metadata_rows_count={val} not integer")
     if bad:
-        pytest.fail("sample_count violations:\n" + "\n".join(bad))
+        pytest.fail("metadata_rows_count violations:\n" + "\n".join(bad))
 
 
 # --- annual baseline enduses are non-negative ------------------------------
@@ -4571,11 +4571,11 @@ def test_sort_limit_equals_top_n_of_unsorted(request, bsq_fixture, schema):
             )
 
 
-# --- agg_func='mean' consistency: mean × sample_count ≈ sum -----------------
+# --- agg_func='mean' consistency: mean × metadata_rows_count ≈ sum -----------------
 
 @pytest.mark.parametrize("bsq_fixture, schema", SCHEMA_CASES)
 def test_agg_func_mean_times_count_equals_sum(request, bsq_fixture, schema):
-    """For the same enduse and group_by, `agg_func='mean'` × per-row sample_count
+    """For the same enduse and group_by, `agg_func='mean'` × per-row metadata_rows_count
     must equal the default-sum-aggregated value. Catches divergence between the
     mean and sum branches in `_query` (e.g. accidental weight application on
     one but not the other)."""
@@ -4608,17 +4608,17 @@ def test_agg_func_mean_times_count_equals_sum(request, bsq_fixture, schema):
     mean_indexed = mean_df.set_index(group_col)[mean_col].astype(float).sort_index()
     # sum side carries weighted sum; mean side is unweighted mean per row, so the
     # cross-check needs the MEAN side's count baseline. Both queries use the same
-    # restrict and group_by, so per-group sample_count must agree.
-    sum_n = sum_df.set_index(group_col)["sample_count"].astype(float).sort_index()
-    mean_n = mean_df.set_index(group_col)["sample_count"].astype(float).sort_index()
+    # restrict and group_by, so per-group metadata_rows_count must agree.
+    sum_n = sum_df.set_index(group_col)["metadata_rows_count"].astype(float).sort_index()
+    mean_n = mean_df.set_index(group_col)["metadata_rows_count"].astype(float).sort_index()
     if not sum_n.equals(mean_n):
         pytest.fail(
-            f"sample_count diverges between sum and mean queries:\n"
+            f"metadata_rows_count diverges between sum and mean queries:\n"
             f"  sum side: {sum_n.to_dict()}\n  mean side: {mean_n.to_dict()}"
         )
 
     # The sum query applies `weight` to each row; the mean is unweighted average
-    # per row. So `mean × sample_count` ≠ `sum` directly — instead, `sum / mean`
+    # per row. So `mean × metadata_rows_count` ≠ `sum` directly — instead, `sum / mean`
     # equals `sum_of_weights` per group. We assert that the ratio is positive
     # and finite for every group (the strong identity-equivalence form would
     # require pulling sample_weight separately).
@@ -4645,7 +4645,7 @@ def test_agg_func_mean_times_count_equals_sum(request, bsq_fixture, schema):
 # Any weighted-aggregate query on the agg table must therefore produce the
 # same numbers as the equivalent query on the un-aggregated table.
 #
-# `sample_count` is the only column that systematically differs (it's
+# `metadata_rows_count` is the only column that systematically differs (it's
 # `SUM(1)` and the agg table has fewer rows). Drop it before comparing;
 # `units_count` (= SUM(weight)) and the enduse aggregates should match
 # within float-drift tolerance.
@@ -4684,7 +4684,7 @@ def _is_weight_preserving(args: dict) -> bool:
 
 
 def _drop_count_columns(df: pd.DataFrame) -> pd.DataFrame:
-    return df.drop(columns=[c for c in ("sample_count",) if c in df.columns])
+    return df.drop(columns=[c for c in ("metadata_rows_count",) if c in df.columns])
 
 
 def _frames_match_loose(a: pd.DataFrame, b: pd.DataFrame) -> tuple[bool, str]:
@@ -4722,7 +4722,7 @@ def test_comstock_oedi_equals_comstock_oedi_agg(
     bsq_comstock_oedi_agg,
 ):
     """Each weight-aggregating snapshot entry produces equal DataFrames on
-    both ComStock schemas (after dropping `sample_count`).
+    both ComStock schemas (after dropping `metadata_rows_count`).
 
     Both fixtures point at populated `<schema>_cache/` folders, so every
     `bsq.query()` call hits the parquet cache — no Athena spend.

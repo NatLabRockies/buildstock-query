@@ -2,9 +2,9 @@
   {
     "name": "savings_annual_upgrade1_electricity",
     "sql_hash": {
-      "resstock_oedi": "e5d383d0c45da3200316ea0f9e6943b32be7ed16a7fd19fcda072523d0aabfae",
-      "comstock_oedi": "4a3a9aff76a1217c0c0e99dc1924abcfd8ac8b89c2fc0e07875a8ba808da205f",
-      "comstock_oedi_agg": "3e09730b811d53279bbf2ed683dcb1d0a17bc0652034943c9ba021aba90c0024"
+      "resstock_oedi": "99309be22239db769ee0fdbebac5dfe3ec9a55ae762fdfd2d04fa1ac3cf758ab",
+      "comstock_oedi": "a3cc6c6ba1c427b725a4ac54e4c8d37f46d7bd118764bbf8db00365c146ec8bc",
+      "comstock_oedi_agg": "346cf75f36a9b8f3bb32c328d7144b158deaefd466f4eeef353cf651cfc4941f"
     },
     "description": "Annual savings for upgrade 1, electricity, grouped by building type, CO only.",
     "args": {
@@ -31,9 +31,9 @@
   {
     "name": "savings_ts_monthly_upgrade1_electricity",
     "sql_hash": {
-      "resstock_oedi": "4eef3d3ae1908226aef9999f8ce57b578db88456162bdfea69ef9cc5701ac054",
-      "comstock_oedi": "2dacda210d2ac0925b91b9aed9e7878a8d9cac4fb6f8000ec31f69163caa0a58",
-      "comstock_oedi_agg": "f0e0deb608050c55192dad590b97799e28a9258ec54d2638ad79e90f6369fcd0"
+      "resstock_oedi": "7c45243baecc19b71e2795394b9811dba5619aae1c85c2eb8bb070ce6f8ac9e2",
+      "comstock_oedi": "1284129b278f940aed0a21e8693b00a0e399715e98371863d0e702f2360e6821",
+      "comstock_oedi_agg": "de2692020972e399e7a5e8539131255e428bc328699f080a70b4ad0119e40088"
     },
     "description": "Monthly timeseries savings for upgrade 1, electricity, CO only.",
     "args": {
@@ -62,9 +62,9 @@
   {
     "name": "savings_only_upgrade1_electricity",
     "sql_hash": {
-      "resstock_oedi": "1254f5e9a07f873e6b560f80561807effbc8a288a71b775b73d75c86396b4ca9",
-      "comstock_oedi": "6291d4f1810fcd410debdfedec88a43ae35382e8df40862c53ffa2b6bfdfa098",
-      "comstock_oedi_agg": "26a7550d665e3417447b3ec863f5b0493428dfb94c311eb1c401282980cb0ab6"
+      "resstock_oedi": "1e752f1848ef8df1a8bd8b98e58a8b6ff30d869514944e7645fe51a78ca33f3f",
+      "comstock_oedi": "5c0a271e8ee0afa425a732ca36fd6ecc3ab2e80293c6e4a4dd705bc0123b6f22",
+      "comstock_oedi_agg": "a40ef97d2a20793929f0cfeec894aae3df3f8e010917575d5f5eb9d4399ee440"
     },
     "description": "Savings-only annual output (no baseline / no upgrade columns) for upgrade 1, CO. Catches column-suppression bugs in the include_baseline / include_upgrade flags.",
     "args": {
@@ -91,9 +91,9 @@
   {
     "name": "savings_annual_upgrade1_quartiles",
     "sql_hash": {
-      "resstock_oedi": "be97ef5d82878652fff3f9a372beac5ca1c2b34b0fee4d0930a945acbbd63b09",
-      "comstock_oedi": "2cec0ad921cece0afd909bb9ddbf77928eae19eb7c3f2d143a3c8394c444369d",
-      "comstock_oedi_agg": "6760b0c1584d4c13dfa8c560c66bc3bb729764480ba69adb171515e4ed3a7588"
+      "resstock_oedi": "17f6a5fc6ee6e240662db5342622c71b3b990f962d1ce7cbd83cfee7bf1fb2cf",
+      "comstock_oedi": "1e72760b1c0d78d9a100e7e0d815aa11cb9201c3d525b03bbc483a23dcf292e8",
+      "comstock_oedi_agg": "71c153bc15f3264e0912a797d999d0f9d264c8844e5c831ec03a7b3bd89f9f96"
     },
     "description": "Annual upgrade 1 savings with quartiles, CO only.",
     "args": {
@@ -121,9 +121,9 @@
   {
     "name": "savings_annual_two_fuel",
     "sql_hash": {
-      "resstock_oedi": "77c6ec50e93303cd4b018f2302351613193bef04adf6af5ea5a50004fd36780b",
-      "comstock_oedi": "6267e4f49ffb0b2d67e1bb537e58a7f40f38e7ff909eaaa607e595dd6bf2a46e",
-      "comstock_oedi_agg": "b0feb56e75341b331b5161a930f612cf86497c3164826330cd6a6a3aac7db5a5"
+      "resstock_oedi": "510132be421d40f0fdb37e3530d056e4466e1f56da5b47008aa1227a0a45044e",
+      "comstock_oedi": "90ae8a4bd4bebafb73faf405a7bd569ac0e53100566bd0a1e9e227de4e8eb5d3",
+      "comstock_oedi_agg": "e1874848dbb5319006b489a4b2984c460987b5ed9f05515fb4bdb51322b721ad"
     },
     "description": "Annual savings for upgrade 1 covering both electricity and natural gas as enduses, grouped by building type, CO only. Pins the multi-fuel column-suffix shape across the baseline/upgrade/savings projection \u2014 every prior savings entry is electricity-only.",
     "args": {
@@ -151,8 +151,8 @@
   {
     "name": "savings_ts_monthly_two_fuel",
     "sql_hash": {
-      "resstock_oedi": "6c924495f0b54653e686eb24709a0bf33faca41d5c4658da8d184ac4ea69d735",
-      "comstock_oedi": "bb1dac124cc58fef1f187e92909e0cb9d32208661d5a256b425ae769d6098e0a",
+      "resstock_oedi": "3adc5f0c1b6338455076199907ac59aa10e615ee1081b00c744abc29bcb88cf4",
+      "comstock_oedi": "0ec8054a717ccdffd816d0b91cade34ba7ebd32b78bdf1e61a46a205bd97ecd8",
       "comstock_oedi_agg": "6d39e1b20cde7cfbeeff70768a79cc4cce207557f2642477ae4ee67ae1bf2c43"
     },
     "description": "Monthly TS savings for upgrade 1 covering both electricity and natural gas, grouped by time, CO only. Mirrors savings_annual_two_fuel on the TS path \u2014 pins the multi-fuel column-suffix shape across baseline/upgrade/savings projections in the TS upgrade-pair flow. Comstock skips per UnsupportedQueryShape (TS upgrade-pair queries on comstock).",

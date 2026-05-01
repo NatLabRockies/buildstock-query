@@ -9,7 +9,9 @@ import pandas as pd
 from buildstock_query.schema.helpers import gather_params
 from typing import Literal, Optional, Union
 from collections.abc import Sequence
-from buildstock_query.schema.utilities import DBColType, RestrictTuple, SALabel, typed_literal, validate_arguments
+from buildstock_query.schema.utilities import (
+    AnyTableType, DBColType, RestrictTuple, SALabel, typed_literal, validate_arguments,
+)
 from pydantic import Field
 
 logging.basicConfig(level=logging.INFO)
@@ -416,7 +418,11 @@ class BuildStockAggregate:
 
     @validate_arguments
     def __get_annual_bs_up_table(self, upgrade_id: str, applied_only: bool | None):
-        bs = self._bsq.bs_table  # canonical alias
+        # `self._bsq.bs_table` / `.md_table` / `.md_key` may be routed to
+        # the alt metadata table by the `_routing_context` swap inside
+        # `_query`. Reading from `self._bsq.*` thus inherits routing
+        # automatically — no explicit threading needed here.
+        bs = self._bsq.bs_table
         if upgrade_id == "0":
             # Baseline-only path: no join. The caller filters to baseline rows
             # via `_md_baseline_successful_condition` in the outer WHERE.
@@ -507,7 +513,7 @@ class BuildStockAggregate:
             for enduse in enduse_cols
         ]
         grouping_metrics_selection = [
-            safunc.sum(1).label("sample_count"),
+            safunc.sum(1).label("metadata_rows_count"),
             safunc.sum(total_weight).label("units_count"),
         ]
 
@@ -632,6 +638,55 @@ class BuildStockAggregate:
             annual_only=params.annual_only,
             upgrade_id=upgrade_id,
         )
+        # Route to the smaller alt metadata table when the query is
+        # eligible. When ineligible — or when the schema declares no
+        # alt — fall through to today's primary-table behavior. See
+        # INVESTIGATION_partition_overhead.md for the ~2× engine-time
+        # win this typically delivers (Fix #2 in the priority list).
+        #
+        # Currently restricted to annual queries: the TS-flow joins MD on
+        # `(bldg_id, state)` where `state` is the bare partition column on
+        # both TS and primary MD. The alt MD's state column is `in.state`
+        # (different physical name), so the existing equi-join helpers
+        # can't bridge it without a cross-name mapping. Until that's
+        # added, TS-flow stays on the primary table.
+        if params.annual_only:
+            # Strip placeholder time tokens — `time` and the timestamp
+            # column name are reinjected later as bucketing expressions,
+            # not group-by columns the alt table must support. Only
+            # apply the strip to plain string entries; MappedColumns and
+            # SA Columns are passed through unchanged (they're never
+            # time-marker tokens).
+            time_aliases = ("time", self._bsq.timestamp_column_name)
+            routing_group_by = [
+                g for g in params.group_by
+                if not (isinstance(g, str) and g in time_aliases)
+            ]
+            md_choice = self._bsq._pick_metadata_table(routing_group_by, params.restrict)
+        else:
+            md_choice = "primary"
+        try:
+            with self._bsq._routing_context(md_choice):
+                return self._query_inner(
+                    params=params, upgrade_id=upgrade_id, md_choice=md_choice,
+                )
+        except Exception:
+            raise
+
+    def _query_inner(
+        self,
+        *,
+        params: Query,
+        upgrade_id: str,
+        md_choice: str,
+    ) -> Union[pd.DataFrame, str]:
+        # bs_table / md_table / md_key are now routed via the
+        # `_routing_context` swap on `self._bsq`. All helpers that read
+        # from `self._bsq.bs_table` (e.g. _get_weight, _get_enduse_cols,
+        # _get_column) inherit routing automatically.
+        bs_table = self._bsq.bs_table
+        md_table = self._bsq.md_table
+        md_key = self._bsq.md_key
         # On TS paths, `applied_only=True` must filter the surviving md_keys to
         # buildings where the upgrade applied — the annual flow does this via the
         # md self-join on (bs.bldg_id = up.bldg_id AND up.applicability=true), but
@@ -916,9 +971,61 @@ class BuildStockAggregate:
                         )
                     )
 
+        # Helper: model_count = count of distinct simulation models (distinct
+        # bldg_id) contributing to the outer group. Equals metadata_rows_count
+        # when the underlying metadata is one-row-per-bldg (ResStock; the
+        # state_agg-routed ComStock alt at queries that can't trip cross-state
+        # duplication of bldgs). Smaller than metadata_rows_count otherwise —
+        # most commonly when ComStock's primary table contributes multiple
+        # tract/state slices per bldg into the same outer group.
+        #
+        # Optimization for the bs_per_bldg-based TS flow: when each outer
+        # group sees each bldg at most once post-join, `count(*)` equals
+        # `count(distinct bldg_id)` and is ~22% cheaper at scale (Athena
+        # does not auto-rewrite count-distinct to count-star even when the
+        # cardinality is provably equivalent). Safety check: count(*) is OK
+        # iff every ts_unique_keys partition column other than bldg_id is
+        # in the outer group_by. For ts_unique_keys=[bldg_id] (ResStock)
+        # that's vacuously true. For ts_unique_keys=[bldg_id, state]
+        # (ComStock) we need state in the outer group.
+        #
+        # The optimization only applies when bs_per_bldg is in use (TS flow
+        # with the per-bldg pre-aggregation): bs_per_bldg has at most one
+        # row per ts_unique_key tuple, so post-join row identity matches
+        # `(ts_aggr_keys, bs_per_bldg_extra_group_cols)`. On the annual
+        # path or the no-bs_per_bldg TS path, post-join rows can include
+        # multiple tract rows per bldg per outer group, so count(*) would
+        # over-count distinct bldgs.
+        bldg_id_col = self._bsq.building_id_column_name
+        outer_group_names = {
+            getattr(g, "name", g) for g in (group_by_selection or ())
+        }
+        ts_partition_keys_minus_bldg = [
+            k for k in self._bsq._get_unique_keys("timeseries")
+            if k != bldg_id_col
+        ]
+        bs_per_bldg_in_use = (
+            not params.annual_only
+            and "bldg_weight" in getattr(md_alias, "c", {})
+        )
+        model_count_via_count_star = (
+            bs_per_bldg_in_use
+            and all(k in outer_group_names for k in ts_partition_keys_minus_bldg)
+        )
+
+        def _model_count_from(alias):
+            if model_count_via_count_star:
+                # count(*) is exact under the safety predicate above; the
+                # framework doesn't auto-rewrite count(distinct) -> count(*)
+                # so we emit it explicitly to skip the distinct-aggregation
+                # work on the post-join row stream.
+                return safunc.count(sa.text("*")).label("model_count")
+            return self._bsq._count_distinct([alias.c[bldg_id_col]]).label("model_count")
+
         if params.annual_only:  # Use annual tables
             grouping_metrics_selection = [
-                safunc.sum(1).label("sample_count"),
+                safunc.sum(1).label("metadata_rows_count"),
+                _model_count_from(bs_tbl),
                 safunc.sum(total_weight).label("units_count"),
             ]
         elif params.timestamp_grouping_func == "year":  # Use timeseries tables but collapse timeseries
@@ -926,7 +1033,8 @@ class BuildStockAggregate:
             if uses_bs_per_bldg:
                 # bs_per_bldg shape: pre-summed columns at building grain.
                 grouping_metrics_selection = [
-                    safunc.sum(md_alias.c["tract_count"]).label("sample_count"),
+                    safunc.sum(md_alias.c["tract_count"]).label("metadata_rows_count"),
+                    _model_count_from(md_alias),
                     safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
                     (safunc.sum(bs_tbl.c["_inner_rows"]) / self._bsq._count_distinct(
                         [bs_tbl.c[k] for k in self._bsq._get_unique_keys("timeseries")]
@@ -937,7 +1045,8 @@ class BuildStockAggregate:
                 md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
                 distinct_md_keys = self._bsq._count_distinct(md_key_cols)
                 grouping_metrics_selection = [
-                    distinct_md_keys.label("sample_count"),
+                    distinct_md_keys.label("metadata_rows_count"),
+                    _model_count_from(md_alias),
                     (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
                     (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
                 ]
@@ -946,7 +1055,8 @@ class BuildStockAggregate:
             uses_bs_per_bldg = "bldg_weight" in getattr(md_alias, "c", {})
             if uses_bs_per_bldg:
                 grouping_metrics_selection = [
-                    safunc.sum(md_alias.c["tract_count"]).label("sample_count"),
+                    safunc.sum(md_alias.c["tract_count"]).label("metadata_rows_count"),
+                    _model_count_from(md_alias),
                     safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
                     (safunc.sum(bs_tbl.c["_inner_rows"]) / self._bsq._count_distinct(
                         [bs_tbl.c[k] for k in self._bsq._get_unique_keys("timeseries")]
@@ -956,7 +1066,8 @@ class BuildStockAggregate:
                 md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
                 distinct_md_keys = self._bsq._count_distinct(md_key_cols)
                 grouping_metrics_selection = [
-                    distinct_md_keys.label("sample_count"),
+                    distinct_md_keys.label("metadata_rows_count"),
+                    _model_count_from(md_alias),
                     (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
                     (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
                 ]
@@ -981,17 +1092,19 @@ class BuildStockAggregate:
             # Raw 15-min TS output (no timestamp_grouping_func). The outer
             # SELECT references the ts_aggr (or pivot subquery) timestamp
             # column directly. units_count uses bs_per_bldg's pre-summed
-            # weight; sample_count counts tract rows via tract_count.
+            # weight; metadata_rows_count counts tract rows via tract_count.
             time_col = bs_tbl.c[self._bsq.timestamp_column_name].label(self._bsq.timestamp_column_name)
             uses_bs_per_bldg = "bldg_weight" in getattr(md_alias, "c", {})
             if uses_bs_per_bldg:
                 grouping_metrics_selection = [
-                    safunc.sum(md_alias.c["tract_count"]).label("sample_count"),
+                    safunc.sum(md_alias.c["tract_count"]).label("metadata_rows_count"),
+                    _model_count_from(md_alias),
                     safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
                 ]
             else:
                 grouping_metrics_selection = [
-                    safunc.sum(1).label("sample_count"),
+                    safunc.sum(1).label("metadata_rows_count"),
+                    _model_count_from(bs_tbl),
                     safunc.sum(total_weight).label("units_count"),
                 ]
             group_by_selection.insert(time_indx, time_col)
@@ -1018,7 +1131,10 @@ class BuildStockAggregate:
                 )
             )
             # Annual queries have no inner join helper to fold bs_restrict into,
-            # so the outer WHERE is the only place to apply it.
+            # so the outer WHERE is the only place to apply it. `_get_column`
+            # inside resolves against the routed `self.bs_table`, so a
+            # state='CO' filter resolves to the alt-table column on the
+            # state_agg path automatically.
             query = self._bsq._add_restrict(query, bs_restrict, annual_only=params.annual_only)
         # TS queries fold bs_restrict into the inner ts ⋈ bs JOIN ON inside
         # __get_timeseries_bs_up_table, so adding it again here would just

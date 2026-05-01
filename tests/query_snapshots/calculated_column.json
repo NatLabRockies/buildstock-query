@@ -2,9 +2,9 @@
   {
     "name": "calculated_column_elec_minus_gas",
     "sql_hash": {
-      "resstock_oedi": "9df9dfa9b364ca6add7739985c2647651bd6265875a7e06736b31d38e521478d",
-      "comstock_oedi": "6a75acb6082ea8a156625b399b7b98b3370771d20f44fae7d59c8f39274be78c",
-      "comstock_oedi_agg": "4e79f0dc71a39681001435d0e13a0e70bceaebc658490cb18aad9cfaf1c85607"
+      "resstock_oedi": "2a2fd175015326eaaec4799e8b170a5a0ab2fa81a26134bc13dae39eb01933c3",
+      "comstock_oedi": "acb2b141db2300e3922d179e93f6f06bdce8ee9b423a0001bba4d9a68765d402",
+      "comstock_oedi_agg": "235f43caae458ad1acb487faa7b6a3f26722cfc5a1c03ee279d0e1cb73470124"
     },
     "description": "Annual aggregation using a get_calculated_column-built enduse: electricity total minus natural gas total. Pins the operator-precedence and column-resolution path through get_calculated_column. The column_expr placeholders ($ELECTRICITY_TOTAL, $NATURAL_GAS_TOTAL) get resolved to per-schema column names by the specialized test function before construction.",
     "args": {
@@ -27,9 +27,9 @@
   {
     "name": "calculated_column_ts_pivot_upgrade_pair",
     "sql_hash": {
-      "resstock_oedi": "e9abce463641dc0c62e3975658e63199701977e5dd3b55880d2c5939bc228e8b",
-      "comstock_oedi": "99638d8105a65d90c39604f3adcd5d3cb6eb0b6051a8d767908d474d1f947837",
-      "comstock_oedi_agg": "f67ba414c5939cfa1239bc7f9b8e566d027d25c83b073d8d8de61422b1be48a4"
+      "resstock_oedi": "f86de603e5f86e90551d011db4789f5d7ab405d15cdb460880d50d0857f3ae2d",
+      "comstock_oedi": "4622af92fca59f2475724eede00b465124155da0a85fb00975b88099ae387ec6",
+      "comstock_oedi_agg": "109e92ec96885e1e270a39ead27ae07d2f73e3d599aec64fbfe0ed074a1edbc1"
     },
     "description": "TS calculated column on the pivot path: table='timeseries' + annual_only=False + upgrade_id != 0 + applied_only=False forces the upgrade-pair pivot subquery (NOT the upgrade_only short-circuit). The Label produced by get_calculated_column wraps an arithmetic expression of raw ts columns; the pivot must wrap that whole expression in a per-side CASE, not look up Label.name on ts.c. Without this entry, the pivot path's calculated-column handling is uncovered.",
     "args": {
@@ -57,9 +57,9 @@
   {
     "name": "calculated_column_ts_pivot_with_baseline",
     "sql_hash": {
-      "resstock_oedi": "7b64c485e1aa20b40bfcd999aa857eeff8f946110007e1dd630925e39123383e",
-      "comstock_oedi": "b510919f34f5dccbe9ab4e4929e7c715116e2d3b6cec9bac6b532068b30e9ef0",
-      "comstock_oedi_agg": "7395e6fc44ac335c9fb0d7fb0fa72d09bd0dd96b30f12cde9c380e6b969e2634"
+      "resstock_oedi": "ba82272cf76173b630670a1c53b34ea87dfc9722e4d9dbaeb390ed4471981d19",
+      "comstock_oedi": "2ced96506a762289fab6ec6c30e8e2e4c225eda3a985a9b13d8649a1c7524e51",
+      "comstock_oedi_agg": "4c417e933c4030611574426b2b2ccc6696cb22f1afe71da2ddf7b85824a641fe"
     },
     "description": "TS calculated column on the pivot path with include_baseline=True + applied_only=True. This combination forces the pivot subquery (upgrade_only short-circuit only fires when both include_baseline and include_savings are False) AND exercises the internal applied-buildings filter synthesis (TS path appends `_build_applied_subquery(all_of=[upgrade_id])` to filter to applicable buildings). Together with the upgrade_pair entry above, these two pin both branches of the TS pivot's calculated-column handling.",
     "args": {

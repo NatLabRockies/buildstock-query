@@ -164,6 +164,22 @@ class QueryCore:
         # bs alias. Self-join sites construct an additional `md.alias("up")`
         # locally for the upgrade-side row set.
         self.bs_table = self.md_table.alias("bs")
+        # Alt metadata table for the state-aggregate routing path (set
+        # by `_get_tables` when the schema declares
+        # `table_suffix.annual_and_metadata_state_agg`). Most callers
+        # ignore this; only `_pick_metadata_table` and the `_query`
+        # path that consumes its output reference it. The shared alias
+        # name "bs" matches the primary table so generated SQL is
+        # interchangeable when routed.
+        self.md_table_state_agg = getattr(self, "_md_table_state_agg_raw", None)
+        if self.md_table_state_agg is not None:
+            self.bs_table_state_agg = self.md_table_state_agg.alias("bs")
+            self.md_state_agg_key: tuple[str, ...] = tuple(
+                self._get_unique_keys("metadata_state_agg")
+            )
+        else:
+            self.bs_table_state_agg = None
+            self.md_state_agg_key = ()
 
         self.md_bldgid_column = self.bs_table.c[self.building_id_column_name]
         if self.ts_table is not None:
@@ -196,9 +212,66 @@ class QueryCore:
             unique_columns.append(column)
         return unique_columns
 
-    def _get_unique_keys(self, kind: Literal["metadata", "timeseries"]) -> list[str]:
+    def _get_unique_keys(
+        self, kind: Literal["metadata", "timeseries", "metadata_state_agg"]
+    ) -> list[str]:
+        # When routing is active (`_routing_context` swapped self.md_table
+        # to the alt), `kind="metadata"` should return the alt-table's
+        # narrower key. Detect by table identity rather than a separate
+        # flag — this keeps the routing visibility consistent with how
+        # other helpers detect it (via `self.bs_table` / `self.md_table`).
+        if (
+            kind == "metadata"
+            and getattr(self, "md_table_state_agg", None) is not None
+            and self.md_table is self.md_table_state_agg
+        ):
+            kind = "metadata_state_agg"
         configured_keys = getattr(self.db_schema.unique_keys, kind, None)
         return configured_keys or [self.building_id_column_name]
+
+    @contextlib.contextmanager
+    def _routing_context(self, md_choice: Literal["primary", "state_agg"]):
+        """Temporarily swap `self.bs_table` / `self.md_table` / `self.md_key`
+        / `self.sample_wt` / `self.md_bldgid_column` to the routed alternates
+        for the duration of one `_query` call. Restores originals on exit
+        (including on exception).
+
+        This sweeps the routing decision across every helper that reads
+        these attributes — e.g. `_get_column`, `_get_weight`,
+        `_get_enduse_cols`, `_md_baseline_filter` — without threading
+        `bs_table` arguments through dozens of call sites.
+
+        **Caveat:** not thread-safe within a single BSQ instance. Concurrent
+        `_query` calls on the same instance would race; the framework is
+        single-threaded per BSQ today (the ThreadPoolExecutor in
+        `_download_results_csv` doesn't run queries concurrently on the
+        same instance). If multi-threaded use ever materializes, swap to
+        a contextvars-based override instead.
+        """
+        if md_choice == "primary" or self.bs_table_state_agg is None:
+            yield
+            return
+        # Save originals.
+        prev_md_table = self.md_table
+        prev_bs_table = self.bs_table
+        prev_md_key = self.md_key
+        prev_sample_wt = self.sample_wt
+        prev_md_bldgid = self.md_bldgid_column
+        # Swap to alt.
+        self.md_table = self.md_table_state_agg
+        self.bs_table = self.bs_table_state_agg
+        self.md_key = self.md_state_agg_key
+        # Re-derive bound expressions on the alt alias.
+        self.sample_wt = self._get_sample_weight(self.sample_weight)
+        self.md_bldgid_column = self.bs_table.c[self.building_id_column_name]
+        try:
+            yield
+        finally:
+            self.md_table = prev_md_table
+            self.bs_table = prev_bs_table
+            self.md_key = prev_md_key
+            self.sample_wt = prev_sample_wt
+            self.md_bldgid_column = prev_md_bldgid
 
     def _join_condition(
         self,
@@ -358,16 +431,16 @@ class QueryCore:
         return sa.text(self._compile(raw_subquery)).columns(*source_table.c).subquery(alias_name)
 
     def _get_tables(self, table_name: Union[str, tuple[str, Optional[str]]]):
-        """Resolve the two underlying physical tables for this run.
+        """Resolve the underlying physical tables for this run.
 
-        The schema is two tables: a unified `annual_and_metadata` parquet
-        (one row per (bldg_id, upgrade) carrying both characteristics and
-        annual results) and a `timeseries` parquet. Self-join sites that
-        need to compare baseline and upgrade values for the same building
-        construct local `md_table.alias("bs")` / `.alias("up")` handles
-        — there are no module-level baseline/upgrade table attributes.
+        Always returns `(md_table, ts_table)`. When the schema declares
+        `table_suffix.annual_and_metadata_state_agg`, the alt metadata
+        table is also loaded and stored at `self.md_table_state_agg`
+        for the routing-aware path; otherwise that attribute is None.
 
-        For tuple `table_name`, the entries are `(annual_and_metadata, timeseries)`.
+        For tuple `table_name`, the entries are
+        `(annual_and_metadata, timeseries)`. The alt table can't be
+        named via the tuple form; only the suffix path supports it.
         """
         self._engine = self._create_athena_engine(
             region_name=self.region_name, database=self.db_name, workgroup=self.workgroup
@@ -378,12 +451,23 @@ class QueryCore:
         if isinstance(table_name, str):
             md_table_name = f"{table_name}{suffix.annual_and_metadata}"
             ts_table_name = f"{table_name}{suffix.timeseries}"
+            md_state_agg_table_name = (
+                f"{table_name}{suffix.annual_and_metadata_state_agg}"
+                if suffix.annual_and_metadata_state_agg else None
+            )
         else:
             md_table_name = table_name[0]
             ts_table_name = table_name[1] if len(table_name) > 1 else None
+            md_state_agg_table_name = None
 
         md_table = self._get_table(md_table_name)
         ts_table = self._get_table(ts_table_name, missing_ok=True) if ts_table_name else None
+        # Stash the alt table on the instance — _initialize_tables will
+        # turn it into a stable alias. Done here so the network round-
+        # trip is in the same place as the other autoload calls.
+        self._md_table_state_agg_raw = (
+            self._get_table(md_state_agg_table_name) if md_state_agg_table_name else None
+        )
 
         return md_table, ts_table
 
@@ -1388,7 +1472,7 @@ class QueryCore:
             "Multi-column restrict keys must be paired with a subquery or a sequence of row-tuples."
         )
 
-    def _get_restrict_clauses(self, restrict, annual_only=False):
+    def _get_restrict_clauses(self, restrict, annual_only=False, *, bs_table=None):
         # Pre-compute single-column equality/IN predicates that target bs_table
         # columns. These are pushed into any subquery-valued restrict entry
         # whose projection includes the same column — Athena does not propagate
@@ -1397,7 +1481,15 @@ class QueryCore:
         # (forcing an enumeration of all 3,133 (state,county) partitions on
         # ComStock metadata). See INVESTIGATION_partition_overhead.md for the
         # 11.6× speedup measurement on shape C.
-        propagatable = self._collect_propagatable_predicates(restrict)
+        #
+        # `bs_table` lets routing-aware callers (`_query` after Piece A) bind
+        # column references to the alt metadata table. Defaults to None, in
+        # which case `_get_column` uses `self.bs_table` (today's behavior).
+        # When set, restrict to bs_table only (no TS fallback) — otherwise
+        # `state` would resolve against the TS table partition column instead
+        # of the alt-md `in.state`, defeating routing.
+        candidate_tables = (bs_table,) if bs_table is not None else None
+        propagatable = self._collect_propagatable_predicates(restrict, bs_table=bs_table)
 
         clauses = []
         for col_ref, criteria in restrict:
@@ -1407,20 +1499,20 @@ class QueryCore:
                 # WHERE before wrapping it in `tuple_(...).in_(subquery)`.
                 col_names = {c.name for c in col_ref if isinstance(c, sa.Column)}
                 if isinstance(criteria, SelectBase):
-                    criteria = self._inject_propagated(criteria, propagatable, col_names)
+                    criteria = self._inject_propagated(criteria, propagatable, col_names, bs_table=bs_table)
                 elif isinstance(criteria, Subquery):
                     base = sa.select(*criteria.c)
-                    base = self._inject_propagated(base, propagatable, col_names)
+                    base = self._inject_propagated(base, propagatable, col_names, bs_table=bs_table)
                     criteria = base
                 clauses.append(self._multi_column_membership(col_ref, criteria))
                 continue
 
-            col = self._get_column(col_ref, annual_only=annual_only)
+            col = self._get_column(col_ref, candidate_tables=candidate_tables, annual_only=annual_only)
             subquery = self._normalize_restrict_subquery(criteria)
             if subquery is not None:
                 # Single-column subquery: same propagation idea, scoped to the
                 # column projected by the subquery (typically just bldg_id).
-                subquery = self._inject_propagated(subquery, propagatable, {col.name})
+                subquery = self._inject_propagated(subquery, propagatable, {col.name}, bs_table=bs_table)
                 clauses.append(col.in_(subquery))
             elif isinstance(criteria, Sequence) and not isinstance(criteria, str):
                 typed = [typed_literal(col, v) for v in criteria]
@@ -1434,7 +1526,7 @@ class QueryCore:
                 clauses.append(col == typed_literal(col, criteria))
         return clauses
 
-    def _collect_propagatable_predicates(self, restrict):
+    def _collect_propagatable_predicates(self, restrict, *, bs_table=None):
         """Return a list of (column_name, sqla_clause_factory) for restrict
         entries that are safe to push into a sibling subquery's WHERE.
 
@@ -1449,7 +1541,12 @@ class QueryCore:
         Column inside the subquery and emits the equivalent equality / IN
         clause. We can't reuse the outer-scope clause directly because the
         Column object would still bind to the outer FROM in the compiled SQL.
+
+        `bs_table` lets routing-aware callers point resolution at the alt
+        metadata table; defaults to `self.bs_table`.
         """
+        target_bs = bs_table if bs_table is not None else self.bs_table
+        candidate_tables = (target_bs,) if bs_table is not None else None
         out: list[tuple[str, typing.Callable]] = []
         if not restrict:
             return out
@@ -1464,14 +1561,14 @@ class QueryCore:
             # ComStock. Restrict to annual_only=True since we're propagating
             # into metadata-side subqueries.
             try:
-                resolved_col = self._get_column(col_ref, annual_only=True)
+                resolved_col = self._get_column(col_ref, candidate_tables=candidate_tables, annual_only=True)
             except (ValueError, AttributeError):
                 continue
             # Only propagate when the resolved column lives on the bs alias
             # (skips MappedColumns, calculated labels, ts-only columns).
             if not isinstance(resolved_col, sa.Column):
                 continue
-            if resolved_col.table is not self.bs_table:
+            if resolved_col.table is not target_bs:
                 continue
             name = resolved_col.name
 
@@ -1490,7 +1587,7 @@ class QueryCore:
             out.append((name, _factory))
         return out
 
-    def _inject_propagated(self, select, propagatable, scope_col_names):
+    def _inject_propagated(self, select, propagatable, scope_col_names, *, bs_table=None):
         """Inject propagatable predicates into `select`'s WHERE for any
         column in `scope_col_names` that's also in `select`'s output columns.
 
@@ -1498,9 +1595,13 @@ class QueryCore:
         names the outer query is matching against. We only propagate
         predicates on those columns — i.e. columns that the outer IN clause
         is about to compare against the subquery's projection.
+
+        `bs_table` lets routing-aware callers bind the inner-column reference
+        to the alt metadata table; defaults to `self.bs_table`.
         """
         if not propagatable:
             return select
+        target_bs = bs_table if bs_table is not None else self.bs_table
         # Names of columns this Select projects. `select.selected_columns` is
         # the SA-1.4+ public accessor.
         try:
@@ -1513,7 +1614,7 @@ class QueryCore:
         for name, factory in propagatable:
             if name not in target_names:
                 continue
-            inner_col = self.bs_table.c.get(name)
+            inner_col = target_bs.c.get(name)
             if inner_col is None:
                 continue
             clause = factory(inner_col)
@@ -1521,10 +1622,12 @@ class QueryCore:
                 select = select.where(clause)
         return select
 
-    def _add_restrict(self, query, restrict, *, annual_only=False):
+    def _add_restrict(self, query, restrict, *, annual_only=False, bs_table=None):
         if not restrict:
             return query
-        restrict_clauses = self._get_restrict_clauses(restrict, annual_only=annual_only)
+        restrict_clauses = self._get_restrict_clauses(
+            restrict, annual_only=annual_only, bs_table=bs_table,
+        )
         query = query.where(*restrict_clauses)
         return query
 

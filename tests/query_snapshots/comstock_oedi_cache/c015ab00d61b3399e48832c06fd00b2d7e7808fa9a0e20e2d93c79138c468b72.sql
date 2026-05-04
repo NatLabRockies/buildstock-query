@@ -1,0 +1,1 @@
+SELECT DISTINCT comstock_amy2018_r2_2025_ts_by_state.timestamp AS timestamp FROM comstock_amy2018_r2_2025_ts_by_state WHERE comstock_amy2018_r2_2025_ts_by_state.bldg_id = 123513 AND comstock_amy2018_r2_2025_ts_by_state.upgrade = 42 ORDER BY comstock_amy2018_r2_2025_ts_by_state.timestamp LIMIT 2

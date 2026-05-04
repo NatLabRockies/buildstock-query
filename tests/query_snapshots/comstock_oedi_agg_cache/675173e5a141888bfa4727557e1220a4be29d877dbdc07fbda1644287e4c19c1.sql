@@ -1,0 +1,1 @@
+SELECT comstock_amy2018_r2_2025_ts_by_state.bldg_id, comstock_amy2018_r2_2025_ts_by_state.upgrade FROM comstock_amy2018_r2_2025_ts_by_state LIMIT 1

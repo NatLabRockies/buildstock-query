@@ -1,0 +1,104 @@
+{
+  "probe": {
+    "name": "V2_count_star",
+    "sql": "SELECT ts_aggr.timestamp,\n       sum(bs_per_bldg.tract_count) AS metadata_rows_count,\n       count(*) AS model_count,\n       sum(bs_per_bldg.bldg_weight) AS units_count,\n       sum(ts_aggr.bs_elec * bs_per_bldg.bldg_weight) AS elec\nFROM (\n  SELECT date_trunc('month', date_add('second', -900, ts.timestamp)) AS timestamp,\n         ts.bldg_id AS bldg_id,\n         sum(ts.\"out.electricity.total.energy_consumption\") AS bs_elec\n  FROM resstock_2024_amy2018_release_2_by_state_vu AS ts\n  WHERE ts.upgrade IN (0) AND ts.state = 'CO'\n  GROUP BY 1, 2\n) AS ts_aggr\nJOIN (\n  SELECT bs.bldg_id AS bldg_id,\n         sum(bs.weight) AS bldg_weight,\n         count(*) AS tract_count\n  FROM resstock_2024_amy2018_release_2_metadata AS bs\n  WHERE bs.upgrade = 0 AND bs.\"in.state\" = 'CO'\n  GROUP BY bs.bldg_id\n) AS bs_per_bldg ON bs_per_bldg.bldg_id = ts_aggr.bldg_id\nGROUP BY 1 ORDER BY 1",
+    "state": "SUCCEEDED",
+    "total_ms": 3392,
+    "engine_ms": 3254,
+    "planning_ms": 597,
+    "bytes_scanned": 3544402438,
+    "rows": [
+      [
+        "timestamp",
+        "metadata_rows_count",
+        "model_count",
+        "units_count",
+        "elec"
+      ],
+      [
+        "2018-01-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.9450326287",
+        "2.529477369296897E9"
+      ],
+      [
+        "2018-02-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.9450326287",
+        "2.3356839570622897E9"
+      ],
+      [
+        "2018-03-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.9450326283",
+        "1.8493980235584946E9"
+      ],
+      [
+        "2018-04-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.945032627",
+        "1.5881774540299861E9"
+      ],
+      [
+        "2018-05-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.9450326283",
+        "1.4777544350858629E9"
+      ],
+      [
+        "2018-06-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.9450326273",
+        "1.6812730239002905E9"
+      ],
+      [
+        "2018-07-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.945032628",
+        "1.8682659499910023E9"
+      ],
+      [
+        "2018-08-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.9450326287",
+        "1.7030441572841868E9"
+      ],
+      [
+        "2018-09-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.9450326283",
+        "1.5364467532199056E9"
+      ],
+      [
+        "2018-10-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.9450326287",
+        "1.569007003046843E9"
+      ],
+      [
+        "2018-11-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.945032627",
+        "1.9692415075811994E9"
+      ],
+      [
+        "2018-12-01 00:00:00.000",
+        "9425",
+        "9425",
+        "2377942.945032628",
+        "2.4860851193173833E9"
+      ]
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "probe": {
+    "name": "preflight_path_pseudocol",
+    "sql": "SELECT \"$path\" FROM resstock_2024_amy2018_release_2_metadata LIMIT 1",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "s3://oedi-data-lake/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2024/resstock_amy2018_release_2/metadata/upgrade05.parquet"
+      ]
+    ],
+    "columns": [
+      "$path"
+    ],
+    "bytes_scanned": 0,
+    "engine_ms": 564,
+    "planning_ms": 82,
+    "queue_ms": 107,
+    "total_ms": 750,
+    "execution_id": "3e4e0731-0a29-4228-8c74-09fb32db98b4"
+  }
+}

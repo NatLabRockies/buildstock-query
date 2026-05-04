@@ -1,0 +1,22 @@
+{
+  "probe": {
+    "name": "v2_no_state_baseline",
+    "sql": "SELECT count(*) AS count FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet WHERE upgrade = 0",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "1385895"
+      ]
+    ],
+    "columns": [
+      "count"
+    ],
+    "bytes_scanned": 353500,
+    "engine_ms": 59205,
+    "planning_ms": 13219,
+    "queue_ms": 99,
+    "total_ms": 59438,
+    "execution_id": "75dccc7c-4bb8-42fa-9069-fdb053eecd48"
+  }
+}

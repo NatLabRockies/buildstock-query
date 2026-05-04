@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "62d18e3f-0f5b-48ef-9f2d-48315cc204b5",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.county, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND (bs.bldg_id, bs.county, bs.state) IN (SELECT bs.bldg_id, bs.county, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (2) AND bs.applicability = true AND bs.state IN ('CO', 'NM') GROUP BY bs.bldg_id, bs.county, bs.state HAVING count(distinct(bs.upgrade)) = 1) AND bs.state IN ('CO', 'NM')) \n TO 's3://resstock-core/bsq_athena_unload_results/160cd4360aa0b7211cc48e8e8fbe94a40f470289436f64a55a96828e32e3e2cc/97d8882c-8146-4386-92a1-5aade4d1619e/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/62d18e3f-0f5b-48ef-9f2d-48315cc204b5"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-30 15:35:08.737000-05:00",
+    "CompletionDateTime": "2026-04-30 15:35:30.028000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 21014,
+    "DataScannedInBytes": 226032,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/62d18e3f-0f5b-48ef-9f2d-48315cc204b5-manifest.csv",
+    "TotalExecutionTimeInMillis": 21291,
+    "QueryQueueTimeInMillis": 83,
+    "ServicePreProcessingTimeInMillis": 131,
+    "QueryPlanningTimeInMillis": 8203,
+    "ServiceProcessingTimeInMillis": 63,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

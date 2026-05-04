@@ -1,0 +1,26 @@
+{
+  "probe": {
+    "name": "count_distinct_bldg",
+    "sql": "SELECT count(*), count(distinct bldg_id), count(distinct(bldg_id, \"in.state\")) FROM comstock_amy2018_r2_2025_md_agg_national_parquet WHERE upgrade=0",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "158952",
+        "102678",
+        "158952"
+      ]
+    ],
+    "columns": [
+      "_col0",
+      "_col1",
+      "_col2"
+    ],
+    "bytes_scanned": 484045,
+    "engine_ms": 1619,
+    "planning_ms": 137,
+    "queue_ms": 89,
+    "total_ms": 1844,
+    "execution_id": "6829b660-633c-4549-a153-3974cdf00052"
+  }
+}

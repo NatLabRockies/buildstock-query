@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "d1f1ed09-9afc-4e5f-8687-04dbf7df6194",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) IN (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (4) AND bs.applicability = true AND bs.state = 'CO' GROUP BY bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state HAVING count(distinct(bs.upgrade)) = 1) AND bs.state = 'CO') \n TO 's3://resstock-core/bsq_athena_unload_results/7ecc661ca0cc81961e8512855bfa70fd940d5641634db9942d3eddbd553331e2/ef2f5419-6d3c-4969-ae84-b5119f368e5e/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/d1f1ed09-9afc-4e5f-8687-04dbf7df6194"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-05-03 21:19:04.283000-05:00",
+    "CompletionDateTime": "2026-05-03 21:19:08.453000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 4016,
+    "DataScannedInBytes": 472880,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/d1f1ed09-9afc-4e5f-8687-04dbf7df6194-manifest.csv",
+    "TotalExecutionTimeInMillis": 4170,
+    "QueryQueueTimeInMillis": 81,
+    "ServicePreProcessingTimeInMillis": 54,
+    "QueryPlanningTimeInMillis": 755,
+    "ServiceProcessingTimeInMillis": 19,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

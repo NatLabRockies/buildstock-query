@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "ecea7345-037d-4c25-b5a2-c3411c9efa74",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.county, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND bs.state IN ('CO', 'NM') AND (bs.bldg_id, bs.county, bs.state) IN (SELECT bs.bldg_id, bs.county, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1) AND bs.applicability = true AND bs.state IN ('CO', 'NM') GROUP BY bs.bldg_id, bs.county, bs.state HAVING count(distinct(bs.upgrade)) = 1)) \n TO 's3://resstock-core/bsq_athena_unload_results/fad3704c6e44471774907ea72cdb8a6ee1bfedd024673053832e95c27c0b4f29/9d60ac01-97d4-4acf-b8bb-e54a0b98f9f5/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/ecea7345-037d-4c25-b5a2-c3411c9efa74"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-30 15:30:16.279000-05:00",
+    "CompletionDateTime": "2026-04-30 15:30:27.927000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 11432,
+    "DataScannedInBytes": 226027,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/ecea7345-037d-4c25-b5a2-c3411c9efa74-manifest.csv",
+    "TotalExecutionTimeInMillis": 11648,
+    "QueryQueueTimeInMillis": 83,
+    "ServicePreProcessingTimeInMillis": 78,
+    "QueryPlanningTimeInMillis": 7360,
+    "ServiceProcessingTimeInMillis": 55,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

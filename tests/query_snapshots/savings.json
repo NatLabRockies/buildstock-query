@@ -1,0 +1,183 @@
+[
+  {
+    "name": "savings_annual_upgrade1_electricity",
+    "sql_hash": {
+      "resstock_oedi": "99309be22239db769ee0fdbebac5dfe3ec9a55ae762fdfd2d04fa1ac3cf758ab",
+      "comstock_oedi": "a3cc6c6ba1c427b725a4ac54e4c8d37f46d7bd118764bbf8db00365c146ec8bc",
+      "comstock_oedi_agg": "346cf75f36a9b8f3bb32c328d7144b158deaefd466f4eeef353cf651cfc4941f"
+    },
+    "description": "Annual savings for upgrade 1, electricity, grouped by building type, CO only.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true
+    }
+  },
+  {
+    "name": "savings_ts_monthly_upgrade1_electricity",
+    "sql_hash": {
+      "resstock_oedi": "7c45243baecc19b71e2795394b9811dba5619aae1c85c2eb8bb070ce6f8ac9e2",
+      "comstock_oedi": "1284129b278f940aed0a21e8693b00a0e399715e98371863d0e702f2360e6821",
+      "comstock_oedi_agg": "de2692020972e399e7a5e8539131255e428bc328699f080a70b4ad0119e40088"
+    },
+    "description": "Monthly timeseries savings for upgrade 1, electricity, CO only.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": [
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true
+    }
+  },
+  {
+    "name": "savings_only_upgrade1_electricity",
+    "sql_hash": {
+      "resstock_oedi": "1e752f1848ef8df1a8bd8b98e58a8b6ff30d869514944e7645fe51a78ca33f3f",
+      "comstock_oedi": "5c0a271e8ee0afa425a732ca36fd6ecc3ab2e80293c6e4a4dd705bc0123b6f22",
+      "comstock_oedi_agg": "a40ef97d2a20793929f0cfeec894aae3df3f8e010917575d5f5eb9d4399ee440"
+    },
+    "description": "Savings-only annual output (no baseline / no upgrade columns) for upgrade 1, CO. Catches column-suppression bugs in the include_baseline / include_upgrade flags.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "include_baseline": false,
+      "include_upgrade": false,
+      "include_savings": true
+    }
+  },
+  {
+    "name": "savings_annual_upgrade1_quartiles",
+    "sql_hash": {
+      "resstock_oedi": "17f6a5fc6ee6e240662db5342622c71b3b990f962d1ce7cbd83cfee7bf1fb2cf",
+      "comstock_oedi": "1e72760b1c0d78d9a100e7e0d815aa11cb9201c3d525b03bbc483a23dcf292e8",
+      "comstock_oedi_agg": "71c153bc15f3264e0912a797d999d0f9d264c8844e5c831ec03a7b3bd89f9f96"
+    },
+    "description": "Annual upgrade 1 savings with quartiles, CO only.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true,
+      "get_quartiles": true
+    }
+  },
+  {
+    "name": "savings_annual_two_fuel",
+    "sql_hash": {
+      "resstock_oedi": "510132be421d40f0fdb37e3530d056e4466e1f56da5b47008aa1227a0a45044e",
+      "comstock_oedi": "90ae8a4bd4bebafb73faf405a7bd569ac0e53100566bd0a1e9e227de4e8eb5d3",
+      "comstock_oedi_agg": "e1874848dbb5319006b489a4b2984c460987b5ed9f05515fb4bdb51322b721ad"
+    },
+    "description": "Annual savings for upgrade 1 covering both electricity and natural gas as enduses, grouped by building type, CO only. Pins the multi-fuel column-suffix shape across the baseline/upgrade/savings projection \u2014 every prior savings entry is electricity-only.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL",
+        "$NATURAL_GAS_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true
+    }
+  },
+  {
+    "name": "savings_ts_monthly_two_fuel",
+    "sql_hash": {
+      "resstock_oedi": "3adc5f0c1b6338455076199907ac59aa10e615ee1081b00c744abc29bcb88cf4",
+      "comstock_oedi": "0ec8054a717ccdffd816d0b91cade34ba7ebd32b78bdf1e61a46a205bd97ecd8",
+      "comstock_oedi_agg": "bbf6367977046e8dfb528671cf15c98d83fd02df20877e38969e60195cb00b38"
+    },
+    "description": "Monthly TS savings for upgrade 1 covering both electricity and natural gas, grouped by time, CO only. Mirrors savings_annual_two_fuel on the TS path \u2014 pins the multi-fuel column-suffix shape across baseline/upgrade/savings projections in the TS upgrade-pair flow. Comstock skips per UnsupportedQueryShape (TS upgrade-pair queries on comstock).",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL",
+        "$NATURAL_GAS_TOTAL"
+      ],
+      "upgrade_id": "1",
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": [
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "include_baseline": true,
+      "include_upgrade": true,
+      "include_savings": true
+    }
+  }
+]

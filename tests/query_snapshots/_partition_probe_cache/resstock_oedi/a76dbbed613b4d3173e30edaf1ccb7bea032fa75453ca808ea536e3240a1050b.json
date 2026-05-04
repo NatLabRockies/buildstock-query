@@ -1,0 +1,22 @@
+{
+  "probe": {
+    "name": "count_state_CO_upgrade_0",
+    "sql": "SELECT count(*) AS count FROM resstock_2024_amy2018_release_2_metadata WHERE upgrade = 0",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "549718"
+      ]
+    ],
+    "columns": [
+      "count"
+    ],
+    "bytes_scanned": 102,
+    "engine_ms": 909,
+    "planning_ms": 110,
+    "queue_ms": 62,
+    "total_ms": 1070,
+    "execution_id": "756127fb-988e-4bc6-8921-f36af57277c0"
+  }
+}

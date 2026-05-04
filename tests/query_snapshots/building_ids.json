@@ -1,0 +1,160 @@
+[
+  {
+    "name": "bldg_ids_applied_in_1",
+    "sql_hash": {
+      "resstock_oedi": "3ad82492b9dd09beccd3a9eea32b8d9fc20a02e56191f0be12e6cc262fbf2fc8",
+      "comstock_oedi": "ed667885e9a6f4b8a8d1db1d16e51c3a390428c30dd998e586bd67d9904a3d08",
+      "comstock_oedi_agg": "5943999cef17c0c94574f3ce929387ef6117bf19c6d4ce8be7cf9c680e436fbf"
+    },
+    "description": "Building keys that applied to upgrade 1, CO. Used for the applied-buildings intersection invariant. Migrated from the legacy `applied_in` flag to the new `get_applied_buildings_filter` composition; SQL is byte-stable (same shape as before).",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "bldg_ids_applied_in_2",
+    "sql_hash": {
+      "resstock_oedi": "8afb4d9b252743367981d7d7cbce0721fe4c27c57a6cb33b0a1e1c8569ea7eb0",
+      "comstock_oedi": "4e4e1adb1fffd20345b4f6369e256d267971e127e3cba1724d6b12270975a91d",
+      "comstock_oedi_agg": "d8bfb23f0b5e09734a40215e7634808b6c27ebd4f8884b7ac455ab7076070536"
+    },
+    "description": "Building keys that applied to upgrade 2, CO. Used for the applied-buildings intersection invariant.",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              2
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "bldg_ids_applied_in_1_and_2",
+    "sql_hash": {
+      "resstock_oedi": "98f767f6918930f9f23337ab9b7cf40b168543cfad8d416cd64cb56d31c4b9eb",
+      "comstock_oedi": "d4d9ad2a10d1a501cd048af4032e9d7c969039b70a93fd9ca97388a08b75892a",
+      "comstock_oedi_agg": "63a95deddbd64203b187acdc2e6c07ecd0dea340a6dc268d2c61910c2b1f1e3b"
+    },
+    "description": "Building keys that applied to BOTH upgrade 1 and upgrade 2, CO. Equals the intersection of applied_in_1 and applied_in_2.",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "bldg_ids_applied_in_1_multi_state",
+    "sql_hash": {
+      "resstock_oedi": "df1f44e1dc726d7a382345bbad34856d1260a821e197b815a2e777b8241143aa",
+      "comstock_oedi": "388f91601db32f07d487f5fbd55428b42f5eda4cd5c34ab8b348a78a9d773f31",
+      "comstock_oedi_agg": "fad3704c6e44471774907ea72cdb8a6ee1bfedd024673053832e95c27c0b4f29"
+    },
+    "description": "Building keys that applied to upgrade 1, restricted to the schema's MULTI_STATE_PAIR (resstock=CO+WY, comstock=CO+NM). Owns the cache hash for the multi-state arm of test_applied_buildings_intersection so the invariant test cache-hits instead of firing fresh Athena queries.",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        [
+          "state",
+          "$MULTI_STATE_PAIR"
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "bldg_ids_applied_in_2_multi_state",
+    "sql_hash": {
+      "resstock_oedi": "83399c08713b643a373eca9d2413ca7b8095143ebe77289dd4019f0f89dceabb",
+      "comstock_oedi": "615babb8079ac1065bc09936e452fbf861e95d5ff68ffa756d83f996b871e7fa",
+      "comstock_oedi_agg": "c12f84024f35275c054551ff8590119ad4988a6af1272d939325e0a8f24d596c"
+    },
+    "description": "Building keys that applied to upgrade 2, restricted to the schema's MULTI_STATE_PAIR. Owns the cache hash for the multi-state arm of test_applied_buildings_intersection.",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        [
+          "state",
+          "$MULTI_STATE_PAIR"
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              2
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "bldg_ids_applied_in_1_and_2_multi_state",
+    "sql_hash": {
+      "resstock_oedi": "fe4feaa2150cce6aa7f57691bd8e0ede44a0dadc798a440d826d80c5403941c1",
+      "comstock_oedi": "87bd7156d08ba4a6a93d9c9ff065a5fd301438fc5fd417c13d138a5b828a3d85",
+      "comstock_oedi_agg": "6eaa3bbf273d3ab4443085b1652da26a76d057b7c9ef4b0bbaa5fd5eb607fc33"
+    },
+    "description": "Building keys that applied to BOTH upgrade 1 and upgrade 2, restricted to the schema's MULTI_STATE_PAIR. Owns the cache hash for the multi-state intersection arm of test_applied_buildings_intersection.",
+    "args": {
+      "_method": "get_building_ids",
+      "restrict": [
+        [
+          "state",
+          "$MULTI_STATE_PAIR"
+        ],
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

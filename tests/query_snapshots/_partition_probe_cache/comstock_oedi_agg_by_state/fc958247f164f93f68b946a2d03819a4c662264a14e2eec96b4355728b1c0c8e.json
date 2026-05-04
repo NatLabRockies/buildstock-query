@@ -1,0 +1,22 @@
+{
+  "probe": {
+    "name": "count_state_CO_upgrade_0",
+    "sql": "SELECT count(*) AS count FROM comstock_amy2018_r2_2025_md_agg_by_state_parquet WHERE state = 'CO' AND upgrade = 0",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "3272"
+      ]
+    ],
+    "columns": [
+      "count"
+    ],
+    "bytes_scanned": 113,
+    "engine_ms": 1018,
+    "planning_ms": 260,
+    "queue_ms": 79,
+    "total_ms": 1192,
+    "execution_id": "f7d6c90e-4822-4665-a074-625e36d49748"
+  }
+}

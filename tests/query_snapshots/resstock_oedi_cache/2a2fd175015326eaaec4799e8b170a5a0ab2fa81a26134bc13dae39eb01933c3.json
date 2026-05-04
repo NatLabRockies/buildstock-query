@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "dccae8c9-12c5-4522-93c0-aaf21fadf7f4",
+  "Query": "UNLOAD (SELECT bs.\"in.geometry_building_type_recs\" AS geometry_building_type_recs, sum(1) AS metadata_rows_count, count(distinct(bs.bldg_id)) AS model_count, sum(bs.weight) AS units_count, sum((bs.\"out.electricity.total.energy_consumption\" - bs.\"out.natural_gas.total.energy_consumption\") * bs.weight) AS elec_minus_gas FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND bs.\"in.state\" = 'CO' GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/2a2fd175015326eaaec4799e8b170a5a0ab2fa81a26134bc13dae39eb01933c3/12e500c2-f2d7-49ee-b364-ba93b81d6b7c/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/dccae8c9-12c5-4522-93c0-aaf21fadf7f4"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-30 20:56:48.075000-05:00",
+    "CompletionDateTime": "2026-04-30 20:56:49.970000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 1751,
+    "DataScannedInBytes": 7476909,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/dccae8c9-12c5-4522-93c0-aaf21fadf7f4-manifest.csv",
+    "TotalExecutionTimeInMillis": 1895,
+    "QueryQueueTimeInMillis": 55,
+    "ServicePreProcessingTimeInMillis": 70,
+    "QueryPlanningTimeInMillis": 187,
+    "ServiceProcessingTimeInMillis": 19,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

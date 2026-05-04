@@ -1,0 +1,164 @@
+[
+  {
+    "name": "restrict_single_state",
+    "sql_hash": {
+      "resstock_oedi": "4aacc9b868d47d4ba705bb5207c810ec17caf90accb064c91f94b1a6756ad09b",
+      "comstock_oedi": "ec38e800b461e1113a47b9faeb35fbccaaeee3f751f6eaf4cbed2e58c177c1a8",
+      "comstock_oedi_agg": "2040a89f07bd0d03fa3d9faae90fdd75d1515ecf7ba0759ecbbe72a03d618dbd"
+    },
+    "description": "Annual electricity restricted to CO. Three equivalent restrict shapes (single-element list, scalar string, scalar wrapped in tuple) must all compile to the same SQL \u2014 covers the arg-normalization code path in _get_restrict_clauses.",
+    "args": [
+      {
+        "enduses": [
+          "$ELECTRICITY_TOTAL"
+        ],
+        "group_by": [
+          "$BUILDING_TYPE_COL"
+        ],
+        "restrict": [
+          [
+            "state",
+            [
+              "CO"
+            ]
+          ]
+        ]
+      },
+      {
+        "enduses": [
+          "$ELECTRICITY_TOTAL"
+        ],
+        "group_by": [
+          "$BUILDING_TYPE_COL"
+        ],
+        "restrict": [
+          [
+            "state",
+            "CO"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "name": "restrict_two_states",
+    "sql_hash": {
+      "resstock_oedi": "b619c727b0f5b8aec281639a020973c03e3c6606cbe04730370364b0d03db5ad",
+      "comstock_oedi": "438484f5e682c0efe1cbe8ee31b92a057528771064b8168e7ce09d73224c53ee",
+      "comstock_oedi_agg": "b9e944528ffe219c0591cea57d7c764f3d7134a3f650aadb9fe2910ec6c128a6"
+    },
+    "description": "Annual electricity restricted to CO + WY.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "state"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO",
+            "WY"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "restrict_state_plus_vintage",
+    "sql_hash": {
+      "resstock_oedi": "2d829cd3c4eee487c044acce8a7378a9fbbd2a2285f437582144d753449a5f9a",
+      "comstock_oedi": "808071198362df061c8ed70be0c8b083dce309a2a16cfbfdc1d224b5110b8df3",
+      "comstock_oedi_agg": "d9ea80803bd52314548f8ed1f3040c5ca26660fb613a4fa553b0094e8a35a760"
+    },
+    "description": "CO + specific vintage bucket, electricity.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "vintage"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ],
+        [
+          "vintage",
+          [
+            "$VINTAGE_BUCKET"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "avoid_building_type",
+    "sql_hash": {
+      "resstock_oedi": "0b307664d2aff167d30143a95ad9b2962bf7bee26386d48ac230005483959090",
+      "comstock_oedi": "e936f3c69a8770684fa1246ca08f662091bf1821d49cbd5188861ee49c84b01a",
+      "comstock_oedi_agg": "0dd818716fd857c02933e87dfb5ba0e00de9107110c3dbbb4227cdb7ee8a5052"
+    },
+    "description": "CO only, avoid one building type per schema.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "avoid": [
+        [
+          "$BUILDING_TYPE_COL",
+          [
+            "$AVOID_BUILDING_TYPE"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "avoid_building_type_multi",
+    "sql_hash": {
+      "resstock_oedi": "d5411aae597097005662fdc30758eb1c74c4e127aeef30a018191dd3b47af5a9",
+      "comstock_oedi": "41121e6f532437280336dcd360e288149b2fe5045117be64be8af6a1516908c3",
+      "comstock_oedi_agg": "aacc2366398c0e0dde7139f9410a2ca1ddbcdaaa55948f6e2dbc725f03470405"
+    },
+    "description": "CO only, avoid multiple building types via multi-element avoid list \u2014 exercises the NOT IN code path in _add_avoid (single-value avoid emits != instead).",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "avoid": [
+        [
+          "$BUILDING_TYPE_COL",
+          "$AVOID_BUILDING_TYPES_MULTI"
+        ]
+      ]
+    }
+  }
+]

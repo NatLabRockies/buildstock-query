@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "fce1287c-47bb-49ad-965d-9c5943b23f2b",
+  "Query": "UNLOAD (SELECT bs.bldg_id AS bldg_id, sum(1) AS metadata_rows_count, count(distinct(bs.bldg_id)) AS model_count, sum(bs.weight) AS units_count, sum(bs.\"out.electricity.total.energy_consumption\" * bs.weight) AS \"electricity.total.energy_consumption\" FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND bs.\"in.state\" = 'CO' GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/40aa023158f781b06f2ac9fa7bcbb1fdc1aefae999fbdac5b4efee9632de5bf8/a7aa585e-2051-45c3-b221-9e1546bc84e4/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/fce1287c-47bb-49ad-965d-9c5943b23f2b"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-05-03 23:24:44.022000-05:00",
+    "CompletionDateTime": "2026-05-03 23:24:45.642000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 1455,
+    "DataScannedInBytes": 4940737,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/fce1287c-47bb-49ad-965d-9c5943b23f2b-manifest.csv",
+    "TotalExecutionTimeInMillis": 1620,
+    "QueryQueueTimeInMillis": 82,
+    "ServicePreProcessingTimeInMillis": 56,
+    "QueryPlanningTimeInMillis": 182,
+    "ServiceProcessingTimeInMillis": 27,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

@@ -1,0 +1,1 @@
+SELECT bs.bldg_id FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.upgrade IN (1, 2, 3) AND bs.applicability = true GROUP BY bs.bldg_id HAVING count(distinct(CASE WHEN (bs.upgrade IN (1)) THEN bs.upgrade END)) = 1 AND count(distinct(CASE WHEN (bs.upgrade IN (2, 3)) THEN bs.upgrade END)) >= 1

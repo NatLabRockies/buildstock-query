@@ -1,0 +1,93 @@
+{
+  "probe": {
+    "name": "files_per_county_upgrade_CO",
+    "sql": "SELECT county, upgrade, count(DISTINCT \"$path\") AS files, count(*) AS rows, sum(\"$file_size\") AS total_bytes FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet WHERE state = 'CO' GROUP BY county, upgrade ORDER BY files DESC LIMIT 10",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "G0800690",
+        "21",
+        "1",
+        "8587",
+        "114710238091"
+      ],
+      [
+        "G0800950",
+        "60",
+        "1",
+        "46",
+        "38947096"
+      ],
+      [
+        "G0801110",
+        "6",
+        "1",
+        "56",
+        "50012088"
+      ],
+      [
+        "G0800590",
+        "14",
+        "1",
+        "12239",
+        "189663266809"
+      ],
+      [
+        "G0800290",
+        "15",
+        "1",
+        "910",
+        "2553805800"
+      ],
+      [
+        "G0800190",
+        "41",
+        "1",
+        "361",
+        "675509337"
+      ],
+      [
+        "G0801070",
+        "31",
+        "1",
+        "1028",
+        "3381682072"
+      ],
+      [
+        "G0800590",
+        "42",
+        "1",
+        "12239",
+        "229179583128"
+      ],
+      [
+        "G0800390",
+        "51",
+        "1",
+        "252",
+        "422817192"
+      ],
+      [
+        "G0801150",
+        "41",
+        "1",
+        "41",
+        "33062974"
+      ]
+    ],
+    "columns": [
+      "county",
+      "upgrade",
+      "files",
+      "rows",
+      "total_bytes"
+    ],
+    "bytes_scanned": 447454,
+    "engine_ms": 3428,
+    "planning_ms": 898,
+    "queue_ms": 60,
+    "total_ms": 3581,
+    "execution_id": "77e603bf-cc0c-4389-a361-5e3988877d1d"
+  }
+}

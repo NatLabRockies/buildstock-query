@@ -1,0 +1,1 @@
+SELECT DISTINCT bs.bldg_id FROM resstock_2024_amy2018_release_2_metadata AS bs JOIN eiaid_weights ON bs."in.county" = eiaid_weights.gisjoin WHERE eiaid_weights.eiaid = '4110' AND eiaid_weights.weight > 0

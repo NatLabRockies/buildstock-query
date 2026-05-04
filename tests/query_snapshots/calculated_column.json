@@ -1,0 +1,88 @@
+[
+  {
+    "name": "calculated_column_elec_minus_gas",
+    "sql_hash": {
+      "resstock_oedi": "2a2fd175015326eaaec4799e8b170a5a0ab2fa81a26134bc13dae39eb01933c3",
+      "comstock_oedi": "acb2b141db2300e3922d179e93f6f06bdce8ee9b423a0001bba4d9a68765d402",
+      "comstock_oedi_agg": "235f43caae458ad1acb487faa7b6a3f26722cfc5a1c03ee279d0e1cb73470124"
+    },
+    "description": "Annual aggregation using a get_calculated_column-built enduse: electricity total minus natural gas total. Pins the operator-precedence and column-resolution path through get_calculated_column. The column_expr placeholders ($ELECTRICITY_TOTAL, $NATURAL_GAS_TOTAL) get resolved to per-schema column names by the specialized test function before construction.",
+    "args": {
+      "column_name": "elec_minus_gas",
+      "column_expr": "$ELECTRICITY_TOTAL - $NATURAL_GAS_TOTAL",
+      "table": "baseline",
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "calculated_column_ts_pivot_upgrade_pair",
+    "sql_hash": {
+      "resstock_oedi": "f86de603e5f86e90551d011db4789f5d7ab405d15cdb460880d50d0857f3ae2d",
+      "comstock_oedi": "8ba34f5ad46cacd8e6c39ddd9ed3c7f38b94b043e6442c7a10461681cec80202",
+      "comstock_oedi_agg": "d3d39dcacb1364af267c980fc9e9186bc70b66ba7f5504c261a5a55ba80d8dff"
+    },
+    "description": "TS calculated column on the pivot path: table='timeseries' + annual_only=False + upgrade_id != 0 + applied_only=False forces the upgrade-pair pivot subquery (NOT the upgrade_only short-circuit). The Label produced by get_calculated_column wraps an arithmetic expression of raw ts columns; the pivot must wrap that whole expression in a per-side CASE, not look up Label.name on ts.c. Without this entry, the pivot path's calculated-column handling is uncovered.",
+    "args": {
+      "column_name": "elec_minus_gas",
+      "column_expr": "$ELECTRICITY_TOTAL - $NATURAL_GAS_TOTAL",
+      "table": "timeseries",
+      "annual_only": false,
+      "upgrade_id": "1",
+      "applied_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "calculated_column_ts_pivot_with_baseline",
+    "sql_hash": {
+      "resstock_oedi": "a5bf27cb7e6beaf8c35f1b0c7306d3373aa1de2ad19178326138bb67b85d214e",
+      "comstock_oedi": "de8a970ea5b36dfc9f5b979b853386334092cc9bf355dcb91be5b1889de195fd",
+      "comstock_oedi_agg": "ff923e26f5b4176d35c2a824071549c417ae0957f4bc8a812ccb2ee9bfee1745"
+    },
+    "description": "TS calculated column on the pivot path with include_baseline=True + applied_only=True. This combination forces the pivot subquery (upgrade_only short-circuit only fires when both include_baseline and include_savings are False) AND exercises the internal applied-buildings filter synthesis (TS path appends `_build_applied_subquery(all_of=[upgrade_id])` to filter to applicable buildings). Together with the upgrade_pair entry above, these two pin both branches of the TS pivot's calculated-column handling.",
+    "args": {
+      "column_name": "elec_minus_gas",
+      "column_expr": "$ELECTRICITY_TOTAL - $NATURAL_GAS_TOTAL",
+      "table": "timeseries",
+      "annual_only": false,
+      "upgrade_id": "1",
+      "applied_only": true,
+      "include_baseline": true,
+      "timestamp_grouping_func": "month",
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  }
+]

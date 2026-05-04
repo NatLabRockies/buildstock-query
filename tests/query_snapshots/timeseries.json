@@ -1,0 +1,322 @@
+[
+  {
+    "name": "ts_monthly_electricity_by_state",
+    "sql_hash": {
+      "resstock_oedi": "3d131826fe4f8f814b8f992727bd89b5d9d882d55a1f9f45976e47427ead470e",
+      "comstock_oedi": "8b5b5b1886488d8f95c75c5c25086ddcee9bce2e7982c348d7acb62088d125c9",
+      "comstock_oedi_agg": "e775d729a66157b53825926bd60b916dc97855e5adcb3e92f4c49cecbcb99789"
+    },
+    "description": "Monthly electricity grouped by state (CO only), upgrade 0 baseline.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "month",
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_monthly_two_fuels_by_building_type",
+    "sql_hash": {
+      "resstock_oedi": "2d129e73c7790bf99a353b22b1742615fdd6fd1720d69abe01ef03294f133984",
+      "comstock_oedi": "371b543994cfc345b94bb882ef9d7eb0a25785e3d65949853cb79fe5fb3c91d2",
+      "comstock_oedi_agg": "f086a7b9377a30f08589dc8c44ac20a0baed567b1d11710ef27f94c09df052e6"
+    },
+    "description": "Monthly electricity + natural gas grouped by building type and time, CO only.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL",
+        "$NATURAL_GAS_TOTAL"
+      ],
+      "annual_only": false,
+      "timestamp_grouping_func": "month",
+      "group_by": [
+        "$BUILDING_TYPE_COL",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_year_collapse_electricity",
+    "sql_hash": {
+      "resstock_oedi": "da391ae3b5f7e8511e3c28f7d1f1759920b8e0d65777eff4c82d0c07a3901f19",
+      "comstock_oedi": "37aba6d1c7bb43119556c695dfc0d82cfadbba10038f359df83f83e8943babd8",
+      "comstock_oedi_agg": "a68a8c034b9974846b0e737426df2f7051273e4d4d05a861b2fdf260b6c967c9"
+    },
+    "description": "Year-collapsed timeseries electricity, grouped by building type, CO only.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "timestamp_grouping_func": "year",
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_15min_raw_electricity_by_state",
+    "sql_hash": {
+      "resstock_oedi": "0e8a9ac33f7e36ca5e8ea64d3c10a0ffb44896620bac8da42aeda47a5568b0a2",
+      "comstock_oedi": "11aa2bc47dc96bdc04cb48b4a40327833bacc798ece1cc4c267af9d7ac384991",
+      "comstock_oedi_agg": "3c918d88842e7fd3dfc9156fe420e625a7159f91a1de6642beae5dff6a516076"
+    },
+    "description": "Raw 15-min cadence timeseries (no timestamp_grouping_func), CO only. Exercises the un-aggregated time-axis code path that example notebooks rely on.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_daily_electricity_by_state",
+    "sql_hash": {
+      "resstock_oedi": "238d7ccb01c7b11959c8307b30d20d07435e27ab90f5e90fe910161131b61051",
+      "comstock_oedi": "008a5c7d07e1cca5db7480e746e280b1ada29c994e955aab1fba833f62590b63",
+      "comstock_oedi_agg": "672f6c9e8fcaba8bb64115feb9da978bfab2abf1975b7a9215be7dda460963ba"
+    },
+    "description": "Daily-grouped timeseries electricity, CO only. Exercises date_trunc('day', ...) plus the rows_per_sample / distinct-bs-keys grouping_metrics branch.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "day",
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_hourly_electricity_by_building_type",
+    "sql_hash": {
+      "resstock_oedi": "0542333b7649d4d2e82f26e6f2d684474dc79c5fd0f2b086a11042cb3114a99c",
+      "comstock_oedi": "2cea9d646d896c641cd867d94dd4e3f9064a3c898c994cecb759ac3056e65762",
+      "comstock_oedi_agg": "e0b662de67ca1d30b2e11131488b77b0fe8168a579ab07fc722f5fea063769aa"
+    },
+    "description": "Hourly-grouped timeseries electricity, CO + single building type. Exercises date_trunc('hour', ...) \u2014 the smallest grouping_func granularity.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "hour",
+      "group_by": [
+        "$BUILDING_TYPE_COL",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ],
+        [
+          "$BUILDING_TYPE_COL",
+          [
+            "$AVOID_BUILDING_TYPE"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_monthly_multi_attribute_group_by",
+    "sql_hash": {
+      "resstock_oedi": "cc331c810d1124be016614184bb7ce859411862d360ed1f5706d24c125be365c",
+      "comstock_oedi": "81260c0e884da05a4d2b88ef10397dec1395e42467e39b41d28ee44dcbdfe752",
+      "comstock_oedi_agg": "7b58c61decf6b67eb3ce44e67daacfa7a33a73318504224eea09cc2b1b3d78c2"
+    },
+    "description": "Monthly TS electricity grouped by [building_type, state, time] \u2014 multi-attribute group_by combined with the time axis. Every other TS entry uses single-attribute + time; this pins the SQL shape for the more general case.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "month",
+      "group_by": [
+        "$BUILDING_TYPE_COL",
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_hourly_electricity_by_state",
+    "sql_hash": {
+      "resstock_oedi": "1980050bd9becdabefe14d80376a3ec49bddd978893cde1e5329c5d3915389a9",
+      "comstock_oedi": "e85b7014313b7d547e0bdc875c20b765bb9f2f092c403cb997f858aaa92ddaaf",
+      "comstock_oedi_agg": "98035e3c38ec4f0b9ac2a7e560d8acfbb3d4afc017f815a9e5b8b6b95fa6163e"
+    },
+    "description": "Hourly TS electricity grouped by state, CO only. Restrict and group_by deliberately match ts_daily_electricity_by_state and ts_monthly_electricity_by_state so the hourly\u2192daily\u2192monthly sum invariants align.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "hour",
+      "group_by": [
+        "state",
+        "time"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_year_by_county_co",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "d61707fa332a6c07d4276ca597a8b2f79757f0b41dc7c9bd2c2f139168a3b1f4"
+    },
+    "description": "TS year-collapse grouped by county, CO only. Comstock-only because comstock's metadata is denormalized at (bldg_id, tract, state) granularity and a building's tracts can map to different counties; resstock's md is one row per bldg, so the dis-aggregation behavior under test is structurally absent. Pins the bs_per_bldg shape that carries bs-side group_by columns as TRUE GROUP BY keys (not arbitrary()) so per-tract weight slices land in the right county. Sum across counties must equal the no-county-group total \u2014 see test_ts_year_county_disaggregation in test_invariants.py.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "year",
+      "group_by": [
+        "in.county_name"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_year_by_tract_co",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "f7757730eaf7eac5668714dc4572adf8d6fae16a9c682e0ecfa4bd1539ccf920"
+    },
+    "description": "TS year-collapse grouped by tract (in.nhgis_tract_gisjoin), CO only. Comstock-only \u2014 exercises the finest-grained bs-side group_by, where bs_per_bldg's GROUP BY (bldg, state, tract) restores 1:1 row-to-tract mapping. Cross-checks: sum across tracts must equal the by-county total (a tract belongs to exactly one county) and the no-group total. Smallest-meaningful unit at which the tract fan-out manifests; if bs_per_bldg collapses tract via arbitrary() we'd see 1 row per (bldg, state) instead of 1 per metadata row.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "year",
+      "group_by": [
+        "in.nhgis_tract_gisjoin"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "ts_year_overall_co",
+    "schemas": [
+      "comstock_oedi"
+    ],
+    "sql_hash": {
+      "comstock_oedi": "610f2e47656716c0f5926fff8716040d68ec51540c08d7d6385980a1c2d75eae"
+    },
+    "description": "TS year-collapse with NO bs-side group_by, CO only. Comstock-only sibling to the by-county / by-tract variants; serves as the cross-check baseline (sum-across-county and sum-across-tract must equal this value within rtol=1e-3). Without this anchor, a bug that silently dropped tract-fractional weight would still produce by-county and by-tract totals that agreed WITH EACH OTHER (both equally wrong) \u2014 only against the no-group total can we distinguish the right answer.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "annual_only": false,
+      "upgrade_id": 0,
+      "timestamp_grouping_func": "year",
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  }
+]

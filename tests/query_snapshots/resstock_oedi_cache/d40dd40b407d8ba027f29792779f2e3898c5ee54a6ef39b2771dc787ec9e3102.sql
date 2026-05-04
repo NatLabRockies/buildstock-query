@@ -1,0 +1,1 @@
+SELECT DISTINCT resstock_2024_amy2018_release_2_metadata."in.state" FROM resstock_2024_amy2018_release_2_metadata

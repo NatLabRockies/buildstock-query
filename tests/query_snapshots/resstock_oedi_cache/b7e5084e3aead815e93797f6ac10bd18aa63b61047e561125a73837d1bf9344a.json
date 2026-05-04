@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "02f11782-21f7-426a-82d7-cacb0b1e957b",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.applicability, up.applicability AS applicability_1 \nFROM resstock_2024_amy2018_release_2_metadata AS bs JOIN resstock_2024_amy2018_release_2_metadata AS up ON bs.bldg_id = up.bldg_id AND bs.upgrade = 0 \nWHERE bs.applicability = true AND bs.upgrade = 0 AND up.applicability = true AND up.upgrade = 1 AND (bs.\"out.electricity.total.energy_consumption\" - up.\"out.electricity.total.energy_consumption\" >= 0.001 OR bs.\"out.natural_gas.total.energy_consumption\" - up.\"out.natural_gas.total.energy_consumption\" >= 0.001 OR bs.\"out.fuel_oil.total.energy_consumption\" - up.\"out.fuel_oil.total.energy_consumption\" >= 0.001 OR bs.\"out.propane.total.energy_consumption\" - up.\"out.propane.total.energy_consumption\" >= 0.001)) \n TO 's3://resstock-core/bsq_athena_unload_results/4ee513b2d3c55a391bdacc5fd4f9e2bcb066d88cc7871fc5ca7283bb54334522/8e1a7f24-731f-4679-a993-65753afc220d/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/02f11782-21f7-426a-82d7-cacb0b1e957b"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-27 00:24:50.877000-05:00",
+    "CompletionDateTime": "2026-04-27 00:24:53.509000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 2478,
+    "DataScannedInBytes": 14189553,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/02f11782-21f7-426a-82d7-cacb0b1e957b-manifest.csv",
+    "TotalExecutionTimeInMillis": 2632,
+    "QueryQueueTimeInMillis": 55,
+    "ServicePreProcessingTimeInMillis": 62,
+    "QueryPlanningTimeInMillis": 429,
+    "ServiceProcessingTimeInMillis": 37,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

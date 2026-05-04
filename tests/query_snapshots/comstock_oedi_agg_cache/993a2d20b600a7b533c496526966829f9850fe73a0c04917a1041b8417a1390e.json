@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "fbacab67-b212-4862-abcc-f21bc3d449a6",
+  "Query": "UNLOAD (SELECT sum(1) AS metadata_rows_count, count(distinct(bs.bldg_id)) AS model_count, sum(bs.weight) AS units_count, sum(bs.\"out.electricity.total.energy_consumption..kwh\" * bs.weight) AS \"electricity.total.energy_consumption..kwh\" FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND (bs.bldg_id, bs.county, bs.state) IN ((46369, 'G0800150', 'CO'), (46369, 'G0800190', 'CO'), (46369, 'G0800370', 'CO'), (46369, 'G0800490', 'CO'), (46369, 'G0800510', 'CO'), (46369, 'G0800930', 'CO'), (46369, 'G0801050', 'CO'), (46369, 'G0801070', 'CO'), (46369, 'G0801130', 'CO'), (46369, 'G0801170', 'CO'), (46370, 'G0800190', 'CO'), (46370, 'G0800370', 'CO'), (46370, 'G0800490', 'CO'), (46370, 'G0800510', 'CO'), (46370, 'G0800810', 'CO'), (46370, 'G0800930', 'CO'), (46370, 'G0801050', 'CO'), (46370, 'G0801070', 'CO'), (46370, 'G0801110', 'CO'), (46370, 'G0801130', 'CO'), (46370, 'G0801170', 'CO'), (46371, 'G0800150', 'CO'), (46371, 'G0800210', 'CO'), (46371, 'G0800370', 'CO'), (46371, 'G0800490', 'CO'), (46371, 'G0800510', 'CO'), (46371, 'G0800930', 'CO'), (46371, 'G0800970', 'CO'), (46371, 'G0801170', 'CO'), (46372, 'G0800030', 'CO'), (46372, 'G0800150', 'CO'), (46372, 'G0800190', 'CO'), (46372, 'G0800370', 'CO'), (46372, 'G0800490', 'CO'), (46372, 'G0800510', 'CO'), (46372, 'G0801070', 'CO'), (46373, 'G0800150', 'CO'), (46373, 'G0800190', 'CO'), (46373, 'G0800370', 'CO'), (46373, 'G0800490', 'CO'), (46373, 'G0800510', 'CO'), (46373, 'G0800930', 'CO'), (46373, 'G0800970', 'CO'), (46373, 'G0801050', 'CO'), (46373, 'G0801070', 'CO'), (46373, 'G0801130', 'CO'), (46374, 'G0800150', 'CO'), (46374, 'G0800190', 'CO'), (46374, 'G0800210', 'CO'), (46374, 'G0800370', 'CO'), (46374, 'G0800510', 'CO'), (46374, 'G0800930', 'CO'), (46374, 'G0801090', 'CO'), (46374, 'G0801130', 'CO'), (46375, 'G0800150', 'CO'), (46375, 'G0800190', 'CO'), (46375, 'G0800370', 'CO'), (46375, 'G0800490', 'CO'), (46375, 'G0800510', 'CO'), (46375, 'G0801030', 'CO'), (46375, 'G0801050', 'CO'), (46375, 'G0801070', 'CO'), (46375, 'G0801130', 'CO'), (46375, 'G0801170', 'CO'), (46376, 'G0800150', 'CO'), (46376, 'G0800190', 'CO'), (46376, 'G0800210', 'CO'), (46376, 'G0800510', 'CO'), (46376, 'G0800810', 'CO'), (46376, 'G0801030', 'CO'), (46376, 'G0801050', 'CO'), (46376, 'G0801070', 'CO'), (46376, 'G0801130', 'CO'), (46376, 'G0801170', 'CO'), (46377, 'G0800150', 'CO'), (46377, 'G0800330', 'CO'), (46377, 'G0800370', 'CO'), (46377, 'G0800490', 'CO'), (46377, 'G0800510', 'CO'), (46377, 'G0800650', 'CO'), (46377, 'G0800790', 'CO'), (46377, 'G0800930', 'CO'), (46377, 'G0801050', 'CO'), (46377, 'G0801070', 'CO'), (46378, 'G0800150', 'CO'), (46378, 'G0800210', 'CO'), (46378, 'G0800270', 'CO'), (46378, 'G0800370', 'CO'), (46378, 'G0800490', 'CO'), (46378, 'G0800510', 'CO'), (46378, 'G0800810', 'CO'), (46378, 'G0801050', 'CO'), (46378, 'G0801070', 'CO'), (46378, 'G0801110', 'CO'), (46378, 'G0801130', 'CO'), (46378, 'G0801170', 'CO')) AND bs.state = 'CO') \n TO 's3://resstock-core/bsq_athena_unload_results/993a2d20b600a7b533c496526966829f9850fe73a0c04917a1041b8417a1390e/bd924429-8a12-4e78-b02d-b9391c85edfb/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/fbacab67-b212-4862-abcc-f21bc3d449a6"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-05-03 23:18:39.648000-05:00",
+    "CompletionDateTime": "2026-05-03 23:18:44.079000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 4257,
+    "DataScannedInBytes": 155636,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/fbacab67-b212-4862-abcc-f21bc3d449a6-manifest.csv",
+    "TotalExecutionTimeInMillis": 4431,
+    "QueryQueueTimeInMillis": 49,
+    "ServicePreProcessingTimeInMillis": 70,
+    "QueryPlanningTimeInMillis": 1841,
+    "ServiceProcessingTimeInMillis": 55,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

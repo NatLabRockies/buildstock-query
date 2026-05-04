@@ -1,0 +1,24 @@
+{
+  "probe": {
+    "name": "total_files",
+    "sql": "SELECT count(DISTINCT \"$path\") AS files, sum(\"$file_size\") AS total_bytes FROM resstock_2024_amy2018_release_2_metadata",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "17",
+        "1911053040283582"
+      ]
+    ],
+    "columns": [
+      "files",
+      "total_bytes"
+    ],
+    "bytes_scanned": 0,
+    "engine_ms": 696,
+    "planning_ms": 94,
+    "queue_ms": 65,
+    "total_ms": 834,
+    "execution_id": "ee04345e-b396-49cc-88f2-fbde0a0c66c1"
+  }
+}

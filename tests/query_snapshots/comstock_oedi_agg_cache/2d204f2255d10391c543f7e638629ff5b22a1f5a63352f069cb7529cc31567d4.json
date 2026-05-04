@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "225cee5b-8dba-4d74-a04c-4275051f54fd",
+  "Query": "UNLOAD (SELECT bs.\"in.comstock_building_type\" AS comstock_building_type, sum(1) AS metadata_rows_count, count(distinct(bs.bldg_id)) AS model_count, sum(bs.weight * bs.\"in.sqft..ft2\") AS units_count, sum(bs.\"out.electricity.total.energy_consumption..kwh\" * bs.weight * bs.\"in.sqft..ft2\") AS \"electricity.total.energy_consumption..kwh\" FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND bs.state = 'CO' GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/2d204f2255d10391c543f7e638629ff5b22a1f5a63352f069cb7529cc31567d4/d64241b5-15a1-4b66-88c7-e1179844b1d2/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/225cee5b-8dba-4d74-a04c-4275051f54fd"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-30 19:32:45.273000-05:00",
+    "CompletionDateTime": "2026-04-30 19:32:48.801000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 3332,
+    "DataScannedInBytes": 507159,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/225cee5b-8dba-4d74-a04c-4275051f54fd-manifest.csv",
+    "TotalExecutionTimeInMillis": 3528,
+    "QueryQueueTimeInMillis": 99,
+    "ServicePreProcessingTimeInMillis": 72,
+    "QueryPlanningTimeInMillis": 756,
+    "ServiceProcessingTimeInMillis": 25,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

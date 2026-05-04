@@ -1,0 +1,28 @@
+{
+  "probe": {
+    "name": "V4_alt_dedup",
+    "sql": "SELECT sum(ts_dedup.\"elec_per_bldg_month\" * md_dedup.bldg_weight) AS total_kwh,\n       sum(ts_dedup._month_rows) AS total_rows,\n       count(DISTINCT ts_dedup.bldg_id) AS distinct_bldgs,\n       count(DISTINCT ts_dedup.bldg_id) AS distinct_bldg_state\nFROM (\n  SELECT bldg_id, timestamp,\n         sum(elec) AS \"elec_per_bldg_month\",\n         count(*) AS _month_rows\n  FROM (\n    SELECT bldg_id,\n           date_trunc('month', date_add('second', -900, ts.timestamp)) AS timestamp,\n           arbitrary(ts.\"out.electricity.total.energy_consumption\") AS elec\n    FROM comstock_amy2018_r2_2025_ts_by_state AS ts\n    WHERE ts.upgrade IN (0) AND ts.state IN ('CO', 'NM')\n    GROUP BY bldg_id, ts.timestamp\n  ) AS ts_dedup_15min\n  GROUP BY bldg_id, timestamp\n) AS ts_dedup\nJOIN (\n  SELECT bs.bldg_id AS bldg_id, sum(bs.weight) AS bldg_weight\n  FROM comstock_amy2018_r2_2025_md_agg_national_parquet AS bs\n  WHERE bs.upgrade = 0 AND bs.\"in.state\" IN ('CO', 'NM')\n  GROUP BY bs.bldg_id\n) AS md_dedup\n  ON md_dedup.bldg_id = ts_dedup.bldg_id\n",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "2.1434645726802036E10",
+        "232210080",
+        "6627",
+        "6627"
+      ]
+    ],
+    "columns": [
+      "total_kwh",
+      "total_rows",
+      "distinct_bldgs",
+      "distinct_bldg_state"
+    ],
+    "bytes_scanned": 796437203,
+    "engine_ms": 5542,
+    "planning_ms": 332,
+    "queue_ms": 71,
+    "total_ms": 5775,
+    "execution_id": "c574f44d-9583-42b3-9301-a8d7b15d0742"
+  }
+}

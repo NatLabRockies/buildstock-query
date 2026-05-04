@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "3a4df627-d507-4285-9474-01a2a2d5c690",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.county, bs.state, bs.applicability, up.applicability AS applicability_1 FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs JOIN comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS up ON bs.bldg_id = up.bldg_id AND bs.county = up.county AND bs.state = up.state AND bs.upgrade = 0 WHERE bs.applicability = true AND up.applicability = true AND up.upgrade = 1 AND (bs.\"out.electricity.total.energy_consumption..kwh\" - up.\"out.electricity.total.energy_consumption..kwh\" >= 0.001 OR bs.\"out.natural_gas.total.energy_consumption..kwh\" - up.\"out.natural_gas.total.energy_consumption..kwh\" >= 0.001 OR bs.\"out.other_fuel.total.energy_consumption..kwh\" - up.\"out.other_fuel.total.energy_consumption..kwh\" >= 0.001 OR bs.\"out.district_cooling.total.energy_consumption..kwh\" - up.\"out.district_cooling.total.energy_consumption..kwh\" >= 0.001 OR bs.\"out.district_heating.total.energy_consumption..kwh\" - up.\"out.district_heating.total.energy_consumption..kwh\" >= 0.001)) \n TO 's3://resstock-core/bsq_athena_unload_results/4c344cd6669332632a5a34e088f84efa766fbe8e33a490a3fe45c30d8844d457/82b86262-43f1-42e3-b640-3dcf5100d72f/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/3a4df627-d507-4285-9474-01a2a2d5c690"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-28 19:00:27.631000-05:00",
+    "CompletionDateTime": "2026-04-28 19:02:27.555000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 103145,
+    "DataScannedInBytes": 42303799,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/3a4df627-d507-4285-9474-01a2a2d5c690-manifest.csv",
+    "TotalExecutionTimeInMillis": 119924,
+    "QueryQueueTimeInMillis": 16644,
+    "ServicePreProcessingTimeInMillis": 91,
+    "QueryPlanningTimeInMillis": 12649,
+    "ServiceProcessingTimeInMillis": 44,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

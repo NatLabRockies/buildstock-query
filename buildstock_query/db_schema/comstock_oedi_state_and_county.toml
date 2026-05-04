@@ -1,0 +1,36 @@
+[table_suffix]
+annual_and_metadata = "_md_by_state_and_county_parquet"
+timeseries = "_ts_by_state"
+
+
+[column_prefix]
+characteristics = "in."
+output = "out."
+
+[column_names]
+building_id = "bldg_id"
+sample_weight = "weight"
+sqft = "in.sqft"
+timestamp = "timestamp"
+completed_status = "applicability"
+unmet_hours_cooling_hr = ""
+unmet_hours_heating_hr = ""
+upgrade_name = "in.upgrade_name"
+fuel_totals = ["out.electricity.total.energy_consumption..kwh",
+               "out.natural_gas.total.energy_consumption..kwh",
+               "out.other_fuel.total.energy_consumption..kwh",
+               "out.district_cooling.total.energy_consumption..kwh",
+               "out.district_heating.total.energy_consumption..kwh"
+               ]
+
+[completion_values]
+success = "true"
+fail = ""
+inapplicable = "false"
+
+[structure]
+inapplicables_have_ts = "true"
+
+[unique_keys]
+metadata = ["bldg_id", "in.nhgis_tract_gisjoin", "state"]
+timeseries = ["bldg_id", "state"]

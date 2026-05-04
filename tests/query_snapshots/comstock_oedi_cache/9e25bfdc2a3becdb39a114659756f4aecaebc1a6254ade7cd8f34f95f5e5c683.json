@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "18b9df6a-3060-4f95-9e25-8741a43db85b",
+  "Query": "UNLOAD (SELECT bs.state AS state, bs.\"in.nhgis_tract_gisjoin\" AS nhgis_tract_gisjoin, bs.\"in.comstock_building_type\" AS comstock_building_type, sum(1) AS metadata_rows_count, count(distinct(bs.bldg_id)) AS model_count, sum(bs.weight) AS units_count, sum(bs.\"out.electricity.total.energy_consumption..kwh\" * bs.weight) AS \"electricity.total.energy_consumption..kwh\" FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND bs.state IN ('CO', 'NM') GROUP BY 1, 2, 3 ORDER BY 1, 2, 3) \n TO 's3://resstock-core/bsq_athena_unload_results/9e25bfdc2a3becdb39a114659756f4aecaebc1a6254ade7cd8f34f95f5e5c683/2d39b36f-198e-4e8c-9cd2-2b101913147e/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/18b9df6a-3060-4f95-9e25-8741a43db85b"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-05-03 23:36:08.738000-05:00",
+    "CompletionDateTime": "2026-05-03 23:36:19.827000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 10917,
+    "DataScannedInBytes": 2075792,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/18b9df6a-3060-4f95-9e25-8741a43db85b-manifest.csv",
+    "TotalExecutionTimeInMillis": 11089,
+    "QueryQueueTimeInMillis": 51,
+    "ServicePreProcessingTimeInMillis": 86,
+    "QueryPlanningTimeInMillis": 7752,
+    "ServiceProcessingTimeInMillis": 35,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

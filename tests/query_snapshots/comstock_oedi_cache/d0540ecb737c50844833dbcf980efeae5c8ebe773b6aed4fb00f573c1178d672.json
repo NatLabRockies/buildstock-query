@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "e9e245bf-04bc-4c7c-9f60-7583a2322dac",
+  "Query": "UNLOAD (SELECT bs_per_bldg.nhgis_tract_gisjoin, bs_per_bldg.comstock_building_type, sum(bs_per_bldg.tract_count) AS metadata_rows_count, count(distinct(bs_per_bldg.bldg_id)) AS model_count, sum(bs_per_bldg.bldg_weight) AS units_count, sum(ts_aggr._inner_rows) / CAST(count(DISTINCT (ts_aggr.bldg_id, ts_aggr.state)) AS DECIMAL) AS rows_per_sample, sum(ts_aggr.\"bs__out.electricity.total.energy_consumption\" * bs_per_bldg.bldg_weight) AS \"electricity.total.energy_consumption\" FROM (SELECT ts_flat.state AS state, ts_flat.bldg_id AS bldg_id, sum(ts_flat.\"ts__out.electricity.total.energy_consumption\") AS \"bs__out.electricity.total.energy_consumption\", count(*) AS _inner_rows FROM (SELECT comstock_amy2018_r2_2025_ts_by_state.state AS state, comstock_amy2018_r2_2025_ts_by_state.bldg_id AS bldg_id, comstock_amy2018_r2_2025_ts_by_state.\"out.electricity.total.energy_consumption\" AS \"ts__out.electricity.total.energy_consumption\" FROM comstock_amy2018_r2_2025_ts_by_state WHERE comstock_amy2018_r2_2025_ts_by_state.upgrade IN (0) AND comstock_amy2018_r2_2025_ts_by_state.state = 'CO') AS ts_flat GROUP BY ts_flat.state, ts_flat.bldg_id) AS ts_aggr JOIN (SELECT bs.bldg_id AS bldg_id, bs.state AS state, bs.\"in.nhgis_tract_gisjoin\" AS nhgis_tract_gisjoin, bs.\"in.comstock_building_type\" AS comstock_building_type, sum(bs.weight) AS bldg_weight, count(*) AS tract_count FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) IN (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (11) AND bs.applicability = true GROUP BY bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state HAVING count(distinct(bs.upgrade)) = 1) AND bs.state = 'CO' AND bs.bldg_id IN (46369, 46370, 46381, 46382, 46803, 46813, 46897, 46898) GROUP BY bs.bldg_id, bs.state, bs.\"in.nhgis_tract_gisjoin\", bs.\"in.comstock_building_type\") AS bs_per_bldg ON bs_per_bldg.bldg_id = ts_aggr.bldg_id AND bs_per_bldg.state = ts_aggr.state GROUP BY 1, 2 ORDER BY 1, 2) \n TO 's3://resstock-core/bsq_athena_unload_results/d0540ecb737c50844833dbcf980efeae5c8ebe773b6aed4fb00f573c1178d672/af45821e-f636-46bd-908e-45110ed96991/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/e9e245bf-04bc-4c7c-9f60-7583a2322dac"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-05-04 06:29:26.390000-05:00",
+    "CompletionDateTime": "2026-05-04 06:30:29.366000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 62737,
+    "DataScannedInBytes": 14656848,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/e9e245bf-04bc-4c7c-9f60-7583a2322dac-manifest.csv",
+    "TotalExecutionTimeInMillis": 62976,
+    "QueryQueueTimeInMillis": 87,
+    "ServicePreProcessingTimeInMillis": 99,
+    "QueryPlanningTimeInMillis": 11703,
+    "ServiceProcessingTimeInMillis": 53,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

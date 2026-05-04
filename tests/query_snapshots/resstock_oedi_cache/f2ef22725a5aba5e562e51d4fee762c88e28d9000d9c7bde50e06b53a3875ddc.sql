@@ -1,0 +1,1 @@
+SELECT bs.bldg_id FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.upgrade = 0 AND bs."in.state" = 'CO' AND bs.bldg_id IN (13, 16, 33, 196, 5224, 7321, 7923, 12142)

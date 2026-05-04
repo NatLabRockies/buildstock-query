@@ -1,0 +1,1 @@
+SELECT DISTINCT resstock_2024_amy2018_release_2_by_state_vu.timestamp AS timestamp FROM resstock_2024_amy2018_release_2_by_state_vu WHERE resstock_2024_amy2018_release_2_by_state_vu.bldg_id = 109618 AND resstock_2024_amy2018_release_2_by_state_vu.upgrade = 7 ORDER BY resstock_2024_amy2018_release_2_by_state_vu.timestamp LIMIT 2

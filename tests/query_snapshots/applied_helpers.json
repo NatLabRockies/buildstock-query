@@ -1,0 +1,84 @@
+[
+  {
+    "name": "applied_buildings_all_of_1_2",
+    "sql_hash": {
+      "resstock_oedi": "0702a4674ffd11d1ec72e11611117d1ba25641249c82132345c995985982f1b4",
+      "comstock_oedi": "0b302ecf56d68a57ec5f6cfb55caeb7577bec770d0303e92c93e89f2988296fe",
+      "comstock_oedi_agg": "7afc8a305f7127934c51a2b6cd52e8733a51f872730154ccf0a92df4f3ffa815"
+    },
+    "description": "get_applied_buildings(all_of=[1, 2]) — buildings where both upgrades 1 and 2 applied successfully. Pins the all_of-only branch SQL: WHERE upgrade IN (1,2) AND applicability GROUP BY <md_keys> HAVING count(distinct(upgrade))=2. Same shape as the prior `applied_in=[1,2]` form.",
+    "args": {
+      "_method": "get_applied_buildings",
+      "all_of": [
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "name": "applied_buildings_any_of_1_2",
+    "sql_hash": {
+      "resstock_oedi": "074f1591c6cfd75aad53c496e3010dfce7a0a4c5ad3e07816137f7e949cb3394",
+      "comstock_oedi": "d48daf3df5b962b72ef03eb5b5d483d8560f8e6049ed65348eba0d3ea822d979",
+      "comstock_oedi_agg": "ac663aa81078fd4c15924263d8f681abb8c97fd3c5ea797baacd499623c3e20e"
+    },
+    "description": "get_applied_buildings(any_of=[1, 2]) — buildings where at least one of upgrades 1 or 2 applied successfully. Pins the any_of-only branch SQL: WHERE upgrade IN (1,2) AND applicability GROUP BY <md_keys> (no HAVING — GROUP BY dedupes).",
+    "args": {
+      "_method": "get_applied_buildings",
+      "any_of": [
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "name": "applied_buildings_all_of_1_any_of_2_3",
+    "sql_hash": {
+      "resstock_oedi": "8e3e6befa389a240fdca62e95b6171bddc4e7ca67253f59d22803da9183c7d5c",
+      "comstock_oedi": "2569b986360d355940b6c84e31a37f3fdf1cea779a3db8a0255ce8b45cc6db2e",
+      "comstock_oedi_agg": "de56d97b41f3183045f607d043b55d79e08647c540c0faae37dec132aa849b70"
+    },
+    "description": "get_applied_buildings(all_of=[1], any_of=[2, 3]) — buildings where upgrade 1 applied AND at least one of upgrades 2 or 3 also applied. Pins the both-lists branch SQL with the CASE-WHEN HAVING form.",
+    "args": {
+      "_method": "get_applied_buildings",
+      "all_of": [
+        1
+      ],
+      "any_of": [
+        2,
+        3
+      ]
+    }
+  },
+  {
+    "name": "query_with_applied_buildings_filter",
+    "sql_hash": {
+      "resstock_oedi": "fd8ba61d082e519ed0965310df85c8cd5119d6a12292bb6a25959e909c6f3487",
+      "comstock_oedi": "addae2be360d889190dfa55b566a6d94228dff6ec2abc14934f064f8743a556d",
+      "comstock_oedi_agg": "1fa8bf42226b1445b2e7612c3551b7b5cc82196c4199d07e1d25e801a0729401"
+    },
+    "description": "Annual baseline restricted via `restrict=[get_applied_buildings_filter(all_of=[1,2]), (state, [CO])]`. Confirms the filter-tuple composes cleanly into the standard restrict pipeline (composite-key tuple-IN on multi-key schemas).",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "upgrade_id": "0",
+      "restrict": [
+        {
+          "_applied_filter": {
+            "all_of": [
+              1,
+              2
+            ]
+          }
+        },
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  }
+]

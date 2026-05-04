@@ -1,0 +1,76 @@
+{
+  "probe": {
+    "name": "wC_self_join_applied",
+    "sql": "SELECT bs.\"in.comstock_building_type\" AS comstock_building_type, sum(1) AS sample_count, sum(bs.weight) AS units_count FROM comstock_amy2018_r2_2025_md_agg_national_parquet AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND (bs.bldg_id, bs.\"in.state\") IN (SELECT bs.bldg_id, bs.\"in.state\" FROM comstock_amy2018_r2_2025_md_agg_national_parquet AS bs WHERE bs.upgrade IN (1) AND bs.applicability = true GROUP BY bs.bldg_id, bs.\"in.state\" HAVING count(distinct(bs.upgrade)) = 1) AND bs.\"in.state\" = 'CO' GROUP BY 1 ORDER BY 1",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "FullServiceRestaurant",
+        "185",
+        "4222.6129169525775"
+      ],
+      [
+        "LargeOffice",
+        "10",
+        "8.927070446971051"
+      ],
+      [
+        "MediumOffice",
+        "73",
+        "603.9172581720337"
+      ],
+      [
+        "Outpatient",
+        "77",
+        "1387.4281421185783"
+      ],
+      [
+        "PrimarySchool",
+        "70",
+        "1108.9263306319754"
+      ],
+      [
+        "QuickServiceRestaurant",
+        "99",
+        "1933.9722444591546"
+      ],
+      [
+        "RetailStandalone",
+        "127",
+        "8092.1819903386695"
+      ],
+      [
+        "RetailStripmall",
+        "94",
+        "8691.902097033402"
+      ],
+      [
+        "SecondarySchool",
+        "44",
+        "772.5885162222655"
+      ],
+      [
+        "SmallOffice",
+        "131",
+        "14684.360991995725"
+      ],
+      [
+        "Warehouse",
+        "88",
+        "11319.815166059241"
+      ]
+    ],
+    "columns": [
+      "comstock_building_type",
+      "sample_count",
+      "units_count"
+    ],
+    "bytes_scanned": 2469789,
+    "engine_ms": 2322,
+    "planning_ms": 265,
+    "queue_ms": 60,
+    "total_ms": 2470,
+    "execution_id": "1aa92d10-3695-4950-9ba4-2a3e3b94f060"
+  }
+}

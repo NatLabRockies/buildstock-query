@@ -1,0 +1,76 @@
+{
+  "probe": {
+    "name": "v3_shape_C_state_filter_pushed_inner",
+    "sql": "SELECT bs.\"in.comstock_building_type\" AS comstock_building_type, sum(1) AS sample_count, sum(bs.weight) AS units_count FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND bs.state = 'CO' AND (bs.bldg_id, bs.county, bs.state) IN (SELECT bs.bldg_id, bs.county, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1) AND bs.applicability = true AND bs.state = 'CO' GROUP BY bs.bldg_id, bs.county, bs.state HAVING count(distinct(bs.upgrade)) = 1) GROUP BY 1 ORDER BY 1",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "FullServiceRestaurant",
+        "2056",
+        "4222.6129169525775"
+      ],
+      [
+        "LargeOffice",
+        "22",
+        "8.927070446971051"
+      ],
+      [
+        "MediumOffice",
+        "527",
+        "603.9172581720337"
+      ],
+      [
+        "Outpatient",
+        "408",
+        "1387.4281421185788"
+      ],
+      [
+        "PrimarySchool",
+        "475",
+        "1108.926330631975"
+      ],
+      [
+        "QuickServiceRestaurant",
+        "794",
+        "1933.9722444591555"
+      ],
+      [
+        "RetailStandalone",
+        "1495",
+        "8092.181990338665"
+      ],
+      [
+        "RetailStripmall",
+        "1418",
+        "8691.9020970334"
+      ],
+      [
+        "SecondarySchool",
+        "384",
+        "772.5885162222655"
+      ],
+      [
+        "SmallOffice",
+        "1758",
+        "14684.360991995733"
+      ],
+      [
+        "Warehouse",
+        "1110",
+        "11319.815166059236"
+      ]
+    ],
+    "columns": [
+      "comstock_building_type",
+      "sample_count",
+      "units_count"
+    ],
+    "bytes_scanned": 404583,
+    "engine_ms": 4773,
+    "planning_ms": 1163,
+    "queue_ms": 103,
+    "total_ms": 5004,
+    "execution_id": "be0174d1-1fb9-4ef2-99a3-d0d8994aff75"
+  }
+}

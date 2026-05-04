@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "628bac2f-aeba-4057-991f-e0b76f7a09fe",
+  "Query": "UNLOAD (SELECT sum(1) AS metadata_rows_count, count(distinct(bs.bldg_id)) AS model_count, sum(bs.weight) AS units_count, sum(bs.\"out.electricity.total.energy_consumption\" * bs.weight) AS \"electricity.total.energy_consumption\" FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.applicability = true AND bs.upgrade = 0 AND bs.bldg_id IN (SELECT bs.bldg_id FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.upgrade IN (1, 16) AND bs.applicability = true GROUP BY bs.bldg_id) AND bs.\"in.state\" IN ('CO', 'WY')) \n TO 's3://resstock-core/bsq_athena_unload_results/d0177095275aaae8b603d6615a4f97f9a247553a53739c69bfe040b140c306b0/07c2a2cf-f8b6-4106-bdd2-72e74e914d4b/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/628bac2f-aeba-4057-991f-e0b76f7a09fe"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-05-03 23:19:02.689000-05:00",
+    "CompletionDateTime": "2026-05-03 23:19:04.735000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 1732,
+    "DataScannedInBytes": 10001958,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/628bac2f-aeba-4057-991f-e0b76f7a09fe-manifest.csv",
+    "TotalExecutionTimeInMillis": 2046,
+    "QueryQueueTimeInMillis": 116,
+    "ServicePreProcessingTimeInMillis": 144,
+    "QueryPlanningTimeInMillis": 508,
+    "ServiceProcessingTimeInMillis": 54,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

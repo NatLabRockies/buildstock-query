@@ -1,0 +1,309 @@
+[
+  {
+    "name": "annual_totals_overall",
+    "sql_hash": {
+      "resstock_oedi": "b720fcd3c98c8676eeaa344cdb91cff7a79ab0696f6d3afc61e93f0dd2b65bef",
+      "comstock_oedi": "004876879e5fc4fe6b36e6dfd56cef5321a89b737ec1351466e1aed7e3f8be35",
+      "comstock_oedi_agg": "cc41a7c37f85edc6b8816be5844cf3be31565969427cdc8c3ea1834b77f31de7"
+    },
+    "description": "Annual electricity + natural gas totals restricted to CO.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL",
+        "$NATURAL_GAS_TOTAL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ]
+    }
+  },
+  {
+    "name": "annual_totals_by_building_type",
+    "sql_hash": {
+      "resstock_oedi": "619057b02b31266b45885dae28ed122a4ad0677b3719bd234889e17e7b407ced",
+      "comstock_oedi": "ce1668408a25af41b4c3c5456a4c390f0d4188a5f702cc47a013521f0f91fc7f",
+      "comstock_oedi_agg": "154a91d8fbfd524f6ab61c4c68f399afceed77df5fe3cb3dbc4b4c4ff9526337"
+    },
+    "description": "Annual totals grouped by building type, CO only. Two variants confirm that omitting annual_only (default True) matches passing annual_only=True explicitly.",
+    "args": [
+      {
+        "enduses": [
+          "$ELECTRICITY_TOTAL",
+          "$NATURAL_GAS_TOTAL"
+        ],
+        "group_by": [
+          "$BUILDING_TYPE_COL"
+        ],
+        "restrict": [
+          [
+            "state",
+            [
+              "CO"
+            ]
+          ]
+        ]
+      },
+      {
+        "enduses": [
+          "$ELECTRICITY_TOTAL",
+          "$NATURAL_GAS_TOTAL"
+        ],
+        "group_by": [
+          "$BUILDING_TYPE_COL"
+        ],
+        "restrict": [
+          [
+            "state",
+            [
+              "CO"
+            ]
+          ]
+        ],
+        "annual_only": true
+      }
+    ]
+  },
+  {
+    "name": "annual_electricity_by_vintage_sort",
+    "sql_hash": {
+      "resstock_oedi": "83fb825b37c0433bb1158a94cd58d5b2422418227c3091f280fc5a402113420e",
+      "comstock_oedi": "f426d710cf6d155cadac49e218f93d218f4ed7230763d259105ad656ba073bad",
+      "comstock_oedi_agg": "4ccb3ba466dbed5c9877c8b1aed5ad7ab3634dbd0adca61482357819b8c46194"
+    },
+    "description": "Annual electricity grouped by vintage with sort, limit 5, CO only.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "vintage"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "sort": true,
+      "limit": 5
+    }
+  },
+  {
+    "name": "annual_electricity_by_vintage_nosort",
+    "sql_hash": {
+      "resstock_oedi": "65acac1e77d2a0f7fc13b55474a5fa5eecb02e33e8817c6afe26438ccc16459d",
+      "comstock_oedi": "6836253b108f38400fe4220d0c58547dfcbe4424e859b0151f1650e9722212e0",
+      "comstock_oedi_agg": "40d91645c79ea6889a6989c54831ec816ea9c75930b340947071517a15a28c13"
+    },
+    "nondeterministic": true,
+    "description": "Annual electricity by vintage with sort=false + limit. Hits the no-ORDER-BY branch which existing entries never exercise. Marked nondeterministic because LIMIT without ORDER BY makes Trino free to return any 5 rows; only SQL shape is meaningful.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "vintage"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "sort": false,
+      "limit": 5
+    }
+  },
+  {
+    "name": "annual_nonzero_count_natural_gas",
+    "sql_hash": {
+      "resstock_oedi": "ef0b5e08712d8eb5db028ca545c3fbf5d5249ee8d62c14aa22a972e2fe9b1e76",
+      "comstock_oedi": "9e4d4a57e17f4e458c3c82d546ae394ac304329a5fe1b13de5f1b7e1d1307afc",
+      "comstock_oedi_agg": "d3f63819109fddbb080d60dae496533588e2de2227649340589b0be86e8dac66"
+    },
+    "description": "Annual natural gas with nonzero_units_count requested, CO only.",
+    "args": {
+      "enduses": [
+        "$NATURAL_GAS_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "get_nonzero_count": true
+    }
+  },
+  {
+    "name": "annual_baseline_quartiles",
+    "sql_hash": {
+      "resstock_oedi": "ba658214ac0e05102bfa6850c38b3691d2f4aabbca798d3a6711030c543ff026",
+      "comstock_oedi": "f048fbba67a32594dc58cf6ffcf8eb8a855021dd6e58c5fb436c13ff3ad0a7f3",
+      "comstock_oedi_agg": "18a9da441f8d00914f795f1e2a790fc5b152968d7278ac36c8d6a822030e74f9"
+    },
+    "description": "Annual baseline (upgrade=0) electricity with get_quartiles=true. Hits the quartile branch on the upgrade-0 path where there is no upgrade-table join \u2014 the existing quartile coverage is upgrade=1 only.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "get_quartiles": true
+    }
+  },
+  {
+    "name": "annual_agg_func_mean",
+    "sql_hash": {
+      "resstock_oedi": "01927fb17b32bb8786a5a2186660c0a1a8a15e9e11f2c9715ceec02a266e5674",
+      "comstock_oedi": "feaf2b17e15617dd9ccc72cd8ac7a15f4a563373654f69439a2662afa878e11c",
+      "comstock_oedi_agg": "4cb11a40156bfc365e1bfddf452e5f8c899d3b8fecede2dde453dc36f399b9df"
+    },
+    "description": "Annual electricity with agg_func='mean'. Pins the non-sum aggregation branch (no weight multiplication, AVG instead of SUM).",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "agg_func": "mean"
+    }
+  },
+  {
+    "name": "annual_agg_func_max",
+    "sql_hash": {
+      "resstock_oedi": "44a81df76762f3223a52842f32c4e756d3114756ff8f45fd425fc57a0d129d43",
+      "comstock_oedi": "3e5ecc39e2fbe01d921ab3e60029cdf28417e3410e41b2b6fe01c5bf005ba45c",
+      "comstock_oedi_agg": "ce30bc3b4b4b526668a1a3989a36da580f0d5fa0a10fdded1c91a3b869cfb80f"
+    },
+    "description": "Annual electricity with agg_func='max'. Pins the MAX() aggregation branch.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "agg_func": "max"
+    }
+  },
+  {
+    "name": "annual_agg_func_min",
+    "sql_hash": {
+      "resstock_oedi": "969ef4360243d368643f7383b18f293375cb5fc098c5927c13bdcc985314a2aa",
+      "comstock_oedi": "f6f9442a9130cfa2da263cf54d0498ca0708cfba6c44c0782b4bae2a72f05710",
+      "comstock_oedi_agg": "13fad60a0438c1e5991577a3d9ca5ee918bd0c3182b94b47fb79f02b351f5ad3"
+    },
+    "description": "Annual electricity with agg_func='min'. Pins the MIN() aggregation branch.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "agg_func": "min"
+    }
+  },
+  {
+    "name": "annual_with_extra_weight_sqft",
+    "sql_hash": {
+      "resstock_oedi": "51488a5de5dbc7b9e220536ea6eb294fe9fb9929111d8e51a23568c75034bbc0",
+      "comstock_oedi": "41ab0bb0e749ed39c8d8019b1b4bb650ea81df3da13ffdd52dc8ab11ef1b252d",
+      "comstock_oedi_agg": "2d204f2255d10391c543f7e638629ff5b22a1f5a63352f069cb7529cc31567d4"
+    },
+    "description": "Annual electricity with weights=[$SQFT_COL] — resstock 'in.sqft', comstock 'in.sqft..ft2'. Pins the SQL shape where the user supplies an explicit additional weight column on top of the default sample_weight; Athena gets `electricity * sample_weight * sqft`. Internally exercised by utility queries (eiaid_weights.weight); no other entry covers user-supplied weights directly.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "weights": ["$SQFT_COL"]
+    }
+  },
+  {
+    "name": "annual_agg_func_arbitrary",
+    "sql_hash": {
+      "resstock_oedi": "e994fed80fe1fba62063b6e71db37a87c236ce38502180a5e7217ac76e55f2de",
+      "comstock_oedi": "1198ad1ab345fd9eb025c50a37797ebec16e95406b34bea5b08d04b3601a36ff",
+      "comstock_oedi_agg": "edaf16244ef3604b9635ff8675c8b021dcccced2957e0455c46d754a9a776da4"
+    },
+    "nondeterministic": true,
+    "description": "Annual electricity with agg_func='arbitrary'. Pins the ARBITRARY() (Athena's any-value) aggregation branch. Marked nondeterministic because arbitrary() picks any group value per row; only SQL shape is meaningful.",
+    "args": {
+      "enduses": [
+        "$ELECTRICITY_TOTAL"
+      ],
+      "group_by": [
+        "$BUILDING_TYPE_COL"
+      ],
+      "restrict": [
+        [
+          "state",
+          [
+            "CO"
+          ]
+        ]
+      ],
+      "agg_func": "arbitrary"
+    }
+  }
+]

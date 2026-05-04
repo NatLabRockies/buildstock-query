@@ -1,0 +1,40 @@
+{
+  "probe": {
+    "name": "files_per_state",
+    "sql": "SELECT \"in.state\" AS state, count(DISTINCT \"$path\") AS files FROM comstock_amy2018_r2_2025_md_agg_national_parquet GROUP BY \"in.state\" ORDER BY 2 DESC LIMIT 5",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "rows": [
+      [
+        "OH",
+        "62"
+      ],
+      [
+        "ND",
+        "62"
+      ],
+      [
+        "IN",
+        "62"
+      ],
+      [
+        "MD",
+        "62"
+      ],
+      [
+        "UT",
+        "62"
+      ]
+    ],
+    "columns": [
+      "state",
+      "files"
+    ],
+    "bytes_scanned": 2495081,
+    "engine_ms": 1457,
+    "planning_ms": 130,
+    "queue_ms": 65,
+    "total_ms": 1615,
+    "execution_id": "6795eb7a-b2b4-4548-9a2f-88ef13103abb"
+  }
+}

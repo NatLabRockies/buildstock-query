@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "f42fb4e6-6cad-462d-8979-c174418e00c0",
+  "Query": "UNLOAD (SELECT bs.\"in.comstock_building_type\" AS comstock_building_type, sum(1) AS metadata_rows_count, count(distinct(bs.bldg_id)) AS model_count, sum(bs.weight) AS units_count, sum((coalesce(bs.\"out.electricity.total.energy_consumption..kwh\", 0) - coalesce(up.\"out.electricity.total.energy_consumption..kwh\", 0)) * bs.weight) AS \"electricity.total.energy_consumption..kwh__savings\" FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs JOIN comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS up ON bs.bldg_id = up.bldg_id AND bs.\"in.nhgis_tract_gisjoin\" = up.\"in.nhgis_tract_gisjoin\" AND bs.state = up.state AND bs.upgrade = 0 AND up.upgrade = 1 AND up.applicability = true WHERE bs.applicability = true AND bs.upgrade = 0 AND bs.state = 'CO' GROUP BY 1 ORDER BY 1) \n TO 's3://resstock-core/bsq_athena_unload_results/5c0a271e8ee0afa425a732ca36fd6ecc3ab2e80293c6e4a4dd705bc0123b6f22/e43884d7-3ad3-4888-a0bc-aed4639f6f21/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/f42fb4e6-6cad-462d-8979-c174418e00c0"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-04-30 19:39:47.888000-05:00",
+    "CompletionDateTime": "2026-04-30 19:39:52.447000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 4406,
+    "DataScannedInBytes": 1988801,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/f42fb4e6-6cad-462d-8979-c174418e00c0-manifest.csv",
+    "TotalExecutionTimeInMillis": 4559,
+    "QueryQueueTimeInMillis": 53,
+    "ServicePreProcessingTimeInMillis": 77,
+    "QueryPlanningTimeInMillis": 1150,
+    "ServiceProcessingTimeInMillis": 23,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

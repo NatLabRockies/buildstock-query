@@ -1,0 +1,16 @@
+{
+  "probe": {
+    "name": "count_state_CO_upgrade_0",
+    "sql": "SELECT count(*) AS count FROM comstock_amy2018_r2_2025_md_agg_national_parquet WHERE state = 'CO' AND upgrade = 0",
+    "state": "FAILED",
+    "reason": "COLUMN_NOT_FOUND: line 1:86: Column 'state' cannot be resolved or requester is not authorized to access requested resources",
+    "rows": [],
+    "columns": [],
+    "bytes_scanned": 0,
+    "engine_ms": 345,
+    "planning_ms": 0,
+    "queue_ms": 56,
+    "total_ms": 750,
+    "execution_id": "c52b060c-230a-43ce-b257-faa6c0a1f08a"
+  }
+}

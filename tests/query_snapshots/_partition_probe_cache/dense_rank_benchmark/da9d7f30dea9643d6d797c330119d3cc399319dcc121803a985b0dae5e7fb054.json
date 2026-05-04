@@ -1,0 +1,130 @@
+{
+  "probe": {
+    "name": "V3_dense_rank_max_asc",
+    "sql": "SELECT timestamp,\n       sum(tract_count) AS metadata_rows_count,\n       max(rk_asc) AS model_count,\n       sum(bldg_weight) AS units_count,\n       sum(bs_elec * bldg_weight) AS elec_baseline,\n       sum(up_elec * bldg_weight) AS elec_upgrade,\n       sum((coalesce(bs_elec, 0) - coalesce(up_elec, 0)) * bldg_weight) AS elec_savings\nFROM (\n  SELECT ts_aggr.timestamp, ts_aggr.bs_elec, ts_aggr.up_elec,\n         bs_per_bldg.bldg_id, bs_per_bldg.tract_count, bs_per_bldg.bldg_weight,\n         DENSE_RANK() OVER (PARTITION BY ts_aggr.timestamp ORDER BY bs_per_bldg.bldg_id ASC) AS rk_asc\n  FROM (\n  SELECT ts_flat.state AS state, ts_flat.timestamp AS timestamp, ts_flat.bldg_id AS bldg_id,\n         sum(ts_flat.elec) FILTER (WHERE ts_flat.upgrade=0) AS bs_elec,\n         sum(ts_flat.elec) FILTER (WHERE ts_flat.upgrade=1) AS up_elec,\n         count(*) FILTER (WHERE ts_flat.upgrade=0) AS _inner_rows\n  FROM (\n    SELECT ts.state AS state, ts.bldg_id AS bldg_id,\n           date_trunc('month', date_add('second', -900, ts.timestamp)) AS timestamp,\n           ts.upgrade AS upgrade,\n           ts.\"out.electricity.total.energy_consumption\" AS elec\n    FROM comstock_amy2018_r2_2025_ts_by_state AS ts\n    WHERE ts.upgrade IN (0, 1) AND ts.state IN ('CO', 'NM')\n  ) AS ts_flat\n  GROUP BY ts_flat.state, ts_flat.timestamp, ts_flat.bldg_id\n) AS ts_aggr\n  JOIN (\n  SELECT bs.bldg_id AS bldg_id, bs.state AS state,\n         sum(bs.weight) AS bldg_weight,\n         count(*) AS tract_count\n  FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs\n  WHERE bs.upgrade = 0 AND bs.state IN ('CO', 'NM')\n  GROUP BY bs.bldg_id, bs.state\n) AS bs_per_bldg ON bs_per_bldg.bldg_id = ts_aggr.bldg_id AND bs_per_bldg.state = ts_aggr.state\n) sub\nGROUP BY timestamp ORDER BY 1",
+    "state": "SUCCEEDED",
+    "reason": "",
+    "total_ms": 14250,
+    "engine_ms": 13997,
+    "bytes_scanned": 1604699875,
+    "rows": [
+      [
+        "timestamp",
+        "metadata_rows_count",
+        "model_count",
+        "units_count",
+        "elec_baseline",
+        "elec_upgrade",
+        "elec_savings"
+      ],
+      [
+        "2018-01-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "1.7897121894643607E9",
+        "1.9066631644681118E9",
+        "-1.169509745942988E8"
+      ],
+      [
+        "2018-02-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "1.636057399539723E9",
+        "1.7858911881115897E9",
+        "-1.4983378839743993E8"
+      ],
+      [
+        "2018-03-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "1.6263878444484906E9",
+        "1.6155299604064865E9",
+        "1.0857884058207013E7"
+      ],
+      [
+        "2018-04-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "1.5679061139468164E9",
+        "1.5283989974369125E9",
+        "3.950711650990528E7"
+      ],
+      [
+        "2018-05-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "1.8016586239741573E9",
+        "1.6999700746266735E9",
+        "1.0168854934748177E8"
+      ],
+      [
+        "2018-06-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "2.0271688117396994E9",
+        "1.9018652617930367E9",
+        "1.2530354994666874E8"
+      ],
+      [
+        "2018-07-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "2.0877794699662874E9",
+        "1.9461991954515467E9",
+        "1.4158027451474038E8"
+      ],
+      [
+        "2018-08-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "2.0074383910430574E9",
+        "1.870422734637499E9",
+        "1.3701565640555426E8"
+      ],
+      [
+        "2018-09-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "1.8412088806106486E9",
+        "1.7256011215736506E9",
+        "1.1560775903699778E8"
+      ],
+      [
+        "2018-10-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "1.6423864753406847E9",
+        "1.5961513016630273E9",
+        "4.6235173677656144E7"
+      ],
+      [
+        "2018-11-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "1.632499477380016E9",
+        "1.6658141590567176E9",
+        "-3.331468153438302E7"
+      ],
+      [
+        "2018-12-01 00:00:00.000",
+        "36752",
+        "6627",
+        "119641.76515315966",
+        "1.7744420493481097E9",
+        "1.9023353386319222E9",
+        "-1.2789328944743514E8"
+      ]
+    ]
+  }
+}

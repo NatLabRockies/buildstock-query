@@ -1,0 +1,16 @@
+{
+  "probe": {
+    "name": "count_state_CO_upgrade_0",
+    "sql": "SELECT count(*) AS count FROM resstock_2024_amy2018_release_2_metadata WHERE state = 'CO' AND upgrade = 0",
+    "state": "FAILED",
+    "reason": "COLUMN_NOT_FOUND: line 1:78: Column 'state' cannot be resolved or requester is not authorized to access requested resources",
+    "rows": [],
+    "columns": [],
+    "bytes_scanned": 0,
+    "engine_ms": 159,
+    "planning_ms": 0,
+    "queue_ms": 109,
+    "total_ms": 407,
+    "execution_id": "1da1bee3-5832-4ec0-aef9-f52cef097d32"
+  }
+}

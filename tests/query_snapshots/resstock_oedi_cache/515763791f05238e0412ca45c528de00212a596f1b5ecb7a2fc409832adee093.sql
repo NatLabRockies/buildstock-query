@@ -1,0 +1,1 @@
+SELECT bs.bldg_id FROM resstock_2024_amy2018_release_2_metadata AS bs WHERE bs.upgrade IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) AND bs.applicability = true GROUP BY bs.bldg_id HAVING count(distinct(bs.upgrade)) = 12

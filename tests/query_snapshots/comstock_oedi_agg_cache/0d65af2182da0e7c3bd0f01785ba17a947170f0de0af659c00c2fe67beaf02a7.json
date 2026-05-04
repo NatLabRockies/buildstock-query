@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "3b4490b3-df8e-4b4e-bc54-335586379fea",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.county, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND (bs.bldg_id, bs.county, bs.state) IN (SELECT bs.bldg_id, bs.county, bs.state FROM comstock_amy2018_r2_2025_md_agg_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1) AND bs.applicability = true AND bs.state = 'CO' GROUP BY bs.bldg_id, bs.county, bs.state HAVING count(distinct(bs.upgrade)) = 1) AND bs.state = 'CO' AND bs.bldg_id IN (46369, 46370, 46381, 46382, 46803, 46813, 46897, 46898)) \n TO 's3://resstock-core/bsq_athena_unload_results/0d65af2182da0e7c3bd0f01785ba17a947170f0de0af659c00c2fe67beaf02a7/e6328af9-aa40-43ef-ab2f-220eecffe43d/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/3b4490b3-df8e-4b4e-bc54-335586379fea"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-05-03 23:18:54.808000-05:00",
+    "CompletionDateTime": "2026-05-03 23:18:59.717000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 4712,
+    "DataScannedInBytes": 101309,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/3b4490b3-df8e-4b4e-bc54-335586379fea-manifest.csv",
+    "TotalExecutionTimeInMillis": 4909,
+    "QueryQueueTimeInMillis": 50,
+    "ServicePreProcessingTimeInMillis": 93,
+    "QueryPlanningTimeInMillis": 1280,
+    "ServiceProcessingTimeInMillis": 54,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

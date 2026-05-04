@@ -153,7 +153,7 @@
     "sql_hash": {
       "resstock_oedi": "3adc5f0c1b6338455076199907ac59aa10e615ee1081b00c744abc29bcb88cf4",
       "comstock_oedi": "0ec8054a717ccdffd816d0b91cade34ba7ebd32b78bdf1e61a46a205bd97ecd8",
-      "comstock_oedi_agg": "6d39e1b20cde7cfbeeff70768a79cc4cce207557f2642477ae4ee67ae1bf2c43"
+      "comstock_oedi_agg": "bbf6367977046e8dfb528671cf15c98d83fd02df20877e38969e60195cb00b38"
     },
     "description": "Monthly TS savings for upgrade 1 covering both electricity and natural gas, grouped by time, CO only. Mirrors savings_annual_two_fuel on the TS path \u2014 pins the multi-fuel column-suffix shape across baseline/upgrade/savings projections in the TS upgrade-pair flow. Comstock skips per UnsupportedQueryShape (TS upgrade-pair queries on comstock).",
     "args": {

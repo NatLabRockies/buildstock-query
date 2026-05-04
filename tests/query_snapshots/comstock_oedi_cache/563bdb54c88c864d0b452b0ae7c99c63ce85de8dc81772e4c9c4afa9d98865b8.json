@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "93137282-429e-4c0a-9aaf-96a4277fe88f",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) IN (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1, 11, 2) AND bs.applicability = true AND bs.state = 'CO' GROUP BY bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) AND bs.state = 'CO') \n TO 's3://resstock-core/bsq_athena_unload_results/563bdb54c88c864d0b452b0ae7c99c63ce85de8dc81772e4c9c4afa9d98865b8/f5ec0986-86a4-4b60-9775-de8082f049c0/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/93137282-429e-4c0a-9aaf-96a4277fe88f"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-05-03 23:23:27.551000-05:00",
+    "CompletionDateTime": "2026-05-03 23:23:31.884000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 4180,
+    "DataScannedInBytes": 953270,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/93137282-429e-4c0a-9aaf-96a4277fe88f-manifest.csv",
+    "TotalExecutionTimeInMillis": 4333,
+    "QueryQueueTimeInMillis": 52,
+    "ServicePreProcessingTimeInMillis": 70,
+    "QueryPlanningTimeInMillis": 764,
+    "ServiceProcessingTimeInMillis": 31,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

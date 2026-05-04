@@ -1,0 +1,42 @@
+{
+  "QueryExecutionId": "c32f5ef6-6b7b-4343-ac84-326b9bd54b50",
+  "Query": "UNLOAD (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade = 0 AND (bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) IN (SELECT bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state FROM comstock_amy2018_r2_2025_md_by_state_and_county_parquet AS bs WHERE bs.upgrade IN (1, 11) AND bs.applicability = true AND bs.state = 'NM' GROUP BY bs.bldg_id, bs.\"in.nhgis_tract_gisjoin\", bs.state) AND bs.state = 'NM') \n TO 's3://resstock-core/bsq_athena_unload_results/4287cb9736f81515514f4225507ab2c9bb8158bcd787e2034662813acceb70da/0ae5bbc0-3c61-4971-a36e-fe75efcc6201/' \n WITH (format = 'PARQUET')",
+  "StatementType": "DML",
+  "ResultConfiguration": {
+    "OutputLocation": "s3://resstock-core/athena_query_results/c32f5ef6-6b7b-4343-ac84-326b9bd54b50"
+  },
+  "ResultReuseConfiguration": {
+    "ResultReuseByAgeConfiguration": {
+      "Enabled": true,
+      "MaxAgeInMinutes": 10080
+    }
+  },
+  "QueryExecutionContext": {
+    "Database": "buildstock_sdr",
+    "Catalog": "awsdatacatalog"
+  },
+  "Status": {
+    "State": "SUCCEEDED",
+    "SubmissionDateTime": "2026-05-03 23:19:15.522000-05:00",
+    "CompletionDateTime": "2026-05-03 23:19:18.933000-05:00"
+  },
+  "Statistics": {
+    "EngineExecutionTimeInMillis": 3224,
+    "DataScannedInBytes": 251605,
+    "DataManifestLocation": "s3://resstock-core/athena_query_results/c32f5ef6-6b7b-4343-ac84-326b9bd54b50-manifest.csv",
+    "TotalExecutionTimeInMillis": 3411,
+    "QueryQueueTimeInMillis": 90,
+    "ServicePreProcessingTimeInMillis": 74,
+    "QueryPlanningTimeInMillis": 656,
+    "ServiceProcessingTimeInMillis": 23,
+    "ResultReuseInformation": {
+      "ReusedPreviousResult": false
+    }
+  },
+  "WorkGroup": "rescore",
+  "EngineVersion": {
+    "SelectedEngineVersion": "Athena engine version 3",
+    "EffectiveEngineVersion": "Athena engine version 3"
+  },
+  "SubstatementType": "UNLOAD"
+}

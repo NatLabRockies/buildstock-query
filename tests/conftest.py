@@ -50,6 +50,28 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
                 red=True,
             )
 
+    failure_details = SESSION_TOTALS.get("failure_details") or []
+    if failure_details:
+        terminalreporter.write_sep("=", "snapshot failure reasons")
+        reason_order = [
+            "data mismatch",
+            "missing snapshot data",
+            "data-check error",
+            "cost regression",
+            "sql drift only",
+            "sql/data drift",
+            "failure",
+        ]
+        for reason in reason_order:
+            matching = [d for d in failure_details if d["reason"] == reason]
+            if not matching:
+                continue
+            terminalreporter.write_line(f"  {reason}:")
+            for detail in matching:
+                terminalreporter.write_line(
+                    f"    {detail['source']}/{detail['name']} ({detail['schema']})"
+                )
+
 
 def pytest_addoption(parser):
     parser.addoption(

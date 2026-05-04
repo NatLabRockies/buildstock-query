@@ -34,6 +34,8 @@ dependencies = [
     "altair>=6.1.0",
     "vegafusion>=2.0.3",
     "vl-convert-python>=1.9.0.post1",
+    "nbformat>=5.10.4",
+    "nbclient>=0.10.4",
 ]
 
 [project.optional-dependencies]

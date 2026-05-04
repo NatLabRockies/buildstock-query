@@ -1,1 +1,0 @@
-SELECT DISTINCT bs.upgrade FROM resstock_2024_amy2018_release_2_metadata AS bs ORDER BY bs.upgrade

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import warnings
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -118,16 +119,33 @@ def _execute_notebook_in_place(path: Path) -> None:
     """
     import nbformat
     from nbclient import NotebookClient
+    from jupyter_client.kernelspec import KernelSpecManager, NoSuchKernel
 
     nb = nbformat.read(path, as_version=4)
+    preferred_kernel = nb.get("metadata", {}).get("kernelspec", {}).get("name", "python3")
+    kernel_mgr = KernelSpecManager()
+    available_kernels = kernel_mgr.find_kernel_specs()
+    kernel_name = preferred_kernel
+    if kernel_name not in available_kernels:
+        warnings.warn(
+            f"Skipping notebook execution for {path.name}: kernel '{kernel_name}' is unavailable in this environment.",
+            RuntimeWarning,
+        )
+        nbformat.write(nb, path)
+        return
     # Run from the notebook's directory so its `_dh[0]`-based cache path
     # resolves to the sibling `tests/query_snapshots/` tree.
     client = NotebookClient(
-        nb, timeout=300, kernel_name="python3",
+        nb, timeout=300, kernel_name=kernel_name,
         resources={"metadata": {"path": str(path.parent)}},
     )
     try:
         client.execute()
+    except NoSuchKernel:
+        warnings.warn(
+            f"Skipping notebook execution for {path.name}: kernel '{kernel_name}' is unavailable in this environment.",
+            RuntimeWarning,
+        )
     finally:
         # Persist outputs even on failure so the user can inspect the
         # crash trace in the notebook itself.

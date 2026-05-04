@@ -153,7 +153,7 @@
     "name": "annual_baseline_quartiles",
     "sql_hash": {
       "resstock_oedi": "ba658214ac0e05102bfa6850c38b3691d2f4aabbca798d3a6711030c543ff026",
-      "comstock_oedi": "e8993c6fb28cdcec4727102ffb7c39408ad63d3f7e1e4a104d0324737258c0cd",
+      "comstock_oedi": "f048fbba67a32594dc58cf6ffcf8eb8a855021dd6e58c5fb436c13ff3ad0a7f3",
       "comstock_oedi_agg": "18a9da441f8d00914f795f1e2a790fc5b152968d7278ac36c8d6a822030e74f9"
     },
     "description": "Annual baseline (upgrade=0) electricity with get_quartiles=true. Hits the quartile branch on the upgrade-0 path where there is no upgrade-table join \u2014 the existing quartile coverage is upgrade=1 only.",

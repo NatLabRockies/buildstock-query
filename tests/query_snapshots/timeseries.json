@@ -87,7 +87,7 @@
   {
     "name": "ts_15min_raw_electricity_by_state",
     "sql_hash": {
-      "resstock_oedi": "0d5df38ead50f5280521908f07e1b70665980ddc1b90c53e739a949a332a1e8c",
+      "resstock_oedi": "0e8a9ac33f7e36ca5e8ea64d3c10a0ffb44896620bac8da42aeda47a5568b0a2",
       "comstock_oedi": "11aa2bc47dc96bdc04cb48b4a40327833bacc798ece1cc4c267af9d7ac384991",
       "comstock_oedi_agg": "3c918d88842e7fd3dfc9156fe420e625a7159f91a1de6642beae5dff6a516076"
     },
@@ -144,7 +144,7 @@
   {
     "name": "ts_hourly_electricity_by_building_type",
     "sql_hash": {
-      "resstock_oedi": "0691ca4ada4fdf9fe211a1276c7d37036822a92cdd543e4fe2f23eef902c464e",
+      "resstock_oedi": "0542333b7649d4d2e82f26e6f2d684474dc79c5fd0f2b086a11042cb3114a99c",
       "comstock_oedi": "2cea9d646d896c641cd867d94dd4e3f9064a3c898c994cecb759ac3056e65762",
       "comstock_oedi_agg": "e0b662de67ca1d30b2e11131488b77b0fe8168a579ab07fc722f5fea063769aa"
     },
@@ -209,7 +209,7 @@
   {
     "name": "ts_hourly_electricity_by_state",
     "sql_hash": {
-      "resstock_oedi": "9f64a800d495530e3add4a399d0e22431fc4efe15b544c1c2881027f6c57f04a",
+      "resstock_oedi": "1980050bd9becdabefe14d80376a3ec49bddd978893cde1e5329c5d3915389a9",
       "comstock_oedi": "e85b7014313b7d547e0bdc875c20b765bb9f2f092c403cb997f858aaa92ddaaf",
       "comstock_oedi_agg": "98035e3c38ec4f0b9ac2a7e560d8acfbb3d4afc017f815a9e5b8b6b95fa6163e"
     },

@@ -28,8 +28,8 @@
     "name": "calculated_column_ts_pivot_upgrade_pair",
     "sql_hash": {
       "resstock_oedi": "f86de603e5f86e90551d011db4789f5d7ab405d15cdb460880d50d0857f3ae2d",
-      "comstock_oedi": "4622af92fca59f2475724eede00b465124155da0a85fb00975b88099ae387ec6",
-      "comstock_oedi_agg": "109e92ec96885e1e270a39ead27ae07d2f73e3d599aec64fbfe0ed074a1edbc1"
+      "comstock_oedi": "8ba34f5ad46cacd8e6c39ddd9ed3c7f38b94b043e6442c7a10461681cec80202",
+      "comstock_oedi_agg": "d3d39dcacb1364af267c980fc9e9186bc70b66ba7f5504c261a5a55ba80d8dff"
     },
     "description": "TS calculated column on the pivot path: table='timeseries' + annual_only=False + upgrade_id != 0 + applied_only=False forces the upgrade-pair pivot subquery (NOT the upgrade_only short-circuit). The Label produced by get_calculated_column wraps an arithmetic expression of raw ts columns; the pivot must wrap that whole expression in a per-side CASE, not look up Label.name on ts.c. Without this entry, the pivot path's calculated-column handling is uncovered.",
     "args": {
@@ -57,9 +57,9 @@
   {
     "name": "calculated_column_ts_pivot_with_baseline",
     "sql_hash": {
-      "resstock_oedi": "ba82272cf76173b630670a1c53b34ea87dfc9722e4d9dbaeb390ed4471981d19",
-      "comstock_oedi": "2ced96506a762289fab6ec6c30e8e2e4c225eda3a985a9b13d8649a1c7524e51",
-      "comstock_oedi_agg": "4c417e933c4030611574426b2b2ccc6696cb22f1afe71da2ddf7b85824a641fe"
+      "resstock_oedi": "a5bf27cb7e6beaf8c35f1b0c7306d3373aa1de2ad19178326138bb67b85d214e",
+      "comstock_oedi": "de8a970ea5b36dfc9f5b979b853386334092cc9bf355dcb91be5b1889de195fd",
+      "comstock_oedi_agg": "ff923e26f5b4176d35c2a824071549c417ae0957f4bc8a812ccb2ee9bfee1745"
     },
     "description": "TS calculated column on the pivot path with include_baseline=True + applied_only=True. This combination forces the pivot subquery (upgrade_only short-circuit only fires when both include_baseline and include_savings are False) AND exercises the internal applied-buildings filter synthesis (TS path appends `_build_applied_subquery(all_of=[upgrade_id])` to filter to applicable buildings). Together with the upgrade_pair entry above, these two pin both branches of the TS pivot's calculated-column handling.",
     "args": {

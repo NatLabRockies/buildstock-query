@@ -126,7 +126,7 @@
       "resstock_oedi"
     ],
     "sql_hash": {
-      "resstock_oedi": "0f23fe14b18395900a931a1950185f748c269f42351b4dc89a1f5b9e527a28d3"
+      "resstock_oedi": "e6f195973e9a26b6524bbee9de81b67b0d0239a82aef34e445823131d89d30f6"
     },
     "description": "utility.calculate_tou_bill with a flat-rate (10c/kWh everywhere) rate map, restricted to CO (cost guardrail per CLAUDE.md \u2014 TS queries without state restrict scan ~3.2 TB on OEDI). Pins the TOU SQL shape (timestamp\u2192month/weekend/hour MappedColumn rate, multiplied into a meter column) without depending on the example-CSV rate files. The rate_map is built from the JSON marker `rate_map_flat: 0.10` in the specialized test function. The meter_col uses an OEDI-style TS column; the method's default (`fuel_use__electricity__total__kwh`) is non-OEDI.",
     "args": {

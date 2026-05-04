@@ -10,7 +10,7 @@ from buildstock_query.schema.helpers import gather_params
 from typing import Literal, Optional, Union
 from collections.abc import Sequence
 from buildstock_query.schema.utilities import (
-    AnyTableType, DBColType, RestrictTuple, SALabel, typed_literal, validate_arguments,
+    DBColType, RestrictTuple, SALabel, typed_literal, validate_arguments,
 )
 from pydantic import Field
 
@@ -680,13 +680,6 @@ class BuildStockAggregate:
         upgrade_id: str,
         md_choice: str,
     ) -> Union[pd.DataFrame, str]:
-        # bs_table / md_table / md_key are now routed via the
-        # `_routing_context` swap on `self._bsq`. All helpers that read
-        # from `self._bsq.bs_table` (e.g. _get_weight, _get_enduse_cols,
-        # _get_column) inherit routing automatically.
-        bs_table = self._bsq.bs_table
-        md_table = self._bsq.md_table
-        md_key = self._bsq.md_key
         # On TS paths, `applied_only=True` must filter the surviving md_keys to
         # buildings where the upgrade applied — the annual flow does this via the
         # md self-join on (bs.bldg_id = up.bldg_id AND up.applicability=true), but

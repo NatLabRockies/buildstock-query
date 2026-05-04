@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Iterator
 
@@ -103,30 +104,19 @@ def pytest_addoption(parser):
             "does."
         ),
     )
-    parser.addoption(
-        "--include-local",
-        action="store_true",
-        default=False,
-        help=(
-            "Include local-only tests that download full metadata parquets from S3 "
-            "(~400 MB for resstock baseline+upgrade1) and run pure-pandas methods like "
-            "report.get_applied_options. Default: skipped (these tests are too heavy for CI). "
-            "Cache lives at tests/local_only/cache/ which is gitignored."
-        ),
-    )
 
 
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "local_only: test requires --include-local (downloads ~400 MB metadata parquets)",
+        "local_only: heavy test that downloads ~400 MB; auto-skipped in CI (CI env var set)",
     )
 
 
 def pytest_collection_modifyitems(config, items):
-    if config.getoption("--include-local"):
+    if not os.environ.get("CI"):
         return
-    skip_local = pytest.mark.skip(reason="local-only test; pass --include-local to run")
+    skip_local = pytest.mark.skip(reason="local-only test; auto-skipped in CI")
     for item in items:
         if "local_only" in item.keywords:
             item.add_marker(skip_local)

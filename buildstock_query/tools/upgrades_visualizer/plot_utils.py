@@ -1,16 +1,16 @@
-from pydantic import ConfigDict, BaseModel, Field
-from enum import Enum
-from typing import Optional
 import re
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class SavingsTypes(str, Enum):
+class SavingsTypes(StrEnum):
     absolute = "Absolute"
     savings = "Savings"
     percent_savings = "Percent Savings"
 
 
-class ValueTypes(str, Enum):
+class ValueTypes(StrEnum):
     total = "total"
     count = "count"
     mean = "mean"
@@ -22,11 +22,11 @@ class ValueTypes(str, Enum):
 class PlotParams(BaseModel):
     enduses: list[str]
     savings_type: SavingsTypes
-    change_type: Optional[str] = None
-    upgrade: Optional[str] = None
+    change_type: str | None = None
+    upgrade: str | None = None
     group_by: list[str] = Field(default_factory=list)
     filter_bldgs: list[int] = Field(default_factory=list)
-    sync_upgrade: Optional[int] = None
+    sync_upgrade: int | None = None
     resolution: str = "annual"
     value_type: ValueTypes
 

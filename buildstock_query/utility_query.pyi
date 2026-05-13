@@ -1,18 +1,21 @@
-import buildstock_query.main as main
 import logging
-from typing import Any, Optional, Union, Sequence
+import typing
+from collections.abc import Sequence
+from typing import Any, Literal
+
 import pandas as pd
+from pydantic import Field
+
+from buildstock_query import main
 from buildstock_query.schema.query_params import UtilityTSQuery
 from buildstock_query.schema.utilities import AnyColType, AnyTableType
-import typing
-from typing import Literal
-from pydantic import Field
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class BuildStockUtility:
-    def __init__(self, buildstock_query: 'main.BuildStockQuery',
+    def __init__(self, buildstock_query: main.BuildStockQuery,
                  eia_mapping_year: int = 2018, eia_mapping_version: int = 1) -> None:
         ...
 
@@ -33,16 +36,16 @@ class BuildStockUtility:
                               enduses: Sequence[AnyColType],
                               eiaid_list: Sequence[str],
                               get_query_only: Literal[True],
-                              group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
-                              upgrade_id: Union[int, str] = '0',
+                              group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+                              upgrade_id: int | str = '0',
                               sort: bool = True,
                               join_list: Sequence[tuple[AnyTableType, AnyColType,
                                                         AnyColType]] = Field(default_factory=list),
-                              weights: Sequence[Union[str, tuple]] = [],
-                              restrict: Sequence[tuple[str, Union[str, int, Sequence[int], Sequence[str]]]] = [],
-                              timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = None,
+                              weights: Sequence[str | tuple] = [],
+                              restrict: Sequence[tuple[str, str | int | Sequence[int] | Sequence[str]]] = [],
+                              timestamp_grouping_func: Literal["year", "month", "day", "hour"] | None = None,
                               query_group_size: int = 20,
-                              limit: Optional[int] = None,
+                              limit: int | None = None,
                               ) -> str:
         ...
 
@@ -50,17 +53,17 @@ class BuildStockUtility:
     def aggregate_ts_by_eiaid(self, *,
                               enduses: Sequence[AnyColType],
                               eiaid_list: Sequence[str],
-                              group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
-                              upgrade_id: Union[int, str] = '0',
+                              group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+                              upgrade_id: int | str = '0',
                               sort: bool = True,
                               join_list: Sequence[tuple[AnyTableType, AnyColType,
                                                         AnyColType]] = Field(default_factory=list),
-                              weights: Sequence[Union[str, tuple]] = [],
-                              restrict: Sequence[tuple[str, Union[str, int, Sequence[int], Sequence[str]]]] = [],
-                              timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = None,
+                              weights: Sequence[str | tuple] = [],
+                              restrict: Sequence[tuple[str, str | int | Sequence[int] | Sequence[str]]] = [],
+                              timestamp_grouping_func: Literal["year", "month", "day", "hour"] | None = None,
                               get_query_only: Literal[False] = False,
                               query_group_size: int = 20,
-                              limit: Optional[int] = None,
+                              limit: int | None = None,
                               ) -> pd.DataFrame:
         ...
 
@@ -69,17 +72,17 @@ class BuildStockUtility:
                               enduses: Sequence[AnyColType],
                               eiaid_list: Sequence[str],
                               get_query_only: bool,
-                              group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
-                              upgrade_id: Union[int, str] = '0',
+                              group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+                              upgrade_id: int | str = '0',
                               sort: bool = True,
                               join_list: Sequence[tuple[AnyTableType, AnyColType,
                                                         AnyColType]] = Field(default_factory=list),
-                              weights: Sequence[Union[str, tuple]] = [],
-                              restrict: Sequence[tuple[str, Union[str, int, Sequence[int], Sequence[str]]]] = [],
-                              timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = None,
+                              weights: Sequence[str | tuple] = [],
+                              restrict: Sequence[tuple[str, str | int | Sequence[int] | Sequence[str]]] = [],
+                              timestamp_grouping_func: Literal["year", "month", "day", "hour"] | None = None,
                               query_group_size: int = 20,
-                              limit: Optional[int] = None,
-                              ) -> Union[str, pd.DataFrame]:
+                              limit: int | None = None,
+                              ) -> str | pd.DataFrame:
         """
         Aggregates the timeseries result, grouping by utilities.
         Args:
@@ -103,49 +106,45 @@ class BuildStockUtility:
         Returns:
             Pandas dataframe with the aggregated timeseries and the requested enduses grouped by utilities
         """
-        ...
 
     @typing.overload
     def aggregate_ts_by_eiaid(self, *,
                               params: UtilityTSQuery,
-                              ) -> Union[str, pd.DataFrame]:
+                              ) -> str | pd.DataFrame:
         ...
 
     @typing.overload
-    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Optional[Sequence[str]] = None,
+    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Sequence[str] | None = None,
                                        get_query_only: Literal[True],
-                                       group_by: Sequence[Union[AnyColType,
-                                                                tuple[str, str]]] = Field(default_factory=list),
+                                       group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
                                        ) -> str:
         ...
 
     @typing.overload
-    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Optional[Sequence[str]] = None,
+    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Sequence[str] | None = None,
                                        get_query_only: Literal[False] = False,
-                                       group_by: Sequence[Union[AnyColType,
-                                                                tuple[str, str]]] = Field(default_factory=list),
+                                       group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
                                        ) -> pd.DataFrame:
         ...
 
     @typing.overload
-    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Optional[Sequence[str]] = None,
+    def aggregate_unit_counts_by_eiaid(self, *, eiaid_list: Sequence[str] | None = None,
                                        get_query_only: bool = False,
-                                       group_by: Sequence[Union[AnyColType,
-                                                                tuple[str, str]]] = Field(default_factory=list),
-                                       ) -> Union[pd.DataFrame, str]:
+                                       group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+                                       ) -> pd.DataFrame | str:
         ...
 
     @typing.overload
     def aggregate_annual_by_eiaid(self, enduses: Sequence[AnyColType],
                                   get_query_only: Literal[True],
-                                  group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
+                                  group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
                                   get_nonzero_count: bool = False,
                                   ) -> str:
         ...
 
     @typing.overload
     def aggregate_annual_by_eiaid(self, enduses: Sequence[AnyColType],
-                                  group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
+                                  group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
                                   get_nonzero_count: bool = False,
                                   get_query_only: Literal[False] = False) -> pd.DataFrame:
         ...
@@ -153,9 +152,9 @@ class BuildStockUtility:
     @typing.overload
     def aggregate_annual_by_eiaid(self, enduses: Sequence[AnyColType],
                                   get_query_only: bool,
-                                  group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
+                                  group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
                                   get_nonzero_count: bool = False,
-                                  ) -> Union[str, pd.DataFrame]:
+                                  ) -> str | pd.DataFrame:
         ...
 
     @typing.overload
@@ -170,7 +169,7 @@ class BuildStockUtility:
 
     @typing.overload
     def get_filtered_results_csv_by_eiaid(
-            self, eiaids: Sequence[str], get_query_only: bool) -> Union[str, pd.DataFrame]:
+            self, eiaids: Sequence[str], get_query_only: bool) -> str | pd.DataFrame:
         """
         Returns a portion of the results csvs, which belongs to given list of utilities
         Args:
@@ -182,11 +181,10 @@ class BuildStockUtility:
         Returns:
             Pandas dataframe that is a subset of the results csv, that belongs to provided list of utilities
         """
-        ...
 
     def get_eiaids(self,
                    restrict: Sequence[tuple[AnyColType,
-                                            Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list)
+                                            str | int | Sequence[int | str]]] = Field(default_factory=list)
                    ) -> list[str]:
         """
         Returns the list of building
@@ -198,7 +196,6 @@ class BuildStockUtility:
         Returns:
             Pandas dataframe consisting of the eiaids belonging to the provided list of locations.
         """
-        ...
 
     @typing.overload
     def get_buildings_by_eiaids(self, eiaids: Sequence[str], get_query_only: Literal[True]) -> str:
@@ -209,7 +206,7 @@ class BuildStockUtility:
         ...
 
     @typing.overload
-    def get_buildings_by_eiaids(self, eiaids: Sequence[str], get_query_only: bool) -> Union[str, pd.DataFrame]:
+    def get_buildings_by_eiaids(self, eiaids: Sequence[str], get_query_only: bool) -> str | pd.DataFrame:
         """
         Returns the list of buildings belonging to the given list of utilities.
         Args:
@@ -222,7 +219,6 @@ class BuildStockUtility:
             Pandas dataframe consisting of the building ids belonging to the provided list of utilities.
 
         """
-        ...
 
     @typing.overload
     def get_locations_by_eiaids(self, eiaids: Sequence[str], get_query_only: Literal[True]) -> str:
@@ -233,7 +229,7 @@ class BuildStockUtility:
         ...
 
     @typing.overload
-    def get_locations_by_eiaids(self, eiaids: Sequence[str], get_query_only: bool) -> Union[str, list[str]]:
+    def get_locations_by_eiaids(self, eiaids: Sequence[str], get_query_only: bool) -> str | list[str]:
         """
         Returns the list of locations/counties (depends on mapping version) belonging to a given list of utilities.
         Args:
@@ -247,63 +243,59 @@ class BuildStockUtility:
             provided list of utilities.
 
         """
-        ...
 
     @typing.overload
     def calculate_tou_bill(self, *,
-                           rate_map: Union[tuple[str, str], dict[tuple[int, int, int], float]],
+                           rate_map: tuple[str, str] | dict[tuple[int, int, int], float],
                            get_query_only: Literal[True],
-                           meter_col: Optional[Union[AnyColType, Sequence[AnyColType]]] = None,
-                           group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
-                           upgrade_id: Union[int, str] = '0',
+                           meter_col: AnyColType | Sequence[AnyColType] | None = None,
+                           group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+                           upgrade_id: int | str = '0',
                            sort: bool = True,
                            join_list: Sequence[tuple[AnyTableType, AnyColType,
                                                      AnyColType]] = Field(default_factory=list),
-                           weights: Sequence[Union[str, tuple]] = Field(default_factory=list),
+                           weights: Sequence[str | tuple] = Field(default_factory=list),
                            restrict: Sequence[
-                               tuple[AnyColType, Union[str, int,
-                                                       Sequence[Union[int, str]]]]] = Field(default_factory=list),
-                           timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = "month",
-                           limit: Optional[int] = None,
+                               tuple[AnyColType, str | int | Sequence[int | str]]] = Field(default_factory=list),
+                           timestamp_grouping_func: Literal["year", "month", "day", "hour"] | None = "month",
+                           limit: int | None = None,
                            ) -> str:
         ...
 
     @typing.overload
     def calculate_tou_bill(self, *,
-                           rate_map: Union[tuple[str, str], dict[tuple[int, int, int], float]],
-                           meter_col: Optional[Union[AnyColType, Sequence[AnyColType]]] = None,
-                           group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
-                           upgrade_id: Union[int, str] = '0',
+                           rate_map: tuple[str, str] | dict[tuple[int, int, int], float],
+                           meter_col: AnyColType | Sequence[AnyColType] | None = None,
+                           group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+                           upgrade_id: int | str = '0',
                            sort: bool = True,
                            join_list: Sequence[tuple[AnyTableType, AnyColType,
                                                      AnyColType]] = Field(default_factory=list),
-                           weights: Sequence[Union[str, tuple]] = Field(default_factory=list),
+                           weights: Sequence[str | tuple] = Field(default_factory=list),
                            restrict: Sequence[
-                               tuple[AnyColType, Union[str, int,
-                                                       Sequence[Union[int, str]]]]] = Field(default_factory=list),
-                           timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = "month",
-                           limit: Optional[int] = None,
+                               tuple[AnyColType, str | int | Sequence[int | str]]] = Field(default_factory=list),
+                           timestamp_grouping_func: Literal["year", "month", "day", "hour"] | None = "month",
+                           limit: int | None = None,
                            get_query_only: Literal[False] = False
                            ) -> pd.DataFrame:
         ...
 
     @typing.overload
     def calculate_tou_bill(self, *,
-                           rate_map: Union[tuple[str, str], dict[tuple[int, int, int], float]],
+                           rate_map: tuple[str, str] | dict[tuple[int, int, int], float],
                            get_query_only: bool,
-                           meter_col: Optional[Union[AnyColType, Sequence[AnyColType]]] = None,
-                           group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
-                           upgrade_id: Union[int, str] = '0',
+                           meter_col: AnyColType | Sequence[AnyColType] | None = None,
+                           group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+                           upgrade_id: int | str = '0',
                            sort: bool = True,
                            join_list: Sequence[tuple[AnyTableType, AnyColType,
                                                      AnyColType]] = Field(default_factory=list),
-                           weights: Sequence[Union[str, tuple]] = Field(default_factory=list),
+                           weights: Sequence[str | tuple] = Field(default_factory=list),
                            restrict: Sequence[
-                               tuple[AnyColType, Union[str, int,
-                                                       Sequence[Union[int, str]]]]] = Field(default_factory=list),
-                           timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = "month",
-                           limit: Optional[int] = None,
-                           ) -> Union[str, pd.DataFrame]:
+                               tuple[AnyColType, str | int | Sequence[int | str]]] = Field(default_factory=list),
+                           timestamp_grouping_func: Literal["year", "month", "day", "hour"] | None = "month",
+                           limit: int | None = None,
+                           ) -> str | pd.DataFrame:
         """Calculates the dollar cost of electricity for a given time of use rate schedule. Currently, makes use of the
         the net_electricity_kwh enduse to make the calculation and assumes that the rate schedule is for a single
         symetrical rate. The rate schedule is specified by the rate_map argument.
@@ -347,7 +339,7 @@ class BuildStockUtility:
                     Example: `[('state',['VA','AZ']), ("build_existing_model.lighting",['60% CFL']), ...]`
                 The column can be directly specified instead of using a string. For example:
                     `restrict = [(my_run.ts_bldgid_column, (1, 2, 3))]`
-                In the above, my_run is a BuildStockQuery object and ts_bldgid_column is a building_id column of the 
+                In the above, my_run is a BuildStockQuery object and ts_bldgid_column is a building_id column of the
                 timeseries table.
 
             timestamp_grouping_func (Literal["year", "month", "day", "hour"]), optional): The function to use to
@@ -360,4 +352,3 @@ class BuildStockUtility:
             get_query_only (bool, optional): If set to true, returns query string instead of running the query.
                 Defaults to False.
         """
-        ...

@@ -18,11 +18,11 @@ from __future__ import annotations
 import hashlib
 import json as _json
 import re
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pandas as pd
-
 
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -66,8 +66,8 @@ class SqlCache:
         # a long-running process.
         self._usage_seen: set[str] = set()
         if self._usage_log_path.exists():
-            for line in self._usage_log_path.read_text().splitlines():
-                line = line.strip()
+            for raw_line in self._usage_log_path.read_text().splitlines():
+                line = raw_line.strip()
                 if len(line) == 64 and all(c in "0123456789abcdef" for c in line):
                     self._usage_seen.add(line)
         else:

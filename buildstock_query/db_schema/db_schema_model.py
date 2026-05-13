@@ -1,5 +1,4 @@
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional
 
 
 class TableSuffix(BaseModel):
@@ -25,7 +24,7 @@ class TableSuffix(BaseModel):
 
     annual_and_metadata: str
     timeseries: str
-    annual_and_metadata_state_agg: Optional[str] = None
+    annual_and_metadata_state_agg: str | None = None
 
 
 class ColumnPrefix(BaseModel):
@@ -41,8 +40,8 @@ class ColumnNames(BaseModel):
     completed_status: str
     unmet_hours_cooling_hr: str
     unmet_hours_heating_hr: str
-    map_eiaid_column: Optional[str] = None  # Only for ResStock utility queries
-    # Column on the upgrade table that carries the human-readable upgrade name.
+    map_eiaid_column: str | None = None  # Only for ResStock utility queries
+    # Metadata column that carries the human-readable upgrade name.
     # Defaults to the classic ResStock/ComStock convention. OEDI ComStock
     # overrides this to "in.upgrade_name". OEDI ResStock has no name column;
     # `get_upgrade_names` then degrades to NULL upgrade_name values.
@@ -63,14 +62,14 @@ class Structure(BaseModel):
 
 
 class UniqueKeys(BaseModel):
-    metadata: Optional[list[str]] = None
-    timeseries: Optional[list[str]] = None
+    metadata: list[str] | None = None
+    timeseries: list[str] | None = None
     # Unique-keys for the optional alt metadata table. Defaults to
     # [bldg_id] when omitted (one row per (bldg, state) is fine — the
     # alt table is *coarser* than primary, so its key is typically a
     # subset of primary's). No subset check vs metadata: the alt table
     # is allowed to have a narrower key.
-    metadata_state_agg: Optional[list[str]] = None
+    metadata_state_agg: list[str] | None = None
 
     @model_validator(mode="after")
     def _timeseries_subset_of_metadata(self) -> "UniqueKeys":

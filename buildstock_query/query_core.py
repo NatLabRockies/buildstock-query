@@ -1,49 +1,55 @@
-import boto3
 import contextlib
+import datetime
+import json as _json_module
+import logging
+import os
 import pathlib
-from pyathena.connection import Connection
-from pyathena.sqlalchemy.base import AthenaDialect
+import re
+import time
+import typing
+import uuid
+from collections import OrderedDict
+from collections.abc import Sequence
+from threading import Thread
+from typing import Literal, NewType, Protocol, TypedDict
+
+import boto3
+import numpy as np
+import pandas as pd
 import sqlalchemy as sa
-from sqlalchemy.sql import func as safunc
+import toml
+import urllib3
+from botocore.config import Config
+from botocore.exceptions import ClientError
+from pyathena.connection import Connection
 from pyathena.pandas.async_cursor import AsyncPandasCursor
 from pyathena.pandas.cursor import PandasCursor
-import os
-from typing import Union, Optional, Literal
-from collections.abc import Sequence
-import typing
-import time
-import logging
-from threading import Thread
-from botocore.exceptions import ClientError
-import pandas as pd
-import datetime
-import numpy as np
-from collections import OrderedDict
-import types
-from buildstock_query.helpers import CachedFutureDf, AthenaFutureDf, DataExistsException, CustomCompiler
-from buildstock_query.helpers import read_csv
-from buildstock_query.sql_cache import SqlCache, hash_sql, normalize_sql
-from typing import TypedDict, NewType
-from botocore.config import Config
-import urllib3
-from buildstock_query.schema.run_params import RunParams
+from pyathena.sqlalchemy.base import AthenaDialect
+from sqlalchemy.sql import func as safunc
+from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.schema import Column, Table
+
 from buildstock_query.db_schema.db_schema_model import DBSchema
+from buildstock_query.helpers import AthenaFutureDf, CachedFutureDf, CustomCompiler, DataExistsException, read_csv
+from buildstock_query.query_filters import QueryFilterMixin
+from buildstock_query.schema.run_params import RunParams
 from buildstock_query.schema.utilities import (
-    DBColType,
-    SACol,
-    AnyColType,
-    AnyTableType,
+    ColumnExpression,
+    ColumnReference,
     MappedColumn,
-    SALabel,
-    DBTableType,
+    SelectQuery,
+    SqlColumn,
+    SqlExpression,
+    SqlFrom,
+    SqlFunction,
+    SqlLabel,
+    TableHandle,
+    TableReference,
+    WeightSpec,
     typed_literal,
     validate_arguments,
 )
-import json as _json_module
-import re
-import toml
-import uuid
-from sqlalchemy.sql.selectable import SelectBase, Subquery
+from buildstock_query.sql_cache import SqlCache, hash_sql, normalize_sql
 
 urllib3.disable_warnings()
 
@@ -57,16 +63,14 @@ class QueryException(Exception):
 
 
 ExeId = NewType("ExeId", str)
-
-
 class BatchQueryStatusMap(TypedDict):
     to_submit_ids: list[int]
     all_ids: list[int]
     submitted_ids: list[int]
     submitted_execution_ids: list[ExeId]
     submitted_queries: list[str]
-    queries_futures: list[Union[CachedFutureDf, AthenaFutureDf]]
-    max_threads: Optional[int]
+    queries_futures: list[CachedFutureDf | AthenaFutureDf]
+    max_threads: int | None
 
 
 class BatchQueryReportMap(TypedDict):
@@ -77,7 +81,11 @@ class BatchQueryReportMap(TypedDict):
     failed: int
 
 
-class QueryCore:
+class AsyncDataFrameFuture(Protocol):
+    as_df: object
+
+
+class QueryCore(QueryFilterMixin):
     def __init__(self, *, params: RunParams) -> None:
         """
         Base class to run common Athena queries for BuildStock runs and download results as pandas dataFrame
@@ -127,7 +135,7 @@ class QueryCore:
         self.db_name = params.db_name
         self.region_name = params.region_name
 
-        self._tables: dict[str, sa.Table] = OrderedDict()  # Internal record of tables
+        self._tables: dict[str, Table] = OrderedDict()  # Internal record of tables
         self._meta = sa.MetaData()
 
         self._batch_query_status_map: dict[int, BatchQueryStatusMap] = {}
@@ -153,7 +161,10 @@ class QueryCore:
         self._initialize_tables()
         self._initialize_book_keeping(params.execution_history)
 
-    def _initialize_tables(self):
+    def _initialize_tables(self) -> None:
+        """Load table handles and initialize stable metadata aliases."""
+        self.md_table: Table
+        self.ts_table: Table | None
         self.md_table, self.ts_table = self._get_tables(self.table_name)
         # `bs_table` is a stable alias of md_table that callers use as the
         # canonical metadata-side handle in outer queries. Keeping a single
@@ -163,7 +174,7 @@ class QueryCore:
         # init time and remain valid in any query that selects through the
         # bs alias. Self-join sites construct an additional `md.alias("up")`
         # locally for the upgrade-side row set.
-        self.bs_table = self.md_table.alias("bs")
+        self.bs_table: TableHandle = self.md_table.alias("bs")
         # Alt metadata table for the state-aggregate routing path (set
         # by `_get_tables` when the schema declares
         # `table_suffix.annual_and_metadata_state_agg`). Most callers
@@ -171,9 +182,9 @@ class QueryCore:
         # path that consumes its output reference it. The shared alias
         # name "bs" matches the primary table so generated SQL is
         # interchangeable when routed.
-        self.md_table_state_agg = getattr(self, "_md_table_state_agg_raw", None)
+        self.md_table_state_agg: Table | None = getattr(self, "_md_table_state_agg_raw", None)
         if self.md_table_state_agg is not None:
-            self.bs_table_state_agg = self.md_table_state_agg.alias("bs")
+            self.bs_table_state_agg: TableHandle | None = self.md_table_state_agg.alias("bs")
             self.md_state_agg_key: tuple[str, ...] = tuple(
                 self._get_unique_keys("metadata_state_agg")
             )
@@ -192,18 +203,19 @@ class QueryCore:
         self.sample_wt = self._get_sample_weight(self.sample_weight)
 
     @property
-    def md_key_cols(self) -> list[sa.Column]:
+    def md_key_cols(self) -> list[ColumnExpression]:
         return [self.bs_table.c[k] for k in self.md_key]
 
     @property
-    def ts_key_cols(self) -> list[sa.Column]:
+    def ts_key_cols(self) -> list[ColumnExpression]:
         if self.ts_table is None:
             raise ValueError("No timeseries table is available.")
         return [self.ts_table.c[k] for k in self.ts_key]
 
     @staticmethod
-    def _unique_columns_by_name(columns: Sequence[DBColType]) -> list[DBColType]:
-        unique_columns: list[DBColType] = []
+    def _unique_columns_by_name(columns: Sequence[ColumnExpression]) -> list[ColumnExpression]:
+        """Return columns de-duplicated by SQL label name."""
+        unique_columns: list[ColumnExpression] = []
         seen_names = set()
         for column in columns:
             if column.name in seen_names:
@@ -215,6 +227,7 @@ class QueryCore:
     def _get_unique_keys(
         self, kind: Literal["metadata", "timeseries", "metadata_state_agg"]
     ) -> list[str]:
+        """Return configured unique-key columns for a schema table kind."""
         # When routing is active (`_routing_context` swapped self.md_table
         # to the alt), `kind="metadata"` should return the alt-table's
         # narrower key. Detect by table identity rather than a separate
@@ -230,25 +243,11 @@ class QueryCore:
         return configured_keys or [self.building_id_column_name]
 
     @contextlib.contextmanager
-    def _routing_context(self, md_choice: Literal["primary", "state_agg"]):
-        """Temporarily swap `self.bs_table` / `self.md_table` / `self.md_key`
-        / `self.sample_wt` / `self.md_bldgid_column` to the routed alternates
-        for the duration of one `_query` call. Restores originals on exit
-        (including on exception).
-
-        This sweeps the routing decision across every helper that reads
-        these attributes — e.g. `_get_column`, `_get_weight`,
-        `_get_enduse_cols`, `_md_baseline_filter` — without threading
-        `bs_table` arguments through dozens of call sites.
-
-        **Caveat:** not thread-safe within a single BSQ instance. Concurrent
-        `_query` calls on the same instance would race; the framework is
-        single-threaded per BSQ today (the ThreadPoolExecutor in
-        `_download_results_csv` doesn't run queries concurrently on the
-        same instance). If multi-threaded use ever materializes, swap to
-        a contextvars-based override instead.
-        """
-        if md_choice == "primary" or self.bs_table_state_agg is None:
+    def _routing_context(self, md_choice: Literal["primary", "state_agg"]) -> typing.Iterator[None]:
+        """Temporarily route metadata helpers to the selected metadata table."""
+        state_md_table = self.md_table_state_agg
+        state_bs_table = self.bs_table_state_agg
+        if md_choice == "primary" or state_md_table is None or state_bs_table is None:
             yield
             return
         # Save originals.
@@ -258,8 +257,8 @@ class QueryCore:
         prev_sample_wt = self.sample_wt
         prev_md_bldgid = self.md_bldgid_column
         # Swap to alt.
-        self.md_table = self.md_table_state_agg
-        self.bs_table = self.bs_table_state_agg
+        self.md_table = state_md_table
+        self.bs_table = state_bs_table
         self.md_key = self.md_state_agg_key
         # Re-derive bound expressions on the alt alias.
         self.sample_wt = self._get_sample_weight(self.sample_weight)
@@ -275,55 +274,54 @@ class QueryCore:
 
     def _join_condition(
         self,
-        left_table: AnyTableType,
-        right_table: AnyTableType,
+        left_table: TableReference,
+        right_table: TableReference,
         kind: Literal["metadata", "timeseries"],
         extra_keys: Sequence[str] = (),
-    ) -> sa.ColumnElement:
+    ) -> ColumnElement:
+        """Return equality predicates for shared unique-key columns."""
         keys = list(dict.fromkeys([*self._get_unique_keys(kind), *extra_keys]))
-        return sa.and_(*(left_table.c[key] == right_table.c[key] for key in keys))
+        left = self._get_table(left_table)
+        right = self._get_table(right_table)
+        return sa.and_(*(left.c[key] == right.c[key] for key in keys))
 
     def _baseline_timeseries_join_condition(
         self,
-        baseline_table: AnyTableType,
-        timeseries_table: AnyTableType,
-    ) -> sa.ColumnElement:
-        """JOIN ON for md-baseline-alias ⋈ ts. Bakes in `baseline.upgrade=0`."""
+        metadata_baseline: TableReference,
+        timeseries_table: TableReference,
+    ) -> ColumnElement:
+        """Return the metadata-to-timeseries baseline join predicate."""
         return sa.and_(
-            self._join_condition(baseline_table, timeseries_table, "timeseries"),
-            self._upgrade_zero_filter(baseline_table),
+            self._join_condition(metadata_baseline, timeseries_table, "timeseries"),
+            self._upgrade_zero_filter(metadata_baseline),
         )
 
     def _baseline_upgrade_join_condition(
         self,
-        baseline_table: AnyTableType,
-        upgrade_table: AnyTableType,
-    ) -> sa.ColumnElement:
-        """JOIN ON for md-baseline-alias ⋈ md-upgrade-alias. Bakes in `baseline.upgrade=0`."""
+        baseline_side: TableReference,
+        upgrade_side: TableReference,
+    ) -> ColumnElement:
+        """Return the metadata baseline-to-upgrade self-join predicate."""
         return sa.and_(
-            self._join_condition(baseline_table, upgrade_table, "metadata"),
-            self._upgrade_zero_filter(baseline_table),
+            self._join_condition(baseline_side, upgrade_side, "metadata"),
+            self._upgrade_zero_filter(baseline_side),
         )
 
-    def _upgrade_zero_filter(self, table: AnyTableType) -> sa.ColumnElement:
-        """`table.upgrade = 0` — the WHERE/ON predicate that selects baseline rows
-        on the unified annual_and_metadata table (or any alias of it)."""
-        upgrade_col = table.c["upgrade"]
+    def _upgrade_zero_filter(self, table: TableReference) -> ColumnElement:
+        """Return the predicate that selects baseline upgrade rows."""
+        upgrade_col = self._get_table(table).c["upgrade"]
         return upgrade_col == typed_literal(upgrade_col, "0")
 
-    def _md_baseline_filter(self, table: AnyTableType | None = None) -> sa.ColumnElement:
-        """`<table>.upgrade = 0` — convenience helper for callers that want
-        baseline rows on the metadata side. `table` defaults to `bs_table`
-        (the canonical alias used in joined queries); pass `md_table` when
-        the outer FROM is the raw md_table directly, so SQLAlchemy doesn't
-        auto-add bs_table to the FROM as a stray comma-join."""
+    def _md_baseline_filter(self, table: TableReference | None = None) -> ColumnElement:
+        """Return the baseline predicate for the active metadata alias."""
         return self._upgrade_zero_filter(table if table is not None else self.bs_table)
 
     def _timeseries_pair_join_condition(
         self,
-        left_timeseries_table: AnyTableType,
-        right_timeseries_table: AnyTableType,
-    ) -> sa.ColumnElement:
+        left_timeseries_table: TableReference,
+        right_timeseries_table: TableReference,
+    ) -> ColumnElement:
+        """Return the timeseries-to-timeseries join predicate."""
         return self._join_condition(
             left_timeseries_table,
             right_timeseries_table,
@@ -332,16 +330,19 @@ class QueryCore:
         )
 
     @staticmethod
-    def _count_distinct(columns: Sequence[sa.Column]) -> sa.ColumnElement:
+    def _count_distinct(columns: Sequence[ColumnExpression]) -> ColumnElement:
+        """Return a count-distinct expression for one or more columns."""
         if len(columns) == 1:
             return safunc.count(safunc.distinct(columns[0]))
         return safunc.count(sa.distinct(sa.tuple_(*columns)))
 
     @staticmethod
-    def _scalar_or_tuple(row: Sequence):
+    def _scalar_or_tuple(row: Sequence[object]) -> object:
+        """Return a scalar for one-column rows, otherwise a tuple."""
         return row[0] if len(row) == 1 else tuple(row)
 
-    def _get_sample_weight(self, sample_weight):
+    def _get_sample_weight(self, sample_weight: str | int | float | None) -> SqlExpression:
+        """Return the sample-weight expression configured for this run."""
         if not sample_weight:
             return sa.literal(1)
         elif isinstance(sample_weight, str):
@@ -356,18 +357,22 @@ class QueryCore:
             raise ValueError("Invalid value for sample_weight")
 
     @typing.overload
-    def _get_table(self, table_name: AnyTableType, missing_ok: Literal[True]) -> Optional[sa.Table]: ...
+    def _get_table(self, table_name: TableHandle, missing_ok: bool = False) -> TableHandle: ...
 
     @typing.overload
-    def _get_table(self, table_name: AnyTableType, missing_ok: Literal[False] = False) -> sa.Table: ...
+    def _get_table(self, table_name: str, missing_ok: Literal[True]) -> Table | None: ...
+
+    @typing.overload
+    def _get_table(self, table_name: str, missing_ok: Literal[False] = False) -> Table: ...
 
     @validate_arguments
-    def _get_table(self, table_name: AnyTableType, missing_ok: bool = False) -> Optional[DBTableType]:
+    def _get_table(self, table_name: TableReference, missing_ok: bool = False) -> TableHandle | None:
+        """Resolve a table name to a SQLAlchemy table handle."""
         if not isinstance(table_name, str):
             return table_name  # already a table
 
         try:
-            return self._tables.setdefault(table_name, sa.Table(table_name, self._meta, autoload_with=self._engine))
+            return self._tables.setdefault(table_name, Table(table_name, self._meta, autoload_with=self._engine))
         except sa.exc.NoSuchTableError:  # type: ignore
             if missing_ok:
                 logger.warning(f"No {table_name} table is present.")
@@ -377,26 +382,24 @@ class QueryCore:
 
     @validate_arguments
     def _get_column(
-        self, column_name: AnyColType,
-        candidate_tables: Sequence[AnyTableType | None] | None = None,
+        self, column_name: ColumnReference,
+        candidate_tables: Sequence[TableReference | None] | None = None,
         annual_only: bool = False,
-    ) -> DBColType:
-        if isinstance(column_name, SACol):
+    ) -> ColumnExpression:
+        """Resolve a user column reference against candidate query tables."""
+        if isinstance(column_name, SqlColumn):
             return column_name.label(self._simple_label(column_name.name))  # already a col
 
-        if isinstance(column_name, SALabel):
+        if isinstance(column_name, SqlLabel):
             return column_name
 
         if isinstance(column_name, MappedColumn):
             return sa.literal(column_name).label(self._simple_label(column_name.name))
 
         if not candidate_tables:
-            # bs_table and up_table are aliases over the same md_table — searching
-            # bs_table (alias of md_table) holds annual + characteristics
-            # columns; ts_table holds timeseries values. Annual-only column
-            # resolution looks at bs alone; otherwise both. Using bs_table
-            # rather than md_table makes the resolved column references bind
-            # to the alias that's in the FROM of any aggregate query.
+            # Resolve annual columns against the metadata alias that appears in
+            # aggregate FROM clauses. Timeseries queries may also bind to the
+            # physical timeseries table.
             if annual_only:
                 candidate_tables = (self.bs_table,)
             else:
@@ -414,23 +417,26 @@ class QueryCore:
             valid_tables = [tbl for tbl in search_tables if attempt_name in tbl.columns]
             if valid_tables:
                 if len(valid_tables) > 1:
+                    table_names = [getattr(table, "name", "<anonymous>") for table in valid_tables]
                     logger.warning(
-                        f"Column {attempt_name} found in multiple tables {[t.name for t in valid_tables]}. "
-                        f"Using {valid_tables[0].name}"
+                        f"Column {attempt_name} found in multiple tables {table_names}. "
+                        f"Using {getattr(valid_tables[0], 'name', '<anonymous>')}"
                     )
                 return valid_tables[0].c[attempt_name]
+        table_names = [getattr(table, "name", "<anonymous>") for table in search_tables]
         raise ValueError(
-            f"Column {column_name} not found in any tables {[t.name for t in search_tables]} "
+            f"Column {column_name} not found in any tables {table_names} "
             f"(also tried {names_to_try[1]!r})"
         )
 
     def _get_subquery_table(
-        self, source_table: DBTableType, where_clause: sa.ColumnElement, alias_name: str
-    ) -> DBTableType:
+        self, source_table: TableHandle, where_clause: ColumnElement, alias_name: str
+    ) -> TableHandle:
+        """Return a named subquery preserving the source table columns."""
         raw_subquery = sa.select("*").select_from(source_table).where(where_clause)
         return sa.text(self._compile(raw_subquery)).columns(*source_table.c).subquery(alias_name)
 
-    def _get_tables(self, table_name: Union[str, tuple[str, Optional[str]]]):
+    def _get_tables(self, table_name: str | tuple[str, str | None]) -> tuple[Table, Table | None]:
         """Resolve the underlying physical tables for this run.
 
         Always returns `(md_table, ts_table)`. When the schema declares
@@ -471,7 +477,8 @@ class QueryCore:
 
         return md_table, ts_table
 
-    def _initialize_book_keeping(self, execution_history):
+    def _initialize_book_keeping(self, execution_history: str | pathlib.Path | None) -> None:
+        """Initialize execution-history tracking for this query session."""
         self._execution_history_file = execution_history or self.cache_folder / ".execution_history"
         self.execution_cost = {"GB": 0, "Dollars": 0}  # Tracks the cost of current session. Only used for Athena query
         self.seen_execution_ids = set()  # set to prevent double counting same execution id
@@ -488,7 +495,8 @@ class QueryCore:
                 f.writelines(valid_entries)
 
     @property
-    def _execution_ids_history(self):
+    def _execution_ids_history(self) -> list[ExeId]:
+        """Return recent Athena execution ids tracked by this instance."""
         exe_ids: list[ExeId] = []
         if os.path.exists(self._execution_history_file):
             with open(self._execution_history_file) as f:
@@ -498,6 +506,7 @@ class QueryCore:
         return exe_ids
 
     def _create_athena_engine(self, region_name: str, database: str, workgroup: str) -> sa.engine.Engine:
+        """Create the SQLAlchemy Athena engine for this run."""
         connect_args = {"cursor_class": PandasCursor, "work_group": workgroup}
         engine = sa.create_engine(
             f"awsathena+rest://:@athena.{region_name}.amazonaws.com:443/{database}", connect_args=connect_args
@@ -505,12 +514,8 @@ class QueryCore:
         return engine
 
     @validate_arguments
-    def delete_table(self, table_name: str):
-        """
-        Function to delete athena table.
-        :param table_name: Athena table name
-        :return:
-        """
+    def delete_table(self, table_name: str) -> str:
+        """Delete one Athena table by name."""
         delete_table_query = f"""DROP TABLE {self.db_name}.{table_name};"""
         result, reason = self.execute_raw(delete_table_query)
         if result.upper() == "SUCCEEDED":
@@ -521,16 +526,8 @@ class QueryCore:
     @validate_arguments
     def add_table(
         self, table_name: str, table_df: pd.DataFrame, s3_bucket: str, s3_prefix: str, override: bool = False
-    ):
-        """
-        Function to add a table in s3.
-        :param table_name: The name of the table
-        :param table_df: The pandas dataframe to use as table data
-        :param s3_bucket: s3 bucket name
-        :param s3_prefix: s3 prefix to save the table to.
-        :param override: Whether to override existing table.
-        :return:
-        """
+    ) -> str:
+        """Upload a dataframe to S3 and register it as an Athena table."""
         s3_location = s3_bucket + "/" + s3_prefix
         s3_data = self._aws_s3.list_objects(Bucket=s3_bucket, Prefix=f"{s3_prefix}/{table_name}")
         if "Contents" in s3_data and override is False:
@@ -599,14 +596,8 @@ class QueryCore:
             raise QueryException(f"Failed to create the table. Reason: {reason}")
 
     @validate_arguments
-    def execute_raw(self, query, db: Optional[str] = None, run_async: bool = False):
-        """
-        Directly executes the supplied query in Athena.
-        :param query:
-        :param db:
-        :param run_async:
-        :return:
-        """
+    def execute_raw(self, query: str, db: str | None = None, run_async: bool = False) -> tuple[str, str] | ExeId:
+        """Execute raw SQL through Athena and return status or execution id."""
         if not db:
             db = self.db_name
 
@@ -627,16 +618,13 @@ class QueryCore:
 
         raise TimeoutError("Query failed to complete within 30 mins.")
 
-    def _save_execution_id(self, execution_id):
+    def _save_execution_id(self, execution_id: ExeId) -> None:
+        """Append one Athena execution id to the local history file."""
         with open(self._execution_history_file, "a") as f:
             f.write(f"{time.time()},{execution_id}\n")
 
-    def _log_execution_cost(self, execution_id: ExeId, sql: Optional[str] = None):
-        """Pull GetQueryExecution metadata, log session cost, and (when `sql`
-        is supplied) write the full Athena response as a `<hash>.json` sidecar
-        in the cache directory. Future runs read that sidecar to compare cost
-        across runs without re-querying Athena.
-        """
+    def _log_execution_cost(self, execution_id: ExeId, sql: str | None = None) -> None:
+        """Log Athena execution cost and cache metadata sidecars."""
         if execution_id == "CACHED":
             # Can't log cost for cached query
             return
@@ -709,7 +697,7 @@ class QueryCore:
                         index[key] = (submitted_ts, qe)
         return {k: v[1] for k, v in index.items()}
 
-    def backfill_cache_metadata(self, cache_dir: Optional[pathlib.Path | str] = None) -> tuple[int, int]:
+    def backfill_cache_metadata(self, cache_dir: pathlib.Path | str | None = None) -> tuple[int, int]:
         """Walk Athena history once and write `<hash>.json` sidecars into the
         cache directory for any cached SQL that doesn't have one yet.
 
@@ -742,7 +730,7 @@ class QueryCore:
             filled += 1
         return filled, skipped
 
-    def get_query_cost_from_history(self, sql: str) -> Optional[dict]:
+    def get_query_cost_from_history(self, sql: str) -> dict | None:
         """Look up Athena execution metadata for a single SQL by walking
         history. Returns the full QueryExecution dict (or None if not found).
 
@@ -754,7 +742,8 @@ class QueryCore:
         index = self.build_query_metadata_index()
         return index.get(target_hash)
 
-    def _compile(self, query) -> str:
+    def _compile(self, query: object) -> str:
+        """Compile a SQLAlchemy query to normalized Athena SQL."""
         compiled_query = CustomCompiler(AthenaDialect(), query).process(query, literal_binds=True)
         # Normalize whitespace at compile time so every consumer sees the same
         # canonical form: cache filename hash, S3 unload-path hash, snapshot
@@ -764,7 +753,8 @@ class QueryCore:
         # would need to re-normalize on the way in.
         return normalize_sql(compiled_query)
 
-    def _get_unload_result(self, execution_id, result_location: str) -> pd.DataFrame:
+    def _get_unload_result(self, execution_id: ExeId, result_location: str) -> pd.DataFrame:
+        """Wait for an UNLOAD query and read its parquet result."""
         t = time.time()
         tick = 0
         timeout_minutes = 30
@@ -772,8 +762,8 @@ class QueryCore:
             stat = self.get_query_status(execution_id)
             if (
                 stat.upper() == "SUCCEEDED"
-                or stat.upper() == "FAILED"
-                and "HIVE_PATH_ALREADY_EXISTS" in self.get_query_error(execution_id)
+                or (stat.upper() == "FAILED"
+                and "HIVE_PATH_ALREADY_EXISTS" in self.get_query_error(execution_id))
             ):
                 try:
                     df = pd.read_parquet(result_location)
@@ -808,7 +798,7 @@ class QueryCore:
         except ClientError as e:
             logger.warning("Could not write _EMPTY marker to %s: %s", result_location, e)
 
-    def _get_query_result_location(self, result_path: str) -> Optional[str]:
+    def _get_query_result_location(self, result_path: str) -> str | None:
         """Check if the UNLOAD result already exists in S3.
 
         Args:
@@ -865,20 +855,20 @@ class QueryCore:
             return None
 
     @typing.overload
-    def execute(self, query, *, run_async: Literal[False] = False) -> pd.DataFrame: ...
+    def execute(self, query: str | SelectQuery, *, run_async: Literal[False] = False) -> pd.DataFrame: ...
 
     @typing.overload
     def execute(
         self,
-        query,
+        query: str | SelectQuery,
         *,
         run_async: Literal[True],
-    ) -> Union[tuple[Literal["CACHED"], CachedFutureDf], tuple[ExeId, AthenaFutureDf]]: ...
+    ) -> tuple[Literal["CACHED"], CachedFutureDf] | tuple[ExeId, AthenaFutureDf]: ...
 
     @validate_arguments
     def execute(
-        self, query, run_async: bool = False,
-    ) -> Union[pd.DataFrame, tuple[Literal["CACHED"], CachedFutureDf], tuple[ExeId, AthenaFutureDf]]:
+        self, query: str | SelectQuery, run_async: bool = False,
+    ) -> pd.DataFrame | tuple[Literal["CACHED"], CachedFutureDf] | tuple[ExeId, AthenaFutureDf]:
         """
         Executes a query
         Args:
@@ -928,10 +918,11 @@ class QueryCore:
 
         exe_id, result_future = self._async_conn.cursor().execute(
             unload_query, result_reuse_enable=self.athena_query_reuse, result_reuse_minutes=60 * 24 * 7, na_values=[""]
-        )  # type: ignore
+        )
         exe_id = ExeId(exe_id)
 
-        def get_df(future):
+        def load_async_dataframe() -> pd.DataFrame:
+            """Load or compute the async UNLOAD dataframe result."""
             cached_inner = self._cache.get(query)
             if cached_inner is not None:
                 return cached_inner
@@ -941,7 +932,7 @@ class QueryCore:
             return df_inner.copy()
 
         if run_async:
-            result_future.as_df = types.MethodType(get_df, result_future)
+            typing.cast(AsyncDataFrameFuture, result_future).as_df = load_async_dataframe
             self._save_execution_id(exe_id)
             return exe_id, AthenaFutureDf(result_future)
 
@@ -952,7 +943,7 @@ class QueryCore:
 
     def print_all_batch_query_status(self) -> None:
         """Prints the status of all batch queries."""
-        for count in self._batch_query_status_map.keys():
+        for count in self._batch_query_status_map:
             print(f"Query {count}: {self.get_batch_query_report(count)}\n")
 
     @validate_arguments
@@ -1002,7 +993,7 @@ class QueryCore:
             batch_id (int): Batch query id
         """
         failed_ids, failed_queries = self.get_failed_queries(batch_id)
-        for exe_id, query in zip(failed_ids, failed_queries):
+        for exe_id, query in zip(failed_ids, failed_queries, strict=True):
             print(
                 f"Query id: {exe_id}. \n Query string: {query}. Query Ended with: {self.get_query_status(exe_id)}"
                 f"\nError: {self.get_query_error(exe_id)}\n"
@@ -1019,7 +1010,7 @@ class QueryCore:
             Sequence[str]: List of failed execution ids.
         """
         failed_ids = []
-        for i, exe_id in enumerate(self._batch_query_status_map[batch_id]["submitted_execution_ids"]):
+        for exe_id in self._batch_query_status_map[batch_id]["submitted_execution_ids"]:
             if exe_id == "CACHED":
                 continue
             completion_stat = self.get_query_status(exe_id)
@@ -1074,28 +1065,14 @@ class QueryCore:
         return result
 
     @validate_arguments
-    def did_batch_query_complete(self, batch_id: int):
-        """
-        Checks if all the queries in a batch query has completed or not.
-        Args:
-            batch_id: The batch_id for the batch_query
-
-        Returns:
-            True or False
-        """
+    def did_batch_query_complete(self, batch_id: int) -> bool:
+        """Return true when a batch has no pending or running queries."""
         status = self.get_batch_query_report(batch_id)
-        if status["pending"] > 0 or status["running"] > 0:
-            return False
-        else:
-            return True
+        return status["pending"] == 0 and status["running"] == 0
 
     @validate_arguments
-    def wait_for_batch_query(self, batch_id: int):
-        """Waits until batch query completes.
-
-        Args:
-            batch_id (int): The batch query id.
-        """
+    def wait_for_batch_query(self, batch_id: int) -> None:
+        """Block until all queries in a batch have completed."""
         sleep_time = 0.5  # start here and keep doubling until max_sleep_time
         max_sleep_time = 20
         while True:
@@ -1122,7 +1099,9 @@ class QueryCore:
     ) -> list[pd.DataFrame]: ...
 
     @validate_arguments
-    def get_batch_query_result(self, batch_id: int, *, combine: bool = True, no_block: bool = False):
+    def get_batch_query_result(
+        self, batch_id: int, *, combine: bool = True, no_block: bool = False
+    ) -> pd.DataFrame | list[pd.DataFrame]:
         """
         Concatenates and returns the results of all the queries of a batchquery
         Args:
@@ -1151,7 +1130,7 @@ class QueryCore:
             new_exe_ids = self._batch_query_status_map[new_batch_id]["submitted_execution_ids"]
 
             self.wait_for_batch_query(new_batch_id)
-            new_exe_ids_map = {entry[0]: entry[1] for entry in zip(failed_ids, new_exe_ids)}
+            new_exe_ids_map = dict(zip(failed_ids, new_exe_ids, strict=True))
 
             new_report = self.get_batch_query_report(new_batch_id)
             if new_report["failed"] > 0:
@@ -1168,9 +1147,8 @@ class QueryCore:
         res_df_array: list[pd.DataFrame] = []
         for index, exe_id in enumerate(query_exe_ids):
             df = query_futures[index].as_pandas()
-            if combine:
-                if len(df) > 0:
-                    df["query_id"] = index
+            if combine and len(df) > 0:
+                df["query_id"] = index
             logger.info(f"Got result from Query [{index}] ({exe_id})")
             self._log_execution_cost(exe_id, sql=submitted_queries[index])
             res_df_array.append(df)
@@ -1181,7 +1159,7 @@ class QueryCore:
         return pd.concat(res_df_array)
 
     @validate_arguments
-    def submit_batch_query(self, queries: Sequence[str], *, max_threads: Optional[int] = None):
+    def submit_batch_query(self, queries: Sequence[str], *, max_threads: int | None = None) -> int:
         """
         Submit multiple related queries
         Args:
@@ -1200,7 +1178,7 @@ class QueryCore:
         submitted_ids: list[int] = []
         submitted_execution_ids: list[ExeId] = []
         submitted_queries: list[str] = []
-        queries_futures: list[Union[CachedFutureDf, AthenaFutureDf]] = []
+        queries_futures: list[CachedFutureDf | AthenaFutureDf] = []
         self._batch_query_id += 1
         batch_query_id = self._batch_query_id
         self._batch_query_status_map[batch_query_id] = {
@@ -1216,7 +1194,8 @@ class QueryCore:
         def running_queries_count() -> int:
             return sum(1 for future in queries_futures if not future.done())
 
-        def run_queries():
+        def run_queries() -> None:
+            """Submit queued queries while respecting the max-thread limit."""
             while to_submit_ids:
                 while running_queries_count() >= max_threads:
                     time.sleep(5)
@@ -1247,7 +1226,8 @@ class QueryCore:
         query_runner.start()
         return batch_query_id
 
-    def _get_query_result(self, query_id):
+    def _get_query_result(self, query_id: ExeId) -> pd.DataFrame:
+        """Return the dataframe result for one Athena query id."""
         return self.get_athena_query_result(execution_id=query_id)
 
     @validate_arguments
@@ -1373,7 +1353,7 @@ class QueryCore:
             Nothing
 
         """
-        for count, stat in self._batch_query_status_map.items():
+        for stat in self._batch_query_status_map.values():
             stat["to_submit_ids"].clear()
 
         running_ids = self.get_all_running_queries()
@@ -1393,7 +1373,7 @@ class QueryCore:
         return self._aws_athena.stop_query_execution(QueryExecutionId=execution_id)
 
     @validate_arguments
-    def get_cols(self, table: AnyTableType, fuel_type=None) -> Sequence[DBColType]:
+    def get_cols(self, table: TableReference, fuel_type: str | None = None) -> Sequence[ColumnExpression]:
         """
         Returns the columns of for a particular table.
         Args:
@@ -1405,22 +1385,23 @@ class QueryCore:
         """
         table = self._get_table(table)
         if table == self.ts_table and self.ts_table is not None:
-            cols = [c for c in self.ts_table.columns]
+            cols = list(self.ts_table.columns)
             if fuel_type:
                 cols = [c for c in cols if c.name not in [self.ts_bldgid_column.name, self.timestamp_column.name]]
                 cols = [c for c in cols if fuel_type in c.name]
             return cols
         elif table in ["baseline", "bs", "metadata", "md"]:
-            cols = [c for c in self.md_table.columns]
+            cols = list(self.md_table.columns)
             if fuel_type:
                 cols = [c for c in cols if "simulation_output_report" in c.name]
                 cols = [c for c in cols if fuel_type in c.name]
             return cols
         else:
             tbl = self._get_table(table)
-            return [col for col in tbl.columns]
+            return list(tbl.columns)
 
-    def _simple_label(self, label: str, agg_func: Optional[str] = None):
+    def _simple_label(self, label: str, agg_func: str | None = None) -> str:
+        """Return a display label stripped of configured column prefixes."""
         if not self.run_params.keep_column_prefix:
             label = label.removeprefix(self.db_schema.column_prefix.characteristics)
             label = label.removeprefix(self.db_schema.column_prefix.output)
@@ -1428,247 +1409,23 @@ class QueryCore:
             label += f"__{agg_func}"
         return label
 
-    @staticmethod
-    def _normalize_restrict_subquery(criteria, expected_width: int = 1):
-        if isinstance(criteria, SelectBase):
-            if len(criteria.selected_columns) != expected_width:
-                raise ValueError(
-                    f"Subquery restrictions must select exactly {expected_width} column(s)."
-                )
-            return criteria
-
-        if isinstance(criteria, Subquery):
-            if len(criteria.c) != expected_width:
-                raise ValueError(
-                    f"Subquery restrictions must select exactly {expected_width} column(s)."
-                )
-            return sa.select(*criteria.c)
-
-        return None
-
-    @staticmethod
-    def _is_column_tuple(col_ref) -> bool:
-        if not isinstance(col_ref, tuple) or len(col_ref) == 0:
-            return False
-        return all(isinstance(c, (sa.Column, SALabel)) for c in col_ref)
-
-    def _multi_column_membership(self, col_ref, criteria):
-        """Build a (cols) IN (...) expression. `criteria` may be a subquery or a sequence of row-tuples."""
-        subquery = self._normalize_restrict_subquery(criteria, expected_width=len(col_ref))
-        if subquery is not None:
-            return sa.tuple_(*col_ref).in_(subquery)
-
-        if isinstance(criteria, Sequence) and not isinstance(criteria, str):
-            if not criteria:
-                raise ValueError("Multi-column membership criteria cannot be empty.")
-            for row in criteria:
-                if not isinstance(row, tuple) or len(row) != len(col_ref):
-                    raise ValueError(
-                        f"Each row in multi-column criteria must be a tuple of length {len(col_ref)}."
-                    )
-            return sa.tuple_(*col_ref).in_([sa.tuple_(*row) for row in criteria])
-
-        raise ValueError(
-            "Multi-column restrict keys must be paired with a subquery or a sequence of row-tuples."
-        )
-
-    def _get_restrict_clauses(self, restrict, annual_only=False, *, bs_table=None):
-        # Pre-compute single-column equality/IN predicates that target bs_table
-        # columns. These are pushed into any subquery-valued restrict entry
-        # whose projection includes the same column — Athena does not propagate
-        # the outer WHERE into IN-subqueries automatically, so a `state='CO'`
-        # filter on the outer query was leaving the inner side unconstrained
-        # (forcing an enumeration of all 3,133 (state,county) partitions on
-        # ComStock metadata). See INVESTIGATION_partition_overhead.md for the
-        # 11.6× speedup measurement on shape C.
-        #
-        # `bs_table` lets routing-aware callers (`_query` after Piece A) bind
-        # column references to the alt metadata table. Defaults to None, in
-        # which case `_get_column` uses `self.bs_table` (today's behavior).
-        # When set, restrict to bs_table only (no TS fallback) — otherwise
-        # `state` would resolve against the TS table partition column instead
-        # of the alt-md `in.state`, defeating routing.
-        candidate_tables = (bs_table,) if bs_table is not None else None
-        propagatable = self._collect_propagatable_predicates(restrict, bs_table=bs_table)
-
-        clauses = []
-        for col_ref, criteria in restrict:
-            if self._is_column_tuple(col_ref):
-                # Tuple LHS — the RHS may be a Select carrying an applied-buildings
-                # subquery. Inject propagatable predicates into that subquery's
-                # WHERE before wrapping it in `tuple_(...).in_(subquery)`.
-                col_names = {c.name for c in col_ref if isinstance(c, sa.Column)}
-                if isinstance(criteria, SelectBase):
-                    criteria = self._inject_propagated(criteria, propagatable, col_names, bs_table=bs_table)
-                elif isinstance(criteria, Subquery):
-                    base = sa.select(*criteria.c)
-                    base = self._inject_propagated(base, propagatable, col_names, bs_table=bs_table)
-                    criteria = base
-                clauses.append(self._multi_column_membership(col_ref, criteria))
-                continue
-
-            col = self._get_column(col_ref, candidate_tables=candidate_tables, annual_only=annual_only)
-            subquery = self._normalize_restrict_subquery(criteria)
-            if subquery is not None:
-                # Single-column subquery: same propagation idea, scoped to the
-                # column projected by the subquery (typically just bldg_id).
-                subquery = self._inject_propagated(subquery, propagatable, {col.name}, bs_table=bs_table)
-                clauses.append(col.in_(subquery))
-            elif isinstance(criteria, Sequence) and not isinstance(criteria, str):
-                typed = [typed_literal(col, v) for v in criteria]
-                if len(typed) > 1:
-                    clauses.append(col.in_(typed))
-                elif len(typed) == 1:
-                    clauses.append(col == typed[0])
-                else:
-                    raise ValueError(f"Invalid criteria {criteria}")
-            else:
-                clauses.append(col == typed_literal(col, criteria))
-        return clauses
-
-    def _collect_propagatable_predicates(self, restrict, *, bs_table=None):
-        """Return a list of (column_name, sqla_clause_factory) for restrict
-        entries that are safe to push into a sibling subquery's WHERE.
-
-        A clause is propagatable iff:
-          - LHS is a single column (not a tuple).
-          - That column resolves to a bs_table column (after `in.` prefix
-            resolution — schemas like ResStock expose state as `in.state`
-            but accept `state` in user-facing restrict entries).
-          - RHS is a literal scalar or a sequence of literals (not a subquery).
-
-        The returned `clause_factory` is a callable that takes the target
-        Column inside the subquery and emits the equivalent equality / IN
-        clause. We can't reuse the outer-scope clause directly because the
-        Column object would still bind to the outer FROM in the compiled SQL.
-
-        `bs_table` lets routing-aware callers point resolution at the alt
-        metadata table; defaults to `self.bs_table`.
-        """
-        target_bs = bs_table if bs_table is not None else self.bs_table
-        candidate_tables = (target_bs,) if bs_table is not None else None
-        out: list[tuple[str, typing.Callable]] = []
-        if not restrict:
-            return out
-        for col_ref, criteria in restrict:
-            if self._is_column_tuple(col_ref):
-                continue
-            if isinstance(criteria, (SelectBase, Subquery)):
-                continue
-            # Resolve to a bs_table column. _get_column already handles the
-            # `in.` prefix logic, so user-supplied "state" maps to
-            # bs_table.c["in.state"] on ResStock and bs_table.c["state"] on
-            # ComStock. Restrict to annual_only=True since we're propagating
-            # into metadata-side subqueries.
-            try:
-                resolved_col = self._get_column(col_ref, candidate_tables=candidate_tables, annual_only=True)
-            except (ValueError, AttributeError):
-                continue
-            # Only propagate when the resolved column lives on the bs alias
-            # (skips MappedColumns, calculated labels, ts-only columns).
-            if not isinstance(resolved_col, sa.Column):
-                continue
-            if resolved_col.table is not target_bs:
-                continue
-            name = resolved_col.name
-
-            # Capture criteria by closure (`crit=criteria` to avoid loop
-            # rebind).
-            def _factory(col, crit=criteria):
-                if isinstance(crit, Sequence) and not isinstance(crit, str):
-                    typed = [typed_literal(col, v) for v in crit]
-                    if len(typed) > 1:
-                        return col.in_(typed)
-                    if len(typed) == 1:
-                        return col == typed[0]
-                    return None
-                return col == typed_literal(col, crit)
-
-            out.append((name, _factory))
-        return out
-
-    def _inject_propagated(self, select, propagatable, scope_col_names, *, bs_table=None):
-        """Inject propagatable predicates into `select`'s WHERE for any
-        column in `scope_col_names` that's also in `select`'s output columns.
-
-        `select` is a SQLA Select; `scope_col_names` is the set of column
-        names the outer query is matching against. We only propagate
-        predicates on those columns — i.e. columns that the outer IN clause
-        is about to compare against the subquery's projection.
-
-        `bs_table` lets routing-aware callers bind the inner-column reference
-        to the alt metadata table; defaults to `self.bs_table`.
-        """
-        if not propagatable:
-            return select
-        target_bs = bs_table if bs_table is not None else self.bs_table
-        # Names of columns this Select projects. `select.selected_columns` is
-        # the SA-1.4+ public accessor.
-        try:
-            proj_names = {c.name for c in select.selected_columns}
-        except AttributeError:
-            return select
-        # Only push predicates that (a) target a column the subquery projects,
-        # and (b) target a column the outer is matching on.
-        target_names = proj_names & set(scope_col_names)
-        for name, factory in propagatable:
-            if name not in target_names:
-                continue
-            inner_col = target_bs.c.get(name)
-            if inner_col is None:
-                continue
-            clause = factory(inner_col)
-            if clause is not None:
-                select = select.where(clause)
-        return select
-
-    def _add_restrict(self, query, restrict, *, annual_only=False, bs_table=None):
-        if not restrict:
-            return query
-        restrict_clauses = self._get_restrict_clauses(
-            restrict, annual_only=annual_only, bs_table=bs_table,
-        )
-        query = query.where(*restrict_clauses)
-        return query
-
-    def _get_avoid_clauses(self, avoid, *, annual_only=False):
-        clauses = []
-        for col_ref, criteria in avoid:
-            if self._is_column_tuple(col_ref):
-                clauses.append(sa.not_(self._multi_column_membership(col_ref, criteria)))
-                continue
-
-            col = self._get_column(col_ref, annual_only=annual_only)
-            subquery = self._normalize_restrict_subquery(criteria)
-            if subquery is not None:
-                clauses.append(col.not_in(subquery))
-            elif isinstance(criteria, Sequence) and not isinstance(criteria, str):
-                if len(criteria) > 1:
-                    clauses.append(col.not_in(criteria))
-                elif len(criteria) == 1:
-                    clauses.append(col != criteria[0])
-                else:
-                    raise ValueError(f"Invalid criteria {criteria}")
-            else:
-                clauses.append(col != criteria)
-        return clauses
-
-    def _add_avoid(self, query, avoid, *, annual_only=False):
-        if not avoid:
-            return query
-        clauses = self._get_avoid_clauses(avoid, annual_only=annual_only)
-        return query.where(*clauses)
-
-    def _get_name(self, col):
-        if isinstance(col, tuple):
+    def _get_name(self, col: object) -> str:
+        """Return the output name for a group-by or enduse reference."""
+        if isinstance(col, tuple) and len(col) > 1 and isinstance(col[1], str):
             return col[1]
         if isinstance(col, str):
             return col
-        if isinstance(col, (sa.Column, SALabel)):
+        if isinstance(col, (Column, SqlLabel)):
             return col.name
         raise ValueError(f"Can't get name for {col} of type {type(col)}")
 
-    def _add_join(self, query, join_list, bs_alias=None):
+    def _add_join(
+        self,
+        query: SelectQuery,
+        join_list: Sequence[tuple[TableReference, ColumnReference, ColumnReference]],
+        bs_alias: SqlFrom | None = None,
+    ) -> SelectQuery:
+        """Apply configured joins to a query using the active metadata alias."""
         # `bs_alias` overrides which "bs side" the join's left key resolves
         # against. Defaults to the canonical self.bs_table. TS queries pass
         # `bs_per_bldg` (the per-bldg pre-aggregated subquery that replaces
@@ -1694,62 +1451,69 @@ class QueryCore:
             query = query.join(new_tbl, baseline_column == new_column)
         return query
 
-    def _add_group_by(self, query, group_by_selection):
+    def _add_group_by(self, query: SelectQuery, group_by_selection: Sequence[SqlExpression]) -> SelectQuery:
+        """Apply positional GROUP BY expressions for selected columns."""
         if group_by_selection:
             selected_cols = list(query.selected_columns)
             a = [sa.text(str(selected_cols.index(g) + 1)) for g in group_by_selection]
             query = query.group_by(*a)
         return query
 
-    def _add_order_by(self, query, order_by_selection):
+    def _add_order_by(self, query: SelectQuery, order_by_selection: Sequence[SqlExpression]) -> SelectQuery:
+        """Apply positional ORDER BY expressions for selected columns."""
         if order_by_selection:
             selected_cols = list(query.selected_columns)
             a = [sa.text(str(selected_cols.index(g) + 1)) for g in order_by_selection]
             query = query.order_by(*a)
         return query
 
-    def _get_weight(self, weights):
+    def _get_weight(self, weights: Sequence[WeightSpec]) -> SqlExpression:
+        """Return the multiplicative weight expression for a query."""
         total_weight = self.sample_wt
         for weight_col in weights:
             if isinstance(weight_col, tuple):
-                tbl = self._get_table(weight_col[1])
-                total_weight *= tbl.c[weight_col[0]]
+                table_ref = typing.cast(TableReference, weight_col[1])
+                column_name = typing.cast(str, weight_col[0])
+                tbl = self._get_table(table_ref)
+                total_weight *= tbl.c[column_name]
             else:
                 total_weight *= self._get_column(weight_col, [self.bs_table])
         return total_weight
 
-    def _get_agg_func_and_weight(self, weights, agg_func=None):
+    def _get_agg_func_and_weight(
+        self, weights: Sequence[WeightSpec], agg_func: str | None = None
+    ) -> tuple[SqlFunction, SqlExpression | int | None]:
+        """Return the SQL aggregate function and weight expression."""
         # from: https://trino.io/docs/current/functions.html
         if agg_func is None or agg_func == "sum":
-            return safunc.sum, self._get_weight(weights)
+            return typing.cast(SqlFunction, safunc.sum), self._get_weight(weights)
         if agg_func == "count":
-            return safunc.count, 1
+            return typing.cast(SqlFunction, safunc.count), 1
         if agg_func in {"mean", "avg"}:
-            return safunc.avg, 1
+            return typing.cast(SqlFunction, safunc.avg), 1
         if agg_func == "max":
-            return safunc.max, 1
+            return typing.cast(SqlFunction, safunc.max), 1
         if agg_func == "min":
-            return safunc.min, 1
+            return typing.cast(SqlFunction, safunc.min), 1
         if agg_func == "arbitrary":
-            return safunc.arbitrary, None
+            return typing.cast(SqlFunction, safunc.arbitrary), None
         if agg_func == "stddev_pop":
-            return safunc.stddev_pop, 1
+            return typing.cast(SqlFunction, safunc.stddev_pop), 1
         if agg_func == "stddev_samp":
-            return safunc.stddev_samp, 1
+            return typing.cast(SqlFunction, safunc.stddev_samp), 1
         if agg_func == "var_pop":
-            return safunc.var_pop, 1
+            return typing.cast(SqlFunction, safunc.var_pop), 1
         if agg_func == "var_samp":
-            return safunc.var_samp, 1
+            return typing.cast(SqlFunction, safunc.var_samp), 1
         if agg_func == "count_if":
-            return safunc.count_if, None
+            return typing.cast(SqlFunction, safunc.count_if), None
         if agg_func == "array_agg":
-            return safunc.array_agg, None
+            return typing.cast(SqlFunction, safunc.array_agg), None
         raise ValueError(f"agg_func {agg_func} is not supported")
 
-    def delete_everything(self):
+    def delete_everything(self) -> None:
         """Deletes the athena tables and data in s3 for the run."""
-        # bs_table/up_table are SA aliases over md_table — ".name" yields "bs"/"up",
-        # not the real Athena table name. Use md_table directly.
+        # Metadata aliases expose role names; md_table has the real Athena name.
         info = self._aws_glue.get_table(DatabaseName=self.db_name, Name=self.md_table.name)
         self.pth = pathlib.Path(info["Table"]["StorageDescriptor"]["Location"]).parent
         tables_to_delete = [self.md_table.name]
@@ -1769,7 +1533,7 @@ class QueryCore:
             self._aws_glue.batch_delete_table(DatabaseName=self.db_name, TablesToDelete=tables_to_delete)
             print("Deleted the table from athena, now will delete the data in s3")
             s3 = boto3.resource("s3")
-            bucket = s3.Bucket(self.pth.parts[1])  # type: ignore
+            bucket = s3.Bucket(self.pth.parts[1])
             prefix = str(pathlib.Path(*self.pth.parts[2:]))
             total_files = [file.key for file in bucket.objects.filter(Prefix=prefix)]
             print(f"There are {len(total_files)} files to be deleted. Deleting them now")

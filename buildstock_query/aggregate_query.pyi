@@ -1,9 +1,10 @@
-from typing import Literal
-from collections.abc import Sequence
-import pandas as pd
 import typing
-from buildstock_query import main
+from collections.abc import Sequence
+from typing import Literal
 
+import pandas as pd
+
+from buildstock_query import main
 
 class BuildStockAggregate:
     def __init__(self, buildstock_query: main.BuildStockQuery) -> None: ...

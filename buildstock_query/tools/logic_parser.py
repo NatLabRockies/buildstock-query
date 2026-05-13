@@ -1,10 +1,13 @@
-from functools import reduce
 import itertools as it
-import yaml
-from collections import defaultdict
 import json
-from buildstock_query.helpers import read_csv
+from collections import defaultdict
+from functools import reduce
+from typing import cast
+
+import yaml
+
 from buildstock_query.file_getter import OpenOrDownload
+from buildstock_query.helpers import read_csv
 
 
 class LogicParser:
@@ -22,7 +25,7 @@ class LogicParser:
         Returns:
             dict: The buildstock configuration file.
         """
-        with OpenOrDownload(self.yaml_file) as f:
+        with OpenOrDownload(yaml_file) as f:
             config = yaml.load(f, Loader=yaml.SafeLoader)
         return config
 
@@ -48,7 +51,7 @@ class LogicParser:
         """
         config = self.cfg
         upgrade = config["upgrades"][upgrade_num - 1]
-        opt2logic = dict()
+        opt2logic = {}
         for opt in upgrade["options"]:
             para, _ = self._get_para_option(opt["option"])
             if para == option_name:
@@ -135,7 +138,7 @@ class LogicParser:
         a key with no available values
         """
         new_selections = []
-        keys2seen_selections: dict[tuple, list[dict[str, set[str]]]] = dict()
+        keys2seen_selections: dict[tuple, list[dict[str, set[str]]]] = {}
 
         def is_subset(sel):
             sel_keys = tuple(sorted(sel.keys()))
@@ -147,7 +150,8 @@ class LogicParser:
                             return True
             return False
 
-        for selection in sorted(selections, key=lambda x: len(x)):
+        ordered_selections = cast(list[dict[str, set[str]]], sorted(selections, key=len))
+        for selection in ordered_selections:
             if any(len(selection[key]) == 0 for key in selection):
                 continue
             if not is_subset(selection):
@@ -164,7 +168,7 @@ class LogicParser:
                       {'p1': {'o1', 'o2', 'o3'}, 'p2': {'o4', 'o6'}}] will be merged into
                      [{'p1': {'o1', 'o2', 'o3'}, 'p2': {'o4', 'o5', 'o6'}}]
         """
-        keys2seen_selections: dict[tuple, list[dict[str, set[str]]]] = dict()
+        keys2seen_selections: dict[tuple, list[dict[str, set[str]]]] = {}
         for sel_dict in selections:
             keys = tuple(sorted(sel_dict.keys()))
             if keys in keys2seen_selections:
@@ -175,7 +179,7 @@ class LogicParser:
                         break
                     elif len(matching_keys) == len(keys) - 1:
                         # sel_dict has one key with different value from before. Simply update the record
-                        key = tuple(set(keys) - matching_keys)[0]
+                        key = next(iter(set(keys) - matching_keys))
                         seen_selection[key] |= sel_dict[key]
                         break
                 else:
@@ -184,7 +188,7 @@ class LogicParser:
                     keys2seen_selections[keys].append(sel_dict)
             else:
                 keys2seen_selections[keys] = [sel_dict]
-        return list(selection for seen_selections in keys2seen_selections.values() for selection in seen_selections)
+        return [selection for seen_selections in keys2seen_selections.values() for selection in seen_selections]
 
     @staticmethod
     def clean_selections(selections: list[dict[str, set[str]]]):
@@ -205,7 +209,7 @@ class LogicParser:
         return selections1 + selections2
 
     def inverse_selection(self, selection: dict):
-        return list({k: self.available_opts[k] - v - {"Void"}} for k, v in selection.items())
+        return [{k: self.available_opts[k] - v - {"Void"}} for k, v in selection.items()]
 
     def not_(self, logic1):
         """
@@ -248,7 +252,7 @@ class LogicParser:
         logic = self._normalize_lists(logic)
         if isinstance(logic, dict):
             assert (len(logic) == 1)
-            key = list(logic.keys())[0]
+            key = next(iter(logic.keys()))
             val = logic[key]
             val = [val] if not isinstance(val, list) else val
             if key == 'and':
@@ -280,7 +284,7 @@ class LogicParser:
                 if len(values) > 1:
                     inner_dict['and'].append({'or': [f"{key}|{value}" for value in values]})
                 elif len(values) == 1:
-                    inner_dict['and'].append(f"{key}|{list(values)[0]}")
+                    inner_dict['and'].append(f"{key}|{next(iter(values))}")
                 else:
                     raise ValueError(f"Selection {selection} has no valid value for {key}")
             if len(inner_dict['and']) == 1:

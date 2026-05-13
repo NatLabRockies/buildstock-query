@@ -1,9 +1,10 @@
-from buildstock_query.tools.upgrades_visualizer.plot_utils import PlotParams, ValueTypes, human_sort_key, flatten_list
-from buildstock_query.tools.upgrades_visualizer.viz_data import VizData
-import plotly.graph_objects as go
-import polars as pl
 import re
 
+import plotly.graph_objects as go
+import polars as pl
+
+from buildstock_query.tools.upgrades_visualizer.plot_utils import PlotParams, ValueTypes, flatten_list, human_sort_key
+from buildstock_query.tools.upgrades_visualizer.viz_data import VizData
 
 color_list = [
     '#F7DF10',  # Interior Lighting
@@ -46,7 +47,7 @@ class UpgradesPlot:
         month2num = {"january": 1, "february": 2, "march": 3, "april": 4,
                      "may": 5, "june": 6, "july": 7, "august": 8,
                      "september": 9, "october": 10, "november": 11, "december": 12}
-        input_str = str(month2num[input_str] if input_str in month2num else input_str)
+        input_str = str(month2num.get(input_str, input_str))
         input_str = [
             int(x) if x and x[0] in "0123456789" else x
             for x in re.split(r"([\<\-])|([0-9]+)", input_str)
@@ -62,7 +63,7 @@ class UpgradesPlot:
             params.group_by = ['upgrade'] if not params.group_by else params.group_by
             plot_df = self.viz_data.get_plotting_df(upgrade=params.upgrade, params=params)
         else:
-            params.group_by = ['upgrade'] + params.group_by
+            params.group_by = ['upgrade', *params.group_by]
             plot_df = self.viz_data.get_plotting_df_all_upgrades(params=params)
 
         return self._get_plot(plot_df, params)
@@ -83,9 +84,8 @@ class UpgradesPlot:
             assert params.value_type in [ValueTypes.scatter, ValueTypes.sorted]
             xtitle = "baseline_value"
             ytitle = f"{self.get_ylabel(params.enduses)}_{params.savings_type.value}"
-        for grp0, sub_df in df.group_by(params.group_by[0], maintain_order=True):
-            if isinstance(grp0, tuple) and len(grp0) == 1:
-                grp0 = grp0[0]
+        for raw_grp0, group_df in df.group_by(params.group_by[0], maintain_order=True):
+            grp0 = raw_grp0[0] if isinstance(raw_grp0, tuple) and len(raw_grp0) == 1 else raw_grp0
             if params.upgrade is None:
                 upgrade: str = '0'
             else:
@@ -99,9 +99,9 @@ class UpgradesPlot:
             building_ids = []
             if len(params.group_by) > 1:
                 second_plots = [(group_name, group_df) for group_name, group_df in
-                                sub_df.group_by(params.group_by[1:], maintain_order=True)]
+                                group_df.group_by(params.group_by[1:], maintain_order=True)]
             else:
-                second_plots = [(tuple(), sub_df)]
+                second_plots = [((), group_df)]
             for second_name, second_df in second_plots:
                 name = ','.join(second_name) if second_name else str(grp0)
                 count = len(second_df)
@@ -161,22 +161,23 @@ class UpgradesPlot:
             # sort the xvals using human_sort_key and yvals accordingly
 
             xvals, yvals, second_groups, sample_counts, hovervals, upgrades, building_ids = zip(*sorted(
-                zip(xvals, yvals, second_groups, sample_counts, hovervals, upgrades, building_ids),
-                key=lambda x: human_sort_key(x[sort_index])))
+                zip(xvals, yvals, second_groups, sample_counts, hovervals, upgrades, building_ids, strict=False),
+                key=lambda x: human_sort_key(x[sort_index])), strict=False)
             self._add_plot(params, fig, grp0, yvals, xvals, second_groups, hovervals, len(params.group_by) > 1)
             try:
                 fl = flatten_list
                 if params.value_type == ValueTypes.scatter:
-                    sub_df = pl.DataFrame({xtitle: fl(xvals), ytitle: fl(yvals),
-                                           'upgrade': [f'Upgrade {grp0}'] * len(fl(xvals)),
-                                           'sample_count': fl(sample_counts), 'info': fl(hovervals),
-                                           'second_group': fl(second_groups), 'building_id': fl(building_ids)})
+                    report_df = pl.DataFrame({xtitle: fl(xvals), ytitle: fl(yvals),
+                                              'upgrade': [f'Upgrade {grp0}'] * len(fl(xvals)),
+                                              'sample_count': fl(sample_counts), 'info': fl(hovervals),
+                                              'second_group': fl(second_groups), 'building_id': fl(building_ids)})
                 else:
-                    sub_df = pl.DataFrame({xtitle: xvals, ytitle: yvals, 'upgrade': [f'Upgrade {grp0}'] * len(xvals),
-                                           'sample_count': sample_counts, 'info': hovervals,
-                                           'second_group': second_groups, 'building_id': building_ids})
+                    report_df = pl.DataFrame({xtitle: xvals, ytitle: yvals,
+                                              'upgrade': [f'Upgrade {grp0}'] * len(xvals),
+                                              'sample_count': sample_counts, 'info': hovervals,
+                                              'second_group': second_groups, 'building_id': building_ids})
                 # sub_df = sub_df.with_columns(pl.col(ytitle).cast(pl.Float32))
-                report_dfs.append(sub_df)
+                report_dfs.append(report_df)
             except Exception as e:
                 print(e)
                 continue
@@ -201,14 +202,7 @@ class UpgradesPlot:
                               xaxis_title=xtitle,
                               legend={"title": params.group_by[0]},
                               title=title)
-        elif params.value_type in [ValueTypes.distribution]:
-            fig.update_layout(yaxis_title=ytitle,
-                              boxmode="group" if multi_group else "overlay",
-                              xaxis_title=xtitle,
-                              title=title,
-                              legend={"title": params.group_by[0]},
-                              clickmode='event+select')
-        elif params.value_type in [ValueTypes.sorted]:
+        elif params.value_type in [ValueTypes.distribution] or params.value_type in [ValueTypes.sorted]:
             fig.update_layout(yaxis_title=ytitle,
                               boxmode="group" if multi_group else "overlay",
                               xaxis_title=xtitle,
@@ -222,17 +216,17 @@ class UpgradesPlot:
                               legend={"title": params.group_by[0]},
                               clickmode='event+select')
             fig.add_annotation(
-                dict(
-                    x=0.5,
-                    y=-0.20,
-                    showarrow=False,
-                    text=xtitle,
-                    xref="paper",
-                    yref="paper",
-                    xanchor="center",
-                    yanchor="top",
-                    font=dict(size=14)
-                )
+                {
+                    'x': 0.5,
+                    'y': -0.20,
+                    'showarrow': False,
+                    'text': xtitle,
+                    'xref': "paper",
+                    'yref': "paper",
+                    'xanchor': "center",
+                    'yanchor': "top",
+                    'font': {'size': 14}
+                }
             )
 
     def _add_plot(self, params: PlotParams, fig, grp0, yvals, xvals, second_groups, hovervals, multi_group=False):
@@ -258,9 +252,9 @@ class UpgradesPlot:
             ))
         elif params.value_type in [ValueTypes.scatter, ValueTypes.sorted]:
             if multi_group:
-                self._add_multi_scatter(fig, grp0, list(zip(second_groups, xvals, yvals, hovervals)), params.value_type)
+                self._add_multi_scatter(fig, grp0, list(zip(second_groups, xvals, yvals, hovervals, strict=False)), params.value_type)
             elif params.value_type == ValueTypes.sorted:
-                yvals, hovervals = zip(*sorted(zip(yvals[0], hovervals[0]), reverse=True))
+                yvals, hovervals = zip(*sorted(zip(yvals[0], hovervals[0], strict=False), reverse=True), strict=False)
                 xvals = list(range(len(yvals)))
                 fig.add_trace(go.Scatter(
                     y=yvals,
@@ -286,7 +280,7 @@ class UpgradesPlot:
         # color_index = 0
         # chosen_color = dict()
         # Iterate over the tuples and add scatter plots
-        for index, (name, xvals, yvals, hovervals) in enumerate(plot_tuples):
+        for index, (name, x_values, y_values, hover_values) in enumerate(plot_tuples):
             domain_start = index * (subplot_width + gap_fraction)
             domain_end = domain_start + subplot_width
 
@@ -298,18 +292,24 @@ class UpgradesPlot:
             layout_yaxis_key = f'yaxis{"" if index == 0 else index+1}'
 
             mode = 'markers'
+            plot_x_values = x_values
+            plot_y_values = y_values
+            plot_hover_values = hover_values
             if plot_type == ValueTypes.sorted:
-                yvals, hovervals = zip(*sorted(zip(yvals, hovervals), reverse=True))
-                xvals = list(range(len(yvals)))
+                plot_y_values, plot_hover_values = zip(
+                    *sorted(zip(plot_y_values, plot_hover_values, strict=False), reverse=True),
+                    strict=False,
+                )
+                plot_x_values = list(range(len(plot_y_values)))
                 mode = 'lines'
 
-            fig.add_trace(go.Scatter(x=xvals,
-                                     y=yvals,
-                                     hovertext=hovervals,
+            fig.add_trace(go.Scatter(x=plot_x_values,
+                                     y=plot_y_values,
+                                     hovertext=plot_hover_values,
                                      name=grp0,
                                      legendgroup=grp0,
                                      mode=mode,
-                                     showlegend=True if index == 0 else False,
+                                     showlegend=index == 0,
                                      xaxis=scatter_xaxis_key,
                                      yaxis=scatter_yaxis_key,
                                      hoverinfo="all"))

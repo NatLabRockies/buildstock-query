@@ -1,12 +1,11 @@
 # set_cover_solver.py
 
 import logging
-from collections import defaultdict
-from typing import TypeVar, Generic, Protocol
-from typing_extensions import Self
-from abc import abstractmethod
-from collections.abc import Iterable, Collection, Hashable, Sequence
 import time
+from abc import abstractmethod
+from collections import defaultdict
+from collections.abc import Collection, Hashable, Iterable, Sequence
+from typing import Protocol, Self, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,7 @@ class HashableComparable(Hashable, Protocol):
 T = TypeVar("T", bound=HashableComparable)
 
 
-class SetCoverSolver(Generic[T]):
+class SetCoverSolver[T: HashableComparable]:
     """
     Class to solve the hitting set problem.
     """

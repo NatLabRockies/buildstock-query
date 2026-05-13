@@ -53,11 +53,11 @@ different upgrades.
 Welcome to upgrades visualizer
 ...
 ```
-"""  # noqa: W291
-from buildstock_query.schema.utilities import MappedColumn
-from buildstock_query.query_core import ExeId
+"""
+from buildstock_query.helpers import KWH2MBTU, MBTU2KWH
 from buildstock_query.main import BuildStockQuery
+from buildstock_query.query_core import ExeId
+from buildstock_query.schema.utilities import MappedColumn
 from buildstock_query.tools import UpgradesAnalyzer
-from buildstock_query.helpers import KWH2MBTU
-from buildstock_query.helpers import MBTU2KWH
-__all__ = ['BuildStockQuery', 'UpgradesAnalyzer', 'KWH2MBTU', 'MBTU2KWH', 'ExeId', 'MappedColumn']
+
+__all__ = ['KWH2MBTU', 'MBTU2KWH', 'BuildStockQuery', 'ExeId', 'MappedColumn', 'UpgradesAnalyzer']

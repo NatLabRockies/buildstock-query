@@ -1,31 +1,46 @@
-import sqlalchemy as sa
-from sqlalchemy.sql import func as safunc
-from typing import Union
-from collections.abc import Sequence
 import logging
-import re
-from buildstock_query.tools import UpgradesAnalyzer
-from buildstock_query.query_core import QueryCore
-import pandas as pd
-from pydantic import Field
-from typing import Optional, Literal
-from typing_extensions import assert_never
-import typing
-from datetime import datetime
-from buildstock_query.schema.run_params import BSQParams
-from buildstock_query.schema.utilities import DBColType, SALabel, SACol, AnyColType, AnyTableType, RestrictTuple
-from buildstock_query.schema.utilities import validate_arguments, typed_literal
-from buildstock_query.schema.utilities import MappedColumn
-from buildstock_query.schema.query_params import Query
-
 import pathlib
+import re
+import typing
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Literal, assert_never
+
+import pandas as pd
+import sqlalchemy as sa
+from pydantic import Field
+from sqlalchemy.sql import func as safunc
+from sqlalchemy.sql.elements import ColumnElement
+from sqlalchemy.sql.schema import Column
 from tqdm.auto import tqdm
+
+from buildstock_query.query_core import QueryCore
+from buildstock_query.schema.query_params import Query
+from buildstock_query.schema.run_params import BSQParams
+from buildstock_query.schema.utilities import (
+    ColumnExpression,
+    ColumnReference,
+    MappedColumn,
+    RestrictColTuple,
+    RestrictRowValue,
+    RestrictTuple,
+    RestrictValue,
+    SelectQuery,
+    SqlColumn,
+    SqlLabel,
+    SqlPredicate,
+    TableReference,
+    typed_literal,
+    validate_arguments,
+)
+from buildstock_query.tools import UpgradesAnalyzer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 FUELS = ["electricity", "natural_gas", "propane", "fuel_oil", "coal", "wood_cord", "wood_pellets"]
+EnduseTable = Literal["baseline", "upgrade", "timeseries"]
 
 
 @dataclass
@@ -42,12 +57,12 @@ class BuildStockQuery(QueryCore):
         self,
         workgroup: str,
         db_name: str,
-        table_name: Union[str, tuple[str, Optional[str]]],
-        db_schema: Optional[str | dict] = None,
+        table_name: str | tuple[str, str | None],
+        db_schema: str | dict | None = None,
         buildstock_type: Literal["resstock", "comstock"] = "resstock",
-        sample_weight_override: Optional[Union[int, float]] = None,
+        sample_weight_override: int | float | None = None,
         region_name: str = "us-west-2",
-        execution_history: Optional[str] = None,
+        execution_history: str | None = None,
         skip_reports: bool = False,
         athena_query_reuse: bool = True,
         query_unload_s3_bucket: str = "resstock-core",
@@ -98,10 +113,11 @@ class BuildStockQuery(QueryCore):
             cache_folder=cache_folder,
         )
         self._run_params = self.params.get_run_params()
-        super(BuildStockQuery, self).__init__(params=self._run_params)
-        from buildstock_query.report_query import BuildStockReport
-        from buildstock_query.aggregate_query import BuildStockAggregate
-        from buildstock_query.utility_query import BuildStockUtility
+        super().__init__(params=self._run_params)
+        from buildstock_query.aggregate_query import BuildStockAggregate  # noqa: PLC0415
+        from buildstock_query.report_query import BuildStockReport  # noqa: PLC0415
+        from buildstock_query.utility_query import BuildStockUtility  # noqa: PLC0415
+
         #: `buildstock_query.report_query.BuildStockReport` object to perform report queries
         self.report: BuildStockReport = BuildStockReport(self)
         #: `buildstock_query.aggregate_query.BuildStockAggregate` object to perform aggregate queries
@@ -144,9 +160,9 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         opt_sat_file: str,
-        yaml_file: Optional[str] = None,
-        filter_yaml_file: Optional[str] = None,
-        upgrade_names: Optional[dict[int, str]] = None,
+        yaml_file: str | None = None,
+        filter_yaml_file: str | None = None,
+        upgrade_names: dict[int, str] | None = None,
     ) -> UpgradesAnalyzer:
         """
         Initialize the analyzer instance.
@@ -177,17 +193,13 @@ class BuildStockQuery(QueryCore):
     def get_upgrade_names(self, get_query_only: Literal[True]) -> str: ...
 
     @validate_arguments
-    def get_upgrade_names(self, get_query_only: bool = False) -> Union[str, dict]:
+    def get_upgrade_names(self, get_query_only: bool = False) -> str | dict:
         """Return a dict of {upgrade_id: upgrade_name} for all upgrades in the run.
 
         The column carrying the human-readable upgrade name is configured per
-        schema via `column_names.upgrade_name` in the TOML. Classic schemas
-        default to `apply_upgrade.upgrade_name`; OEDI ComStock overrides to
-        `in.upgrade_name`. If the configured column doesn't actually exist on
-        the upgrade table (e.g. OEDI ResStock, where the names live in run
-        config rather than the Athena tables), the name field degrades to NULL
-        for every upgrade — the returned dict still has one entry per upgrade
-        so downstream iteration keeps working regardless of schema.
+        schema via `column_names.upgrade_name` in the TOML. If that column is
+        absent from `annual_and_metadata`, the name field degrades to NULL for
+        every upgrade so downstream iteration still has one entry per upgrade.
         """
         upgrade_col = self.md_table.c["upgrade"]
         upgrade_name_col_name = self.db_schema.column_names.upgrade_name
@@ -196,10 +208,8 @@ class BuildStockQuery(QueryCore):
             upgrade_name_col = self.md_table.c[upgrade_name_col_name]
             name_select = safunc.arbitrary(upgrade_name_col).label("upgrade_name")
         else:
-            # Schema configures a name column but the upgrade table doesn't
-            # actually have it (e.g. OEDI ResStock). Project a literal NULL
-            # labeled `upgrade_name` so the result shape stays the same as
-            # the classic-schema path.
+            # Keep the result shape stable even when the metadata table carries
+            # upgrade IDs but no human-readable upgrade-name column.
             name_select = sa.cast(sa.null(), sa.String).label("upgrade_name")
         query = (
             sa.select(
@@ -207,10 +217,8 @@ class BuildStockQuery(QueryCore):
                 name_select,
             )
             .select_from(self.md_table)  # explicit FROM matches the column binds
-            # Exclude baseline rows from the upgrade names listing. The unified
-            # annual_and_metadata table has upgrade=0 baseline rows that pre-2-table-
-            # pivot lived on a separate parquet — historical callers expect this
-            # method to return upgrades only (1+).
+            # Exclude baseline rows from the upgrade-name listing; callers expect
+            # this method to return upgrades only.
             .where(upgrade_col != typed_literal(upgrade_col, "0"))
             .group_by(sa.literal_column("1"))
             .order_by(sa.literal_column("1"))
@@ -227,7 +235,8 @@ class BuildStockQuery(QueryCore):
     def _get_rows_per_building(self, get_query_only: Literal[True]) -> str: ...
 
     @validate_arguments
-    def _get_rows_per_building(self, get_query_only: bool = False) -> Union[int, str]:
+    def _get_rows_per_building(self, get_query_only: bool = False) -> int | str:
+        """Return the expected number of timeseries rows per building key."""
         if self.ts_table is None:
             raise ValueError("No timeseries table is available.")
         ts_join_keys = self._get_unique_keys("timeseries")
@@ -247,13 +256,13 @@ class BuildStockQuery(QueryCore):
 
     @validate_arguments
     def get_distinct_vals(
-        self, column: str, table_name: Optional[str], get_query_only: bool = False
-    ) -> Union[str, pd.Series]:
+        self, column: str, table_name: str | None, get_query_only: bool = False
+    ) -> str | pd.Series:
         """
             Find distinct vals.
         Args:
             column (str): The column in the table for which distinct vals is needed.
-            table_name (str, optional): The table in athena. Defaults to baseline table.
+            table_name (str, optional): The table in Athena. Defaults to baseline rows in metadata.
             get_query_only (bool, optional): If true, only returns the SQL query. Defaults to False.
 
         Returns:
@@ -275,13 +284,13 @@ class BuildStockQuery(QueryCore):
 
     @validate_arguments
     def get_distinct_count(
-        self, column: str, table_name: Optional[str] = None, get_query_only: bool = False
-    ) -> Union[pd.DataFrame, str]:
+        self, column: str, table_name: str | None = None, get_query_only: bool = False
+    ) -> pd.DataFrame | str:
         """
             Find distinct counts.
         Args:
             column (str): The column in the table for which distinct counts is needed.
-            table_name (str, optional): The table in athena. Defaults to baseline table.
+            table_name (str, optional): The table in Athena. Defaults to baseline rows in metadata.
             get_query_only (bool, optional): If true, only returns the SQL query. Defaults to False.
 
         Returns:
@@ -303,7 +312,7 @@ class BuildStockQuery(QueryCore):
         # `self.sample_wt` was bound to bs_table at init; if the user passed an
         # auxiliary table that also has a "weight" column, use that one to
         # avoid pulling bs_table into the FROM.
-        if isinstance(self.sample_wt, sa.Column) and self.sample_wt.name in tbl.c:
+        if isinstance(self.sample_wt, Column) and self.sample_wt.name in tbl.c:
             sample_wt = tbl.c[self.sample_wt.name]
         else:
             sample_wt = self.sample_wt
@@ -325,7 +334,7 @@ class BuildStockQuery(QueryCore):
     def get_results_csv(
         self,
         *,
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        restrict: Sequence[tuple[ColumnReference, str | int | Sequence[int | str]]] = Field(default_factory=list),
         get_query_only: Literal[False] = False,
     ) -> pd.DataFrame: ...
 
@@ -334,7 +343,7 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         get_query_only: Literal[True],
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        restrict: Sequence[tuple[ColumnReference, str | int | Sequence[int | str]]] = Field(default_factory=list),
     ) -> str: ...
 
     @typing.overload
@@ -342,15 +351,15 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         get_query_only: bool,
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
-    ) -> Union[str, pd.DataFrame]: ...
+        restrict: Sequence[tuple[ColumnReference, str | int | Sequence[int | str]]] = Field(default_factory=list),
+    ) -> str | pd.DataFrame: ...
 
     @validate_arguments
     def get_results_csv(
         self,
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        restrict: Sequence[tuple[ColumnReference, str | int | Sequence[int | str]]] = Field(default_factory=list),
         get_query_only: bool = False,
-    ) -> Union[pd.DataFrame, str]:
+    ) -> pd.DataFrame | str:
         """
         Returns the results_csv table for the BuildStock run
         Args:
@@ -384,7 +393,7 @@ class BuildStockQuery(QueryCore):
         return contents
 
     @staticmethod
-    def _upgrade_file_variants(upgrade_id: Union[str, int]) -> list[str]:
+    def _upgrade_file_variants(upgrade_id: str | int) -> list[str]:
         """Return the set of filename tokens that would mark a parquet as belonging to
         the given upgrade.
 
@@ -415,8 +424,8 @@ class BuildStockQuery(QueryCore):
 
     def download_metadata_and_annual_results(
         self,
-        upgrade_id: Union[str, int] = "0",
-        folder: Optional[Union[str, pathlib.Path]] = None,
+        upgrade_id: str | int = "0",
+        folder: str | pathlib.Path | None = None,
     ) -> pathlib.Path:
         """Download all annual-results parquet files for a given upgrade from S3.
 
@@ -517,7 +526,8 @@ class BuildStockQuery(QueryCore):
                 )
             max_workers = min(10, len(tasks))
 
-            def _download(k_and_path):
+            def _download(k_and_path: tuple[str, pathlib.Path]) -> pathlib.Path:
+                """Download one parquet object into the local cache."""
                 k, local_path = k_and_path
                 local_path.parent.mkdir(parents=True, exist_ok=True)
                 self._aws_s3.download_file(bucket, k, str(local_path))
@@ -555,8 +565,8 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         get_query_only: Literal[False] = False,
-        upgrade_id: Union[int, str] = "0",
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        upgrade_id: int | str = "0",
+        restrict: Sequence[tuple[ColumnReference, str | int | Sequence[int | str]]] = Field(default_factory=list),
     ) -> pd.DataFrame: ...
 
     @typing.overload
@@ -564,8 +574,8 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         get_query_only: Literal[True],
-        upgrade_id: Union[int, str] = "0",
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        upgrade_id: int | str = "0",
+        restrict: Sequence[tuple[ColumnReference, str | int | Sequence[int | str]]] = Field(default_factory=list),
     ) -> str: ...
 
     @typing.overload
@@ -573,18 +583,18 @@ class BuildStockQuery(QueryCore):
         self,
         *,
         get_query_only: bool,
-        upgrade_id: Union[int, str] = "0",
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
-    ) -> Union[pd.DataFrame, str]: ...
+        upgrade_id: int | str = "0",
+        restrict: Sequence[tuple[ColumnReference, str | int | Sequence[int | str]]] = Field(default_factory=list),
+    ) -> pd.DataFrame | str: ...
 
     @validate_arguments
     def get_upgrades_csv(
         self,
         *,
-        upgrade_id: Union[str, int] = "0",
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
+        upgrade_id: str | int = "0",
+        restrict: Sequence[tuple[ColumnReference, str | int | Sequence[int | str]]] = Field(default_factory=list),
         get_query_only: bool = False,
-    ) -> Union[pd.DataFrame, str]:
+    ) -> pd.DataFrame | str:
         """
         Returns the results_csv table for the BuildStock run for an upgrade.
         Args:
@@ -617,7 +627,7 @@ class BuildStockQuery(QueryCore):
         logger.info("Making results_csv query for upgrade ...")
         return self.execute(query).set_index(list(self.md_key))
 
-    def _download_upgrades_csv(self, upgrade_id: Union[int, str]) -> pathlib.Path:
+    def _download_upgrades_csv(self, upgrade_id: int | str) -> pathlib.Path:
         """Download the upgrade-N results parquet(s). See `download_metadata_and_annual_results`."""
         if isinstance(upgrade_id, int):
             upgrade_id = f"{upgrade_id:02}"
@@ -629,7 +639,7 @@ class BuildStockQuery(QueryCore):
 
         return self.download_metadata_and_annual_results(upgrade_id=str(upgrade_id))
 
-    def get_upgrades_csv_full(self, upgrade_id: Union[int, str]) -> pd.DataFrame:
+    def get_upgrades_csv_full(self, upgrade_id: int | str) -> pd.DataFrame:
         """Returns the full results csv table for upgrades. This is the same as get_upgrades_csv without any
         restrictions. It uses the stored parquet files in s3 to download the results which is faster than querying
         athena. Indexed by md_key.
@@ -670,7 +680,7 @@ class BuildStockQuery(QueryCore):
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: bool,
-    ) -> Union[pd.DataFrame, str]: ...
+    ) -> pd.DataFrame | str: ...
 
     @validate_arguments
     def get_building_ids(
@@ -678,7 +688,7 @@ class BuildStockQuery(QueryCore):
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         avoid: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: bool = False,
-    ) -> Union[str, pd.DataFrame]:
+    ) -> str | pd.DataFrame:
         """Return the list of building keys.
 
         For applied-buildings filtering, compose with `get_applied_buildings_filter`:
@@ -702,8 +712,8 @@ class BuildStockQuery(QueryCore):
         """
         restrict = list(restrict) if restrict else []
         avoid = list(avoid) if avoid else []
-        # md_table holds rows for every upgrade — filter to baseline so the
-        # result is one row per (building × keys), not (building × upgrade × keys).
+        # md_table holds rows for every upgrade; filter to baseline so the
+        # result is one row per (building, keys), not (building, upgrade, keys).
         query = sa.select(*self.md_key_cols).select_from(self.bs_table).where(self._md_baseline_filter())
         query = self._add_restrict(query, restrict, annual_only=True)
         query = self._add_avoid(query, avoid, annual_only=True)
@@ -715,8 +725,8 @@ class BuildStockQuery(QueryCore):
     def get_applied_buildings(
         self,
         *,
-        any_of: Optional[Sequence[Union[str, int]]] = None,
-        all_of: Optional[Sequence[Union[str, int]]] = None,
+        any_of: Sequence[str | int] | None = None,
+        all_of: Sequence[str | int] | None = None,
         get_query_only: Literal[False] = False,
     ) -> pd.DataFrame: ...
 
@@ -724,8 +734,8 @@ class BuildStockQuery(QueryCore):
     def get_applied_buildings(
         self,
         *,
-        any_of: Optional[Sequence[Union[str, int]]] = None,
-        all_of: Optional[Sequence[Union[str, int]]] = None,
+        any_of: Sequence[str | int] | None = None,
+        all_of: Sequence[str | int] | None = None,
         get_query_only: Literal[True],
     ) -> str: ...
 
@@ -733,19 +743,19 @@ class BuildStockQuery(QueryCore):
     def get_applied_buildings(
         self,
         *,
-        any_of: Optional[Sequence[Union[str, int]]] = None,
-        all_of: Optional[Sequence[Union[str, int]]] = None,
+        any_of: Sequence[str | int] | None = None,
+        all_of: Sequence[str | int] | None = None,
         get_query_only: bool,
-    ) -> Union[pd.DataFrame, str]: ...
+    ) -> pd.DataFrame | str: ...
 
     @validate_arguments
     def get_applied_buildings(
         self,
         *,
-        any_of: Optional[Sequence[Union[str, int]]] = None,
-        all_of: Optional[Sequence[Union[str, int]]] = None,
+        any_of: Sequence[str | int] | None = None,
+        all_of: Sequence[str | int] | None = None,
         get_query_only: bool = False,
-    ) -> Union[pd.DataFrame, str]:
+    ) -> pd.DataFrame | str:
         """Return building keys for buildings matching an applied-upgrade predicate.
 
         - `all_of`: must have applicability=true rows for every listed upgrade.
@@ -775,9 +785,9 @@ class BuildStockQuery(QueryCore):
     def get_applied_buildings_filter(
         self,
         *,
-        any_of: Optional[Sequence[Union[str, int]]] = None,
-        all_of: Optional[Sequence[Union[str, int]]] = None,
-    ) -> Optional[RestrictTuple]:
+        any_of: Sequence[str | int] | None = None,
+        all_of: Sequence[str | int] | None = None,
+    ) -> RestrictTuple | None:
         """Return a `(cols_or_col, subquery)` tuple to drop into `restrict=[...]` or
         `avoid=[...]`. Returns None when both lists are empty/None.
 
@@ -799,7 +809,8 @@ class BuildStockQuery(QueryCore):
     def _get_simulation_info(self, get_query_only: Literal[True]) -> str: ...
 
     @validate_arguments
-    def _get_simulation_info(self, get_query_only: bool = False) -> Union[str, SimInfo]:
+    def _get_simulation_info(self, get_query_only: bool = False) -> str | SimInfo:
+        """Return simulation year, interval, offset, and interval unit."""
         # find the simulation time interval
         query0 = sa.select(self.ts_bldgid_column, self._ts_upgrade_col).limit(1)  # get a building id and upgrade
         bldg_df = self.execute(query0)
@@ -837,7 +848,8 @@ class BuildStockQuery(QueryCore):
 
     def _get_special_column(
         self, column_type: Literal["month", "day", "hour", "is_weekend", "day_of_week"]
-    ) -> DBColType:
+    ) -> ColumnExpression:
+        """Return a derived time column for timeseries grouping."""
         sim_info = self._get_simulation_info()
         if sim_info.offset > 0:
             # If timestamps are not period beginning we should make them so we get proper values of special columns.
@@ -860,13 +872,13 @@ class BuildStockQuery(QueryCore):
             raise ValueError(f"Unknown special column type: {column_type}")
 
     def _get_gcol(
-        self, column: AnyColType, annual_only: bool = False
-    ) -> DBColType:  # gcol => group by col
+        self, column: ColumnReference, annual_only: bool = False
+    ) -> ColumnExpression:  # gcol => group by col
         """Get a DB column for the purpose of grouping."""
-        if isinstance(column, sa.Column):
+        if isinstance(column, (Column, ColumnElement)):
             return column.label(self._simple_label(column.name))
 
-        if isinstance(column, SALabel):
+        if isinstance(column, SqlLabel):
             return column
 
         if isinstance(column, MappedColumn):
@@ -877,7 +889,9 @@ class BuildStockQuery(QueryCore):
 
         raise ValueError(f"Invalid column name type {column}: {type(column)}")
 
-    def get_calculated_column(self, column_name: str, column_expr: str, table="baseline") -> DBColType:
+    def get_calculated_column(
+        self, column_name: str, column_expr: str, table: EnduseTable = "baseline"
+    ) -> ColumnExpression:
         """
         Creates a calculated column from an arithmetic expression string.
         Column identifiers in the expression are resolved to SQLAlchemy columns via _get_enduse_cols,
@@ -895,10 +909,10 @@ class BuildStockQuery(QueryCore):
             raise ValueError(f"Invalid characters in column expression: {column_expr}")
 
         # Find all column identifiers, longest first to avoid partial replacement
-        identifiers = sorted(
-            set(re.findall(r'[a-zA-Z_][a-zA-Z0-9_.]*', column_expr)),
+        identifiers = typing.cast(list[str], sorted(
+            {str(identifier) for identifier in re.findall(r'[a-zA-Z_][a-zA-Z0-9_.]*', column_expr)},
             key=len, reverse=True,
-        )
+        ))
 
         # Replace all identifiers with placeholders and resolve to SA columns
         namespace: dict = {"__builtins__": {}}
@@ -908,10 +922,13 @@ class BuildStockQuery(QueryCore):
             eval_expr = re.sub(re.escape(ident) + r'(?![\w.])', placeholder, eval_expr)
             namespace[placeholder] = self._get_enduse_cols([ident], table=table)[0]
 
-        resolved_col = eval(eval_expr, namespace)  # noqa: S307
+        resolved_col = eval(eval_expr, namespace)
         return resolved_col.label(self._simple_label(column_name))
 
-    def _get_enduse_cols(self, enduses: Sequence[AnyColType], table="baseline") -> Sequence[DBColType]:
+    def _get_enduse_cols(
+        self, enduses: Sequence[ColumnReference], table: EnduseTable = "baseline"
+    ) -> Sequence[ColumnExpression]:
+        """Resolve user enduse references against the requested data table."""
         # "baseline" and "upgrade" both resolve to the unified metadata table —
         # the columns are the same; the per-upgrade selection happens via WHERE
         # at the call site. "timeseries" stays distinct. We bind to bs_table
@@ -919,9 +936,11 @@ class BuildStockQuery(QueryCore):
         # aggregation queries pick up the alias that's actually in the FROM.
         tbls_dict = {"baseline": self.bs_table, "upgrade": self.bs_table, "timeseries": self.ts_table}
         tbl = tbls_dict[table]
-        enduse_cols: list[DBColType] = []
+        if tbl is None:
+            raise ValueError("No timeseries table is available.")
+        enduse_cols: list[ColumnExpression] = []
         for enduse in enduses:
-            if isinstance(enduse, (sa.Column, SALabel)):
+            if isinstance(enduse, (Column, ColumnElement, SqlLabel)):
                 enduse_cols.append(enduse)
             elif isinstance(enduse, str):
                 try:
@@ -943,10 +962,15 @@ class BuildStockQuery(QueryCore):
         Returns:
             list[str]: List of building characteristics.
         """
-        cols = {y.removeprefix(self._char_prefix) for y in self.md_table.c.keys() if y.startswith(self._char_prefix)}
+        cols = {
+            column.name.removeprefix(self._char_prefix)
+            for column in self.md_table.columns
+            if column.name.startswith(self._char_prefix)
+        }
         return list(cols)
 
-    def _validate_group_by(self, group_by: Sequence[Union[str, tuple[str, str]]]):
+    def _validate_group_by(self, group_by: Sequence[str | tuple[str, str]]) -> Sequence[str | tuple[str, str]]:
+        """Validate that requested group-by names are known characteristics."""
         valid_groupby_cols = self.get_groupby_cols()
         group_by_cols = [g[0] if isinstance(g, tuple) else g for g in group_by]
         if not set(group_by_cols).issubset(valid_groupby_cols):
@@ -965,7 +989,8 @@ class BuildStockQuery(QueryCore):
         upgrades = self.execute(query)["upgrade"].dropna().map(str).to_list()
         return list(dict.fromkeys(["0", *upgrades]))
 
-    def _validate_upgrade(self, upgrade_id: Union[int, str]) -> str:
+    def _validate_upgrade(self, upgrade_id: int | str) -> str:
+        """Normalize and validate an upgrade identifier against available upgrades."""
         upgrade_id = "0" if upgrade_id in (None, "0") else str(upgrade_id)
         available_upgrades = self.get_available_upgrades() or ["0"]
         if upgrade_id not in set(available_upgrades):
@@ -974,54 +999,70 @@ class BuildStockQuery(QueryCore):
             )
         return str(upgrade_id)
 
-    def _split_restrict(self, restrict):
-        # Some cols (e.g. comstock `state`, `upgrade`) live on both md and ts tables.
-        # When that happens, restrict BOTH sides — Athena's planner often can't push
-        # a ts-side filter back through the bldg_id join to the md scan, so a single-
-        # sided filter leaves the metadata subquery scanning the full table.
-        #
-        # `extra_restrict` holds clauses whose column targets neither md nor ts —
-        # typically a join_list table (e.g. `eiaid_weights.eiaid` from the utility
-        # methods). These can't ride the inner ts/md join ON-clause because the
-        # referenced table isn't in scope yet; they must go to the outer WHERE.
-        md_restrict = []
-        ts_restrict = []
-        extra_restrict = []
+    @staticmethod
+    def _restrict_column_name(col: ColumnReference) -> str:
+        """Return the physical name for a restrict column reference."""
+        return col if isinstance(col, str) else col.name
+
+    def _timeseries_restrict_entry(
+        self,
+        col: ColumnReference | RestrictColTuple,
+        restrict_vals: RestrictValue | Sequence[RestrictRowValue],
+    ) -> RestrictTuple:
+        """Bind one restrict entry to the timeseries table."""
+        if isinstance(col, tuple):
+            return (col, restrict_vals)
+        if self.ts_table is None:
+            raise ValueError("No timeseries table is available.")
+        return (self.ts_table.c[self._restrict_column_name(col)], restrict_vals)
+
+    def _metadata_restrict_entry(
+        self,
+        col: ColumnReference | RestrictColTuple,
+        restrict_vals: RestrictValue | Sequence[RestrictRowValue],
+    ) -> RestrictTuple:
+        """Bind one restrict entry to the metadata table."""
+        if isinstance(col, tuple):
+            return (col, restrict_vals)
+        return (self._get_gcol(col, annual_only=True), restrict_vals)
+
+    def _split_restrict(
+        self, restrict: Sequence[RestrictTuple]
+    ) -> tuple[list[RestrictTuple], list[RestrictTuple], list[RestrictTuple]]:
+        """Route restrict entries to metadata, timeseries, or outer predicates."""
+        md_restrict: list[RestrictTuple] = []
+        ts_restrict: list[RestrictTuple] = []
+        extra_restrict: list[RestrictTuple] = []
         for col, restrict_vals in restrict:
             targets_ts = self._restrict_targets_ts(col)
             targets_md = self._restrict_targets_md(col)
             if targets_ts:
-                if isinstance(col, tuple):
-                    ts_restrict.append([col, restrict_vals])
-                else:
-                    col_name = col if isinstance(col, str) else col.name
-                    ts_restrict.append([self.ts_table.c[col_name], restrict_vals])
+                ts_restrict.append(self._timeseries_restrict_entry(col, restrict_vals))
             if targets_md:
-                if isinstance(col, tuple):
-                    md_restrict.append([col, restrict_vals])
-                else:
-                    md_restrict.append([self._get_gcol(col, annual_only=True), restrict_vals])
+                md_restrict.append(self._metadata_restrict_entry(col, restrict_vals))
             if not targets_ts and not targets_md:
-                extra_restrict.append([col, restrict_vals])
+                extra_restrict.append((col, restrict_vals))
         return md_restrict, ts_restrict, extra_restrict
 
-    def _restrict_targets_ts(self, col: AnyColType) -> bool:
+    def _restrict_targets_ts(self, col: ColumnReference | RestrictColTuple) -> bool:
+        """Return true when a restrict column belongs to the timeseries table."""
         if self.ts_table is None:
             return False
         if isinstance(col, str):
             return col in self.ts_table.columns
-        if isinstance(col, SACol):
+        if isinstance(col, SqlColumn):
             return getattr(col, "table", None) is self.ts_table
-        if isinstance(col, SALabel):
+        if isinstance(col, SqlLabel):
             source_col = getattr(col, "element", None)
-            return isinstance(source_col, SACol) and getattr(source_col, "table", None) is self.ts_table
+            return isinstance(source_col, SqlColumn) and getattr(source_col, "table", None) is self.ts_table
         if isinstance(col, tuple) and col:
             return all(
-                isinstance(c, SACol) and getattr(c, "table", None) is self.ts_table for c in col
+                isinstance(c, SqlColumn) and getattr(c, "table", None) is self.ts_table for c in col
             )
         return False
 
-    def _restrict_targets_md(self, col: AnyColType) -> bool:
+    def _restrict_targets_md(self, col: ColumnReference | RestrictColTuple) -> bool:
+        """Return true when a restrict column belongs to the metadata table."""
         # md_table and bs_table share columns (bs is an alias of md), so check
         # both — restrict columns may be bound to either depending on call site.
         md_handles = (self.md_table, self.bs_table)
@@ -1032,24 +1073,22 @@ class BuildStockQuery(QueryCore):
             # _split_restrict can route the clause into the inner JOIN /
             # bs_per_bldg WHERE rather than the outer WHERE (which would
             # produce a comma-join against the canonical bs alias).
-            if col in self.bs_table.columns:
-                return True
-            for prefix in (self._char_prefix, self._out_prefix):
-                if f"{prefix}{col}" in self.bs_table.columns:
-                    return True
-            return False
-        if isinstance(col, SACol):
+            return col in self.bs_table.columns or any(
+                f"{prefix}{col}" in self.bs_table.columns for prefix in (self._char_prefix, self._out_prefix)
+            )
+        if isinstance(col, SqlColumn):
             return getattr(col, "table", None) in md_handles
-        if isinstance(col, SALabel):
+        if isinstance(col, SqlLabel):
             source_col = getattr(col, "element", None)
-            return isinstance(source_col, SACol) and getattr(source_col, "table", None) in md_handles
+            return isinstance(source_col, SqlColumn) and getattr(source_col, "table", None) in md_handles
         if isinstance(col, tuple) and col:
             return all(
-                isinstance(c, SACol) and getattr(c, "table", None) in md_handles for c in col
+                isinstance(c, SqlColumn) and getattr(c, "table", None) in md_handles for c in col
             )
         return False
 
-    def _is_timeseries_upgrade_restrict(self, col: AnyColType) -> bool:
+    def _is_timeseries_upgrade_restrict(self, col: ColumnReference | RestrictColTuple) -> bool:
+        """Return true when a restrict targets the timeseries upgrade column."""
         if self.ts_table is None:
             return False
         if isinstance(col, str):
@@ -1058,7 +1097,7 @@ class BuildStockQuery(QueryCore):
         if getattr(col, "name", None) != "upgrade":
             return False
 
-        if isinstance(col, SACol):
+        if isinstance(col, SqlColumn):
             return getattr(col, "table", None) is self.ts_table
 
         base_columns = getattr(col, "base_columns", None)
@@ -1071,6 +1110,7 @@ class BuildStockQuery(QueryCore):
         annual_only: bool,
         upgrade_id: str,
     ) -> None:
+        """Reject ambiguous timeseries upgrade restrictions on upgrade queries."""
         if annual_only or upgrade_id == "0":
             return
 
@@ -1081,32 +1121,21 @@ class BuildStockQuery(QueryCore):
                     "for upgrade queries."
                 )
 
-    def _split_group_by(self, processed_group_by: list[DBColType]):
-        # Some cols like "state" might be available in both ts and bs table
-        ts_group_by: list[DBColType] = []  # restrict to apply to baseline table
-        bs_group_by: list[DBColType] = []  # restrict to apply to timeseries table
+    def _split_group_by(self, processed_group_by: list[ColumnExpression]) -> tuple[list[ColumnExpression], list[ColumnExpression]]:
+        """Split group-by columns by whether they bind to metadata or timeseries."""
+        # Prefer timeseries columns when a name exists in both tables, because
+        # the caller has already chosen a timeseries query path.
+        timeseries_group_by: list[ColumnExpression] = []
+        metadata_group_by: list[ColumnExpression] = []
         for g in processed_group_by:
             if self.ts_table is not None and g.name in self.ts_table.columns:
-                ts_group_by.append(g)
+                timeseries_group_by.append(g)
             else:
-                bs_group_by.append(g)
-        return bs_group_by, ts_group_by
+                metadata_group_by.append(g)
+        return metadata_group_by, timeseries_group_by
 
-    def _clean_group_by(self, group_by):
-        """
-        :param group_by: The group_by list
-        :return: cleaned version of group_by
-        Sometimes, it is necessary to include the table name in the group_by column. For example, a group_by could be
-        ['time', '"res_national_53_2018_baseline"."build_existing_model.state"']. This is necessary if the another table
-        (such as correction factors table) that has the same column ("build_existing_model.state") as the baseline
-        table. However, the query result will not include the table name in columns, so it is necessary to transform
-        the group_by to a cleaner version (['time', 'build_existing_model.state']).
-        Othertimes, quotes are used in group_by columns, such as ['"time"'], but the query result will not contain the
-        quote so it is necessary to remove the quote.
-        Some other time, a group_by column is specified as a tuple of column and a as name. For example, group_by can
-        contain [('month(time)', 'MOY')], in this case, we want to convert it into just 'MOY' since that is what will be
-        present in the returned query.
-        """
+    def _clean_group_by(self, group_by: Sequence[str | tuple[str, str]]) -> list[str]:
+        """Return display-safe group-by labels from quoted or aliased inputs."""
         new_group_by = []
         for col in group_by:
             if isinstance(col, tuple):
@@ -1119,10 +1148,16 @@ class BuildStockQuery(QueryCore):
                 new_group_by.append(col)
         return new_group_by
 
-    def _process_groupby_cols(self, group_by, annual_only=False) -> list[DBColType]:
+    def _process_groupby_cols(
+        self, group_by: Sequence[ColumnReference | tuple[str, str]], annual_only: bool = False
+    ) -> list[ColumnExpression]:
+        """Resolve user group-by references to SQLAlchemy columns."""
         if not group_by:
             return []
-        return [self._get_gcol(entry, annual_only=annual_only) for entry in group_by]
+        return [
+            self._get_gcol(entry[0] if isinstance(entry, tuple) else entry, annual_only=annual_only)
+            for entry in group_by
+        ]
 
     @typing.overload
     def get_buildings_by_locations(
@@ -1137,12 +1172,12 @@ class BuildStockQuery(QueryCore):
     @typing.overload
     def get_buildings_by_locations(
         self, location_col: str, locations: list[str], get_query_only: bool
-    ) -> Union[str, pd.DataFrame]: ...
+    ) -> str | pd.DataFrame: ...
 
     @validate_arguments
     def get_buildings_by_locations(
         self, location_col: str, locations: list[str], get_query_only: bool = False
-    ) -> Union[str, pd.DataFrame]:
+    ) -> str | pd.DataFrame:
         """
         Returns the list of buildings belonging to given list of locations.
         Args:
@@ -1166,35 +1201,39 @@ class BuildStockQuery(QueryCore):
         return res
 
     @property
-    def _md_completed_status_col(self):
+    def _md_completed_status_col(self) -> ColumnExpression:
+        """Return the metadata status column bound to the active metadata alias."""
         return self.bs_table.c[self.db_schema.column_names.completed_status]
 
     @property
-    def _md_successful_condition(self):
-        """`md.applicability=true`. No upgrade filter — callers pin
-        `md.upgrade=N` explicitly when they want a specific upgrade."""
+    def _md_successful_condition(self) -> SqlPredicate:
+        """Return the metadata condition for a successful row."""
         col = self._md_completed_status_col
         return col == typed_literal(col, self.db_schema.completion_values.success)
 
     @property
-    def _md_baseline_successful_condition(self):
-        """`md.applicability=true AND md.upgrade=0` — combined helper for the
-        common case "successful baseline rows", matching the legacy
-        `_bs_successful_condition` semantics on the unified table."""
+    def _md_baseline_successful_condition(self) -> SqlPredicate:
+        """Return the condition for successful baseline metadata rows."""
         return sa.and_(self._md_successful_condition, self._md_baseline_filter())
 
     @property
-    def _ts_upgrade_col(self):
+    def _ts_upgrade_col(self) -> ColumnExpression:
+        """Return the timeseries upgrade column when timeseries exists."""
+        if self.ts_table is None:
+            raise ValueError("No timeseries table is available.")
         return self.ts_table.c["upgrade"]
 
     @property
-    def _md_upgrade_col(self):
+    def _md_upgrade_col(self) -> ColumnExpression:
+        """Return the metadata upgrade column bound to the active alias."""
         return self.bs_table.c["upgrade"]
 
-    def _get_completed_status_col(self, table: AnyTableType):
-        return table.c[self.db_schema.column_names.completed_status]
+    def _get_completed_status_col(self, table: TableReference) -> ColumnExpression:
+        """Return the completed-status column for a table reference."""
+        return self._get_table(table).c[self.db_schema.column_names.completed_status]
 
-    def _get_success_condition(self, table: AnyTableType):
+    def _get_success_condition(self, table: TableReference) -> SqlPredicate:
+        """Return the successful-row predicate for a table reference."""
         col = self._get_completed_status_col(table)
         return col == typed_literal(col, self.db_schema.completion_values.success)
 
@@ -1210,28 +1249,53 @@ class BuildStockQuery(QueryCore):
             return set()
         return set(self.bs_table_state_agg.c.keys())
 
-    def _column_name_or_none(self, col_ref) -> Optional[str]:
-        """Resolve a user-facing column reference to its physical column
-        name on `bs_table`, or return None if it can't be resolved
-        (calculated columns, MappedColumns, etc., are not propagatable).
-        Mirrors `_get_column`'s `in.` prefix logic so that user-supplied
-        `state` resolves to ResStock's `in.state` and ComStock's bare
-        `state` consistently.
-        """
+    def _column_name_or_none(self, col_ref: ColumnReference) -> str | None:
+        """Resolve a propagatable column reference to its metadata column name."""
         try:
             resolved = self._get_column(col_ref, annual_only=True)
         except (ValueError, AttributeError):
             return None
-        if not isinstance(resolved, sa.Column):
+        if not isinstance(resolved, Column):
             return None
         if resolved.table is not self.bs_table:
             return None
         return resolved.name
 
+    def _state_agg_has_column_name(self, column_name: str, alt_cols: set[str]) -> bool:
+        """Return true when a column name is present on the state aggregate table."""
+        char_prefix = self.db_schema.column_prefix.characteristics
+        if column_name in alt_cols:
+            return True
+        if column_name.startswith(char_prefix):
+            return column_name.removeprefix(char_prefix) in alt_cols
+        return f"{char_prefix}{column_name}" in alt_cols
+
+    def _group_by_can_use_state_agg(self, group_col: object, alt_cols: set[str]) -> bool:
+        """Return true when a group-by entry can be routed to state aggregate."""
+        if isinstance(group_col, str):
+            return self._state_agg_has_column_name(group_col, alt_cols)
+        if isinstance(group_col, Column):
+            return group_col.name in alt_cols
+        return isinstance(group_col, MappedColumn)
+
+    def _restrict_can_use_state_agg(self, restrict_entry: object, alt_cols: set[str]) -> bool:
+        """Return true when a restrict entry can be routed to state aggregate."""
+        col_ref = restrict_entry[0] if isinstance(restrict_entry, (tuple, list)) else None
+        if col_ref is None:
+            return True
+
+        if isinstance(col_ref, tuple):
+            return all(isinstance(col, Column) and col.name in alt_cols for col in col_ref)
+        if isinstance(col_ref, str):
+            return self._state_agg_has_column_name(col_ref, alt_cols)
+        if isinstance(col_ref, Column):
+            return col_ref.name in alt_cols
+        return False
+
     def _pick_metadata_table(
         self,
-        group_by: Sequence,
-        restrict: Sequence,
+        group_by: Sequence[ColumnReference | tuple[str, str]],
+        restrict: Sequence[RestrictTuple],
     ) -> Literal["primary", "state_agg"]:
         """Decide whether to scan the primary `annual_and_metadata` table
         (today's default) or the smaller `annual_and_metadata_state_agg`
@@ -1255,86 +1319,21 @@ class BuildStockQuery(QueryCore):
         if self.bs_table_state_agg is None:
             return "primary"
         alt_cols = self._state_agg_columns
-        # Check group_by: each entry must resolve to a column present
-        # on the alt table.
-        for g in group_by or ():
-            if isinstance(g, str):
-                # Try both the user-supplied name and the in.-prefixed
-                # form, since the alt table uses the prefixed convention
-                # for some schemas (e.g. ResStock: in.state).
-                char_prefix = self.db_schema.column_prefix.characteristics
-                if g in alt_cols:
-                    continue
-                if g.startswith(char_prefix) and g.removeprefix(char_prefix) in alt_cols:
-                    continue
-                if not g.startswith(char_prefix) and f"{char_prefix}{g}" in alt_cols:
-                    continue
-                return "primary"
-            elif isinstance(g, sa.Column):
-                if g.name not in alt_cols:
-                    return "primary"
-            elif isinstance(g, SALabel):
-                # Calculated columns: conservatively unroutable. They
-                # may reference columns from outside `bs_table` (e.g.
-                # ts-side enduses) which the alt table also lacks.
-                return "primary"
-            elif isinstance(g, MappedColumn):
-                # MappedColumns are user-supplied literal mappings —
-                # they don't depend on table schema, so they're safe.
-                continue
-            else:
-                # Unknown entry shape — be conservative.
-                return "primary"
-        # Check restrict: each col_ref must resolve to a bs_table column
-        # that's also on the alt table.
-        for entry in restrict or ():
-            col_ref = entry[0] if isinstance(entry, (tuple, list)) else None
-            if col_ref is None:
-                continue
-            # Multi-column tuple LHS (e.g. applied-buildings filter):
-            # safe to route iff every component column is on the alt.
-            if isinstance(col_ref, tuple):
-                for c in col_ref:
-                    name = c.name if isinstance(c, sa.Column) else None
-                    if name is None or name not in alt_cols:
-                        return "primary"
-                continue
-            # Single column ref: resolve through the same prefix logic.
-            if isinstance(col_ref, str):
-                char_prefix = self.db_schema.column_prefix.characteristics
-                if col_ref in alt_cols:
-                    continue
-                if col_ref.startswith(char_prefix) and col_ref.removeprefix(char_prefix) in alt_cols:
-                    continue
-                if not col_ref.startswith(char_prefix) and f"{char_prefix}{col_ref}" in alt_cols:
-                    continue
-                return "primary"
-            if isinstance(col_ref, sa.Column):
-                if col_ref.name not in alt_cols:
-                    return "primary"
-                continue
-            # Unknown shape — be conservative.
+
+        if not all(self._group_by_can_use_state_agg(g, alt_cols) for g in group_by or ()):
+            return "primary"
+        if not all(self._restrict_can_use_state_agg(entry, alt_cols) for entry in restrict or ()):
             return "primary"
         return "state_agg"
 
     def _build_applied_subquery(
         self,
         *,
-        any_of: Optional[Sequence[str | int]] = None,
-        all_of: Optional[Sequence[str | int]] = None,
+        any_of: Sequence[str | int] | None = None,
+        all_of: Sequence[str | int] | None = None,
         key_kind: Literal["metadata", "timeseries"] = "metadata",
-    ):
-        """Return a unique-key subquery for buildings matching the applied predicate.
-
-        - `all_of`: must have applicability=true rows for every listed upgrade.
-        - `any_of`: must have applicability=true rows for at least one listed upgrade.
-        - Both: AND of the two predicates.
-        - Neither: returns None.
-        - 0 in either list: ValueError. Baseline isn't an "applied" upgrade.
-
-        `key_kind` selects which unique-key columns to project — use "timeseries" when
-        the subquery will filter the timeseries table (whose key may be narrower).
-        """
+    ) -> SelectQuery | None:
+        """Return a unique-key subquery for buildings matching applied predicates."""
         all_ids = self._normalize_applied_list(all_of) if all_of else []
         any_ids = self._normalize_applied_list(any_of) if any_of else []
         if not all_ids and not any_ids:
@@ -1393,16 +1392,11 @@ class BuildStockQuery(QueryCore):
 
     def _make_applied_filter_tuple(
         self,
-        select,
+        select: SelectQuery,
         *,
         key_kind: Literal["metadata", "timeseries"] = "metadata",
     ) -> RestrictTuple:
-        """Wrap a Select into the `(cols_or_col, subquery)` shape used by restrict/avoid.
-
-        When `key_kind="timeseries"`, the LHS columns are bound to ts_table so
-        that `_split_restrict` routes the filter to the TS-side WHERE (where
-        `inapplicables_have_ts` rows would otherwise inflate totals).
-        """
+        """Wrap a Select into the `(cols_or_col, subquery)` restrict shape."""
         key_names = self._get_unique_keys(key_kind)
         if key_kind == "timeseries" and self.ts_table is not None:
             cols = [self.ts_table.c[name] for name in key_names]
@@ -1418,14 +1412,14 @@ class BuildStockQuery(QueryCore):
         *,
         get_query_only: Literal[True],
         upgrade_id: int | str = "0",
-        enduses: Sequence[AnyColType],
-        group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+        enduses: Sequence[ColumnReference],
+        group_by: Sequence[ColumnReference | tuple[str, str]] = Field(default_factory=list),
         annual_only: bool = True,
         include_upgrade: bool = True,
         include_savings: bool = False,
         include_baseline: bool = False,
         sort: bool = True,
-        join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
+        join_list: Sequence[tuple[TableReference, ColumnReference, ColumnReference]] = Field(default_factory=list),
         weights: Sequence[str | tuple] = Field(default_factory=list),
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         avoid: Sequence[RestrictTuple] = Field(default_factory=list),
@@ -1445,14 +1439,14 @@ class BuildStockQuery(QueryCore):
         *,
         upgrade_id: int | str = "0",
         get_query_only: Literal[False] = False,
-        enduses: Sequence[AnyColType],
-        group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+        enduses: Sequence[ColumnReference],
+        group_by: Sequence[ColumnReference | tuple[str, str]] = Field(default_factory=list),
         annual_only: bool = True,
         include_upgrade: bool = True,
         include_savings: bool = False,
         include_baseline: bool = False,
         sort: bool = True,
-        join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
+        join_list: Sequence[tuple[TableReference, ColumnReference, ColumnReference]] = Field(default_factory=list),
         weights: Sequence[str | tuple] = Field(default_factory=list),
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         avoid: Sequence[RestrictTuple] = Field(default_factory=list),
@@ -1472,14 +1466,14 @@ class BuildStockQuery(QueryCore):
         *,
         get_query_only: bool,
         upgrade_id: int | str = "0",
-        enduses: Sequence[AnyColType],
-        group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+        enduses: Sequence[ColumnReference],
+        group_by: Sequence[ColumnReference | tuple[str, str]] = Field(default_factory=list),
         annual_only: bool = True,
         include_upgrade: bool = True,
         include_savings: bool = False,
         include_baseline: bool = False,
         sort: bool = True,
-        join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
+        join_list: Sequence[tuple[TableReference, ColumnReference, ColumnReference]] = Field(default_factory=list),
         weights: Sequence[str | tuple] = Field(default_factory=list),
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         avoid: Sequence[RestrictTuple] = Field(default_factory=list),
@@ -1496,20 +1490,20 @@ class BuildStockQuery(QueryCore):
     @typing.overload
     def query(self, *, params: Query) -> str | pd.DataFrame: ...
 
-    def query(self, *args, **kwargs) -> str | pd.DataFrame:
+    def query(self, *args: object, **kwargs: object) -> str | pd.DataFrame:
         """Query the run to obtain either the results dataframe or the query string.
         Args:
             upgrade_id: id of the upgrade scenario from the ResStock analysis
             enduses: Enduses to query, defaults to ['fuel_use__electricity__total']
             group_by: Building characteristics columns to group by, defaults to []
-            annual_only: If true, calculates only the annual savings using baseline and upgrades table
+            annual_only: If true, calculates annual savings from `annual_and_metadata`
             sort: Whether the result should be sorted. Sorting takes extra time.
-            join_list: Additional table to join to baseline table to perform operation. All the inputs (`enduses`,
+            join_list: Additional table to join to metadata rows to perform operation. All the inputs (`enduses`,
                   `group_by` etc) can use columns from these additional tables. It should be specified as a list of
                   tuples.
-                  Example: `[(new_table_name, baseline_column_name, new_column_name), ...]`
-                        where baseline_column_name and new_column_name are the columns on which the new_table
-                        should be joined to baseline table.
+                  Example: `[(new_table_name, metadata_column_name, new_column_name), ...]`
+                        where metadata_column_name and new_column_name are the columns on which the new_table
+                        should be joined to metadata rows.
             applied_only: Calculate savings shape based on only buildings to which the upgrade applied
             weights: The additional columns to use as weight. The "build_existing_model.sample_weight" is already used.
                      It is specified as either list of string or list of tuples. When only string is used, the string

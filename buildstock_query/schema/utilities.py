@@ -1,21 +1,48 @@
 from __future__ import annotations
-from typing import Union, Any
-from collections.abc import Sequence
-from pydantic import ConfigDict, BaseModel, validate_call
+
+import datetime
+from collections.abc import Callable, Sequence
+from typing import Protocol
+
 import sqlalchemy as sa
+from pydantic import BaseModel, ConfigDict, validate_call
 from sqlalchemy.sql import sqltypes
-from sqlalchemy.sql.elements import Label, ColumnElement
-from sqlalchemy.sql.selectable import SelectBase, Subquery, Alias
+from sqlalchemy.sql.elements import ColumnElement, KeyedColumnElement, Label
+from sqlalchemy.sql.schema import Column, Table
+from sqlalchemy.sql.selectable import Alias, FromClause, Select, SelectBase, Subquery
+
 # from buildstock_query import BuildStockQuery  # can't import due to circular import
 
 
-SACol = sa.Column | ColumnElement
-SALabel = Label
-DBColType = SALabel | SACol
-# Alias is included so `bs_table` / `up_table` (SA aliases over the unified
-# annual_and_metadata table) flow through the same type guards as real Tables.
-DBTableType = sa.Table | Subquery | Alias
-AnyTableType = Union[DBTableType, str]
+SqlColumn = Column | ColumnElement
+SqlLabel = Label
+ColumnExpression = SqlLabel | SqlColumn
+# Alias is included so metadata role aliases flow through the same type guards
+# as real tables.
+TableHandle = Table | Subquery | Alias | FromClause
+TableReference = TableHandle | str
+SqlExpression = ColumnElement | KeyedColumnElement
+SqlPredicate = ColumnElement
+SqlFrom = FromClause
+SelectQuery = Select
+SqlFunction = Callable[..., SqlExpression]
+
+# Backwards-compatible names retained for existing callers.
+SACol = SqlColumn
+SALabel = SqlLabel
+DBColType = ColumnExpression
+DBTableType = TableHandle
+AnyTableType = TableReference
+SQLExpression = SqlExpression
+SQLClause = SqlPredicate
+SQLFromClause = SqlFrom
+SQLSelect = SelectQuery
+SQLFunction = SqlFunction
+
+
+class QueryCompiler(Protocol):
+    def _compile(self, query: object) -> str:
+        """Compile a SQLAlchemy expression to SQL text."""
 
 
 def typed_literal(col, value):
@@ -61,20 +88,23 @@ def typed_literal(col, value):
 
 
 class MappedColumn(BaseModel):
-    bsq: Any = None  # BuildStockQuery
+    bsq: object | None = None
     name: str
     mapping_dict: dict
-    key: DBColType | str | Sequence[DBColType | str]
+    key: ColumnExpression | str | Sequence[ColumnExpression | str]
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-AnyColType = DBColType | str | MappedColumn
-RestrictValue = str | int | bool | Sequence[int | str | bool] | SelectBase | Subquery
-RestrictColTuple = tuple[DBColType, ...]
-RestrictRowValue = tuple[str | int | bool, ...]
-RestrictTuple = (
-    tuple[AnyColType, RestrictValue]
-    | tuple[RestrictColTuple, SelectBase | Subquery | Sequence[RestrictRowValue]]
-)
+ColumnReference = ColumnExpression | str | MappedColumn
+WeightSpec = ColumnReference | tuple[str, TableReference]
+RestrictScalar = str | int | float | bool | datetime.date | datetime.datetime | None
+RestrictValue = RestrictScalar | Sequence[RestrictScalar] | SelectBase | Subquery
+RestrictColTuple = tuple[ColumnExpression, ...]
+RestrictRowValue = tuple[RestrictScalar, ...]
+RestrictCriteria = RestrictValue | Sequence[RestrictRowValue]
+RestrictTuple = tuple[ColumnReference | RestrictColTuple, RestrictCriteria]
+
+# Backwards-compatible public alias.
+AnyColType = ColumnReference
 
 validate_arguments = validate_call(config=ConfigDict(arbitrary_types_allowed=True))

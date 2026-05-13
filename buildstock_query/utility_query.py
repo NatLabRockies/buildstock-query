@@ -1,17 +1,18 @@
-from buildstock_query import main
 import logging
-from typing import List, Any, Tuple, Optional, Union, Literal
+from collections import defaultdict
 from collections.abc import Sequence
+from typing import Any, Literal, cast
+
 import pandas as pd
 import sqlalchemy as sa
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.sql import functions as safunc
-from collections import defaultdict
-from buildstock_query.schema.query_params import UtilityTSQuery, Query
-from buildstock_query.schema.helpers import gather_params
-from buildstock_query.schema.utilities import AnyColType, AnyTableType, MappedColumn, validate_arguments
-from buildstock_query.helpers import read_csv
-from pydantic import Field, BaseModel, ValidationError
 
+from buildstock_query import main
+from buildstock_query.helpers import read_csv
+from buildstock_query.schema.helpers import gather_params
+from buildstock_query.schema.query_params import Query, UtilityTSQuery
+from buildstock_query.schema.utilities import AnyColType, AnyTableType, MappedColumn, validate_arguments
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -87,8 +88,7 @@ class BuildStockUtility:
         id_list_batches = [id_list[i: i + gs] for i in range(0, len(id_list), gs)]
         queries = []
         for current_ids in id_list_batches:
-            if len(current_ids) == 1:
-                current_ids = current_ids[0]
+            query_ids = current_ids[0] if len(current_ids) == 1 else current_ids
             query_params = Query(
                 enduses=params.enduses,
                 group_by=params.group_by,
@@ -96,14 +96,14 @@ class BuildStockUtility:
                 sort=params.sort,
                 join_list=params.join_list,
                 weights=params.weights,
-                restrict=[(new_table.c[id_column], current_ids)] + list(params.restrict),
+                restrict=[(new_table.c[id_column], query_ids), *list(params.restrict)],
                 annual_only=False,
                 timestamp_grouping_func=params.timestamp_grouping_func,
                 limit=params.limit,
                 get_quartiles=params.get_quartiles,
                 get_query_only=True,
             )
-            logger.info(f"Submitting query for {current_ids}")
+            logger.info(f"Submitting query for {query_ids}")
             queries.append(self._bsq.query(params=query_params))
 
         if params.get_query_only:
@@ -122,7 +122,7 @@ class BuildStockUtility:
             map_baseline_column = f"{self._bsq._char_prefix}county"
             map_eiaid_column = self._bsq.db_schema.column_names.map_eiaid_column
         elif self.eia_mapping_version == 3:
-            map_table_name = "v3_eiaid_weights_%d" % (self.eia_mapping_year)
+            map_table_name = f"v3_eiaid_weights_{self.eia_mapping_year}"
             map_baseline_column = f"{self._bsq._char_prefix}county"
             map_eiaid_column = self._bsq.db_schema.column_names.map_eiaid_column
         else:
@@ -171,8 +171,8 @@ class BuildStockUtility:
     def aggregate_unit_counts_by_eiaid(
         self,
         *,
-        eiaid_list: Optional[list[str]] = None,
-        group_by: list[Union[AnyColType, tuple[str, str]]] = [],
+        eiaid_list: list[str] | None = None,
+        group_by: list[AnyColType | tuple[str, str]] | None = None,
         get_query_only: bool = False,
     ):
         """
@@ -189,6 +189,8 @@ class BuildStockUtility:
         Returns:
             Pandas dataframe with the units counts
         """
+        if group_by is None:
+            group_by = []
         logger.info("Aggregating unit counts by eiaid")
         group_by = group_by or []
         eiaid_map_table_name, map_baseline_column, map_eiaid_column = self.get_eiaid_map()
@@ -199,7 +201,7 @@ class BuildStockUtility:
         result = self._bsq.query(
             annual_only=True,
             enduses=[],
-            group_by=[eiaid_col] + group_by,
+            group_by=[eiaid_col, *group_by],
             sort=True,
             join_list=[(eiaid_map_table_name, map_baseline_column, map_eiaid_column)],
             weights=[weight_col],
@@ -212,12 +214,12 @@ class BuildStockUtility:
     def aggregate_annual_by_eiaid(
         self,
         enduses: Sequence[AnyColType],
-        group_by: Optional[List[str]] = None,
+        group_by: list[str] | None = None,
         get_query_only: bool = False,
         get_nonzero_count: bool = False,
     ):
         """
-        Aggregates the annual consumption in the baseline table, grouping by all the utilities
+        Aggregates baseline annual consumption from metadata rows, grouped by utility.
         Args:
             enduses: The list of enduses to aggregate
             group_by: Additional columns to group the aggregation by
@@ -235,7 +237,7 @@ class BuildStockUtility:
         weight_col = ("weight", eiaid_map_table_name)
         result = self._bsq.query(
             enduses=enduses,
-            group_by=[eiaid_col] + group_by_cols,
+            group_by=[eiaid_col, *group_by_cols],
             join_list=join_list,
             weights=[weight_col],
             sort=True,
@@ -245,7 +247,7 @@ class BuildStockUtility:
         return result
 
     @validate_arguments
-    def get_filtered_results_csv_by_eiaid(self, eiaids: List[str], get_query_only: bool = False):
+    def get_filtered_results_csv_by_eiaid(self, eiaids: list[str], get_query_only: bool = False):
         """
         Returns a portion of the results csvs, which belongs to given list of utilities
         Args:
@@ -273,9 +275,9 @@ class BuildStockUtility:
     @validate_arguments
     def get_eiaids(
         self,
-        restrict: Optional[List[Tuple[str, List]]] = None,
+        restrict: list[tuple[str, list]] | None = None,
         get_query_only: bool = False,
-    ) -> Union[list[str], str]:
+    ) -> list[str] | str:
         """
         Returns the list of eiaids
         Args:
@@ -312,7 +314,7 @@ class BuildStockUtility:
         return self._cache["eiaids"]
 
     @validate_arguments
-    def get_buildings_by_eiaids(self, eiaids: List[str], get_query_only: bool = False):
+    def get_buildings_by_eiaids(self, eiaids: list[str], get_query_only: bool = False):
         """
         Returns the list of buildings belonging to the given list of utilities.
         Args:
@@ -338,7 +340,7 @@ class BuildStockUtility:
         return res
 
     @validate_arguments
-    def get_locations_by_eiaids(self, eiaids: List[str], get_query_only: bool = False):
+    def get_locations_by_eiaids(self, eiaids: list[str], get_query_only: bool = False):
         """
         Returns the list of locations/counties (depends on mapping version) belonging to a given list of utilities.
         Args:
@@ -352,7 +354,7 @@ class BuildStockUtility:
             provided list of utilities.
 
         """
-        eiaid_map_table_name, map_baseline_column, map_eiaid_column = self.get_eiaid_map()
+        eiaid_map_table_name, _map_baseline_column, map_eiaid_column = self.get_eiaid_map()
         eiaid_map_table = self._bsq._get_table(eiaid_map_table_name)
         query = sa.select(*[eiaid_map_table.c[map_eiaid_column].distinct()])
         query = self._bsq._add_restrict(query, [(self._bsq._get_column("eiaid", [eiaid_map_table_name]), eiaids)])
@@ -388,22 +390,22 @@ class BuildStockUtility:
             id_vars=["month", "weekend"], value_vars=range(24), var_name="hour", value_name="rate"
         )
         rate_map = full_rate.set_index(["month", "weekend", "hour"])["rate"].to_dict()
-        return rate_map
+        return cast(dict[tuple[int, int, int], int | float], rate_map)
 
     @validate_arguments
     def calculate_tou_bill(
         self,
         *,
-        rate_map: Union[tuple[str, str], dict[tuple[int, int, int], float]],
-        meter_col: Optional[Union[AnyColType, tuple[AnyColType, ...]]] = None,
-        group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list),
-        upgrade_id: Union[int, str] = "0",
+        rate_map: tuple[str, str] | dict[tuple[int, int, int], float],
+        meter_col: AnyColType | tuple[AnyColType, ...] | None = None,
+        group_by: Sequence[AnyColType | tuple[str, str]] = Field(default_factory=list),
+        upgrade_id: int | str = "0",
         sort: bool = True,
         join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list),
-        weights: Sequence[Union[str, tuple]] = Field(default_factory=list),
-        restrict: Sequence[tuple[AnyColType, Union[str, int, Sequence[Union[int, str]]]]] = Field(default_factory=list),
-        timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = "month",
-        limit: Optional[int] = None,
+        weights: Sequence[str | tuple] = Field(default_factory=list),
+        restrict: Sequence[tuple[AnyColType, str | int | Sequence[int | str]]] = Field(default_factory=list),
+        timestamp_grouping_func: Literal["year", "month", "day", "hour"] | None = "month",
+        limit: int | None = None,
         get_query_only: bool = False,
     ):
         if isinstance(rate_map, tuple):
@@ -431,8 +433,8 @@ class BuildStockUtility:
         )
 
         enduses_list = []
-        for col in TOU_enduse:
-            enduses_list.append((TOU_enduse[col] * rate_col / 100).label(f"{col}__dollars"))
+        for col, enduse in TOU_enduse.items():
+            enduses_list.append((enduse * rate_col / 100).label(f"{col}__dollars"))
 
         return self._bsq.query(
             enduses=enduses_list,

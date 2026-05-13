@@ -5,24 +5,26 @@ Experimental Stage.
 :author: Rajendra.Adhikari@nrel.gov
 """
 
-from functools import reduce
 import re
-from collections import defaultdict, Counter
-import dash_bootstrap_components as dbc
-from dash import html, ALL, dcc, ctx
+from collections import Counter, defaultdict
+from functools import reduce
+from typing import Literal
+
 import dash
+import dash_bootstrap_components as dbc
+import dash_mantine_components as dmc
+import polars as pl
+from dash import ALL, ctx, dcc, html
 from dash.dependencies import Input, Output, State
 from dash.exceptions import PreventUpdate
-from dash_extensions.enrich import MultiplexerTransform, DashProxy
-import dash_mantine_components as dmc
+from dash_extensions.enrich import DashProxy, MultiplexerTransform
 from dash_iconify import DashIconify
 from InquirerPy import inquirer
-from buildstock_query.tools.upgrades_visualizer.viz_data import VizData
-from buildstock_query.tools.upgrades_visualizer.plot_utils import PlotParams, ValueTypes, SavingsTypes
-from buildstock_query.tools.upgrades_visualizer.figure import UpgradesPlot
+
 from buildstock_query.helpers import load_script_defaults, save_script_defaults
-import polars as pl
-from typing import Literal
+from buildstock_query.tools.upgrades_visualizer.figure import UpgradesPlot
+from buildstock_query.tools.upgrades_visualizer.plot_utils import PlotParams, SavingsTypes, ValueTypes
+from buildstock_query.tools.upgrades_visualizer.viz_data import VizData
 
 # os.chdir("/Users/radhikar/Documents/eulpda/EULP-data-analysis/eulpda/smart_query/")
 # from: https://github.com/thedirtyfew/dash-extensions/tree/1b8c6466b5b8522690442713eb421f622a1d7a59
@@ -40,7 +42,11 @@ opt_sat_path = "/Users/radhikar/Downloads/options_saturations.csv"
 default_end_use = "fuel_use_electricity_total_m_btu"
 
 
-def filter_cols(all_columns, prefixes=[], suffixes=[]):
+def filter_cols(all_columns, prefixes=None, suffixes=None):
+    if suffixes is None:
+        suffixes = []
+    if prefixes is None:
+        prefixes = []
     cols = []
     for col in all_columns:
         for prefix in prefixes:
@@ -169,7 +175,7 @@ def get_app(viz_data: VizData):
         dbc.Row([dbc.Col(
             dcc.Tabs(id='tab_view_type', value='energy', children=[
                 dcc.Tab(id='energy_tab', label='Energy', value='energy', children=[
-                    dcc.RadioItems(fuels_types + ['All'], "electricity", id='radio_fuel',  inline=True,
+                    dcc.RadioItems([*fuels_types, 'All'], "electricity", id='radio_fuel',  inline=True,
                                    labelClassName="pr-2")]
                         ),
                 dcc.Tab(label='Water Usage', value='water', children=[]
@@ -474,7 +480,7 @@ def get_app(viz_data: VizData):
         base_res = upgrade2res['0'].filter(pl.col("building_id").is_in(valid_bldgs))
         valid_bldgs = list(base_res['building_id'].to_list())
 
-        if "btn-reset" != ctx.triggered_id and current_options and len(current_options) > 0 and chk_lock:
+        if ctx.triggered_id != "btn-reset" and current_options and len(current_options) > 0 and chk_lock:
             current_options_set = set(current_options)
             valid_bldgs = [b for b in valid_bldgs if b in current_options_set]
 
@@ -487,7 +493,7 @@ def get_app(viz_data: VizData):
     def get_char_choices(char):
         if char:
             res0 = upgrade2res['0']
-            unique_choices = sorted(list(res0[char].unique()))
+            unique_choices = sorted(res0[char].unique())
             return unique_choices, unique_choices[0]
         else:
             return [], None
@@ -630,20 +636,20 @@ def get_app(viz_data: VizData):
         applied_options = run_obj.report.get_applied_options(upgrade_id=int(report_upgrade),
                                                              bldg_ids=bldg_list,
                                                              include_base_opt=True)
-        opt_only = [{entry.split('|')[0] for entry in opt.keys()} for opt in applied_options]
+        opt_only = [{entry.split('|')[0] for entry in opt} for opt in applied_options]
         reduced_set = list(reduce(set.union, opt_only))
 
         nested_dict = defaultdict(lambda: defaultdict(Counter))
         bldg_list_dict = defaultdict(list)
 
-        for bldg_id, opt_dict in zip(bldg_list, applied_options):
+        for building_id, opt_dict in zip(bldg_list, applied_options, strict=False):
             for opt_para, value in opt_dict.items():
                 opt = opt_para.split('|')[0]
                 para = opt_para.split('|')[1]
                 nested_dict[opt][para][value] += 1
-                bldg_list_dict[opt].append(bldg_id)
-                bldg_list_dict[opt + "|" + para].append(bldg_id)
-                bldg_list_dict[opt + "|" + para + "<-" + value].append(bldg_id)
+                bldg_list_dict[opt].append(building_id)
+                bldg_list_dict[opt + "|" + para].append(building_id)
+                bldg_list_dict[opt + "|" + para + "<-" + value].append(building_id)
 
         def get_accord_item(opt_name):
             total_count = sum(counter.total() for counter in nested_dict[opt_name].values())
@@ -717,7 +723,7 @@ def get_app(viz_data: VizData):
         fuel2bldgs = defaultdict(set)
         fuel2enduses = defaultdict(list)
         for enduse, bldgs in enduses2bldgs.items():
-            for fuel in ['all_fuel'] + fuels_types:
+            for fuel in ['all_fuel', *fuels_types]:
                 if fuel in enduse:
                     fuel2bldgs[fuel] |= set(bldgs)
                     fuel2enduses[fuel].append(enduse)
@@ -742,7 +748,7 @@ def get_app(viz_data: VizData):
                 contents.append(row)
             return dmc.AccordionItem(contents, label=f"{fuel} ({total_count})")
 
-        report = dmc.Accordion([get_accord_item(fuel) for fuel in fuel2enduses.keys()],  multiple=True)
+        report = dmc.Accordion([get_accord_item(fuel) for fuel in fuel2enduses],  multiple=True)
         storedict = dict(enduses2bldgs)
         return report, storedict
 
@@ -769,7 +775,7 @@ def get_app(viz_data: VizData):
         else:
             bldg_list = [int(bldg_id)] if bldg_id else [int(b) for b in bldg_options]
         chars_df = viz_data.bs_res_df.filter(pl.col('building_id').is_in(
-            set(bldg_list))).select(inp_char + ['building_id'])
+            set(bldg_list))).select([*inp_char, 'building_id'])
         char2bldgs = chars_df.group_by(inp_char).agg('building_id')
         if (total_len := len(char2bldgs)) > 250:
             return [f"Sorry, this would create more than 200 ({total_len}) rows."], {}

@@ -1,17 +1,19 @@
-from concurrent.futures import Future
-from pyathena.sqlalchemy.base import AthenaDialect
-from pyathena.pandas.result_set import AthenaPandasResultSet
 import datetime
-import pandas as pd
-from pathlib import Path
+import importlib
 import json
-from typing import Literal, TYPE_CHECKING
-if TYPE_CHECKING:
-    from buildstock_query.schema.utilities import MappedColumn  # noqa: F401
+from concurrent.futures import Future
+from pathlib import Path
+from typing import Literal, cast
 
+import pandas as pd
+from pyathena.pandas.result_set import AthenaPandasResultSet
+from pyathena.sqlalchemy.base import AthenaDialect
+
+from buildstock_query.schema.utilities import MappedColumn, QueryCompiler
 
 KWH2MBTU = 0.003412141633127942
 MBTU2KWH = 293.0710701722222
+PANDAS_PARSERS = importlib.import_module("pandas._libs.parsers")
 
 
 class CachedFutureDf(Future):
@@ -30,7 +32,7 @@ class CachedFutureDf(Future):
         return False
 
     def result(self, timeout=None) -> pd.DataFrame:
-        return self.df
+        return super().result(timeout=timeout)
 
     def as_df(self) -> pd.DataFrame:
         return self.df
@@ -56,7 +58,7 @@ class AthenaFutureDf:
         return self.future.cancelled()
 
     def result(self, timeout=None) -> AthenaPandasResultSet:
-        return self.future.result()
+        return self.future.result(timeout=timeout)
 
     def as_pandas(self) -> pd.DataFrame:
         df = self.future.as_df()  # type: ignore # mypy doesn't know about AthenaPandasResultSet
@@ -90,24 +92,28 @@ class CustomCompiler(AthenaDialect().statement_compiler):  # type: ignore
 
     @staticmethod
     def render_literal(obj):
-        from buildstock_query.schema.utilities import MappedColumn  # noqa: F811
         if isinstance(obj, (int, float)):
             return str(obj)
         elif isinstance(obj, str):
-            return "'%s'" % obj.replace("'", "''")
+            escaped = obj.replace("'", "''")
+            return f"'{escaped}'"
         elif isinstance(obj, (datetime.datetime)):
-            return "timestamp '%s'" % str(obj).replace("'", "''")
+            escaped = str(obj).replace("'", "''")
+            return f"timestamp '{escaped}'"
         elif isinstance(obj, list):
             return CustomCompiler.get_array_string(obj)
         elif isinstance(obj, tuple):
             return f"({', '.join([CustomCompiler.render_literal(v) for v in obj])})"
         elif isinstance(obj, MappedColumn):
+            if obj.bsq is None:
+                raise ValueError("MappedColumn must be associated with a BuildStockQuery instance.")
+            compiler = cast(QueryCompiler, obj.bsq)
             keys = list(obj.mapping_dict.keys())
             values = list(obj.mapping_dict.values())
             if isinstance(obj.key, tuple):
-                indexing_str = f"({', '.join(tuple(obj.bsq._compile(source) for source in obj.key))})"
+                indexing_str = f"({', '.join(tuple(compiler._compile(source) for source in obj.key))})"
             else:
-                indexing_str = obj.bsq._compile(obj.key)
+                indexing_str = compiler._compile(obj.key)
 
             return f"MAP({CustomCompiler.render_literal(keys)}, " +\
                    f"{CustomCompiler.render_literal(values)})[{indexing_str}]"
@@ -125,21 +131,20 @@ class CustomCompiler(AthenaDialect().statement_compiler):  # type: ignore
             return f"ARRAY[{', '.join([CustomCompiler.render_literal(v) for v in array])}]"
 
     def render_literal_value(self, obj, type_):
-        from buildstock_query.schema.utilities import MappedColumn  # noqa: F811
         if isinstance(obj, (datetime.datetime, list, tuple, MappedColumn)):
             return CustomCompiler.render_literal(obj)
 
-        return super(CustomCompiler, self).render_literal_value(obj, type_)
+        return super().render_literal_value(obj, type_)
 
 
 class DataExistsException(Exception):
     def __init__(self, message, existing_data=None):
-        super(DataExistsException, self).__init__(message)
+        super().__init__(message)
         self.existing_data = existing_data
 
 
 def read_csv(csv_file_path, **kwargs) -> pd.DataFrame:
-    default_na_values = pd._libs.parsers.STR_NA_VALUES
+    default_na_values = cast(set[str], vars(PANDAS_PARSERS)["STR_NA_VALUES"])
     df = pd.read_csv(csv_file_path, na_values=list(default_na_values - {"None"}), keep_default_na=False, **kwargs)
     return df
 

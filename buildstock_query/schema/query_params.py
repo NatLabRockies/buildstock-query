@@ -1,31 +1,30 @@
-from pydantic import ConfigDict, BaseModel, Field
-from typing import Optional, Union
 from collections.abc import Sequence
-from typing import Literal
-from buildstock_query.schema.utilities import AnyTableType, AnyColType, RestrictTuple
-from pydantic import model_validator
-from typing_extensions import Self
+from typing import Literal, Self
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from buildstock_query.schema.utilities import ColumnReference, RestrictTuple, TableReference, WeightSpec
 
 
 class BaseQuery(BaseModel):
-    enduses: Sequence[AnyColType]
-    group_by: Sequence[Union[AnyColType, tuple[str, str]]] = Field(default_factory=list)
+    enduses: Sequence[ColumnReference]
+    group_by: Sequence[ColumnReference | tuple[str, str]] = Field(default_factory=list)
     upgrade_id: str = "0"
     sort: bool = True
-    join_list: Sequence[tuple[AnyTableType, AnyColType, AnyColType]] = Field(default_factory=list)
+    join_list: Sequence[tuple[TableReference, ColumnReference, ColumnReference]] = Field(default_factory=list)
     restrict: Sequence[RestrictTuple] = Field(default_factory=list)
     avoid: Sequence[RestrictTuple] = Field(default_factory=list)
-    weights: Sequence[Union[str, tuple, AnyColType]] = Field(default_factory=list)
+    weights: Sequence[WeightSpec] = Field(default_factory=list)
     get_quartiles: bool = False
     get_nonzero_count: bool = False
     get_query_only: bool = False
-    limit: Optional[int] = None
-    agg_func: Optional[str] = "sum"
+    limit: int | None = None
+    agg_func: str | None = "sum"
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid", coerce_numbers_to_str=True)
 
 
 class TSQuery(BaseQuery):
-    timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = None
+    timestamp_grouping_func: Literal["year", "month", "day", "hour"] | None = None
 
 
 class UtilityTSQuery(TSQuery):
@@ -38,10 +37,10 @@ class Query(BaseQuery):
     include_savings: bool = False
     include_baseline: bool = False
     include_upgrade: bool = True
-    timestamp_grouping_func: Optional[Literal["year", "month", "day", "hour"]] = None
+    timestamp_grouping_func: Literal["year", "month", "day", "hour"] | None = None
     partition_by: Sequence[str] = Field(default_factory=list)
-    applied_only: Optional[bool] = Field(default=None)
-    unload_to: Optional[str] = None
+    applied_only: bool | None = Field(default=None)
+    unload_to: str | None = None
 
     @model_validator(mode="after")
     def validate_consistency(self) -> Self:

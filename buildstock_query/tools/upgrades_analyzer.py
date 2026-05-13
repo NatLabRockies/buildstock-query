@@ -1,21 +1,24 @@
-from functools import reduce
-import yaml
-import pandas as pd
-import numpy as np
+import argparse
 import logging
+import os
+import traceback
+from collections import defaultdict
+from functools import reduce
 from itertools import combinations
-from typing import Union, Optional
+from pathlib import Path
+from typing import Any, cast
+
+import numpy as np
+import pandas as pd
+import yaml
 from InquirerPy import inquirer
 from InquirerPy.validator import PathValidator
-import os
-from collections import defaultdict
-from pathlib import Path
-from buildstock_query.tools.logic_parser import LogicParser
 from tabulate import tabulate
-from buildstock_query.helpers import read_csv, load_script_defaults, save_script_defaults
+
 from buildstock_query.file_getter import OpenOrDownload
+from buildstock_query.helpers import load_script_defaults, read_csv, save_script_defaults
+from buildstock_query.tools.logic_parser import LogicParser
 from buildstock_query.tools.set_cover import SetCoverSolver
-import traceback
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,11 +34,11 @@ class UpgradesAnalyzer:
     def __init__(
         self,
         *,
-        buildstock: Union[str, pd.DataFrame],
-        yaml_file: Optional[str] = None,
+        buildstock: str | pd.DataFrame,
+        yaml_file: str | None = None,
         opt_sat_file: str,
-        filter_yaml_file: Optional[str] = None,
-        upgrade_names: Optional[dict[int, str]] = None,
+        filter_yaml_file: str | None = None,
+        upgrade_names: dict[int, str] | None = None,
     ) -> None:
         """
         Initialize the analyzer instance.
@@ -106,7 +109,7 @@ class UpgradesAnalyzer:
         with OpenOrDownload(filter_yaml_file) as f:
             config = yaml.load(f, Loader=yaml.SafeLoader)
 
-        listed_upgrades = set(upgrade["upgrade_name"] for upgrade in config.get("upgrades", []))
+        listed_upgrades = {upgrade["upgrade_name"] for upgrade in config.get("upgrades", [])}
         missing_upgrades = set(self.upgrade_names.values()) - listed_upgrades
         new_config = {}
         all_upgrades_remove_logic = config.get("all_upgrades_remove_logic", {})
@@ -155,7 +158,7 @@ class UpgradesAnalyzer:
         return para.lower(), option
 
     @staticmethod
-    def get_mentioned_parameters(logic: Union[list, dict, str]) -> list:
+    def get_mentioned_parameters(logic: list | dict | str) -> list:
         """
         Returns the list of all parameters referenced in a logic block. Useful for debugging
 
@@ -179,7 +182,7 @@ class UpgradesAnalyzer:
                 all_params.extend(UpgradesAnalyzer.get_mentioned_parameters(el))
             return list(dict.fromkeys(all_params))  # remove duplicates while maintaining order
         elif isinstance(logic, dict):
-            return UpgradesAnalyzer.get_mentioned_parameters(list(logic.values())[0])
+            return UpgradesAnalyzer.get_mentioned_parameters(next(iter(logic.values())))
         else:
             raise ValueError("Invalid logic type")
 
@@ -279,7 +282,7 @@ class UpgradesAnalyzer:
         elif isinstance(logic, dict):
             if len(logic) > 1:
                 raise ValueError(f"Dicts cannot have more than one keys. {logic} has.")
-            key = list(logic.keys())[0]
+            key = next(iter(logic.keys()))
             logic_array = self._reduce_logic(logic[key], parent=key).copy()
 
         if parent == "not":
@@ -363,7 +366,7 @@ class UpgradesAnalyzer:
         records.append(record)
         return pd.DataFrame.from_records(records)
 
-    def get_report(self, upgrade_num: Optional[int] = None) -> pd.DataFrame:
+    def get_report(self, upgrade_num: int | None = None) -> pd.DataFrame:
         """Analyses how many buildings various options in all the upgrades is going to apply to and returns
         a report in DataFrame format.
         Args:
@@ -394,7 +397,7 @@ class UpgradesAnalyzer:
         logger.info(f" * Upgraded buildstock for upgrade {upgrade_num} : {upgrade_name}")
 
         df = self.buildstock_df_original.copy()
-        for idx, row in report_df.iterrows():
+        for _idx, row in report_df.iterrows():
             if row["option"] == "All":
                 continue
             dimension, upgrade_option = row["option"].split("|")
@@ -472,11 +475,11 @@ class UpgradesAnalyzer:
 
         logic_df = pd.DataFrame(logic_dict)
         nbldgs = len(logic_df)
-        opts2count = (
+        opts2count = cast(dict[tuple[int, ...], int], (
             logic_df.apply(lambda row: tuple(indx + 1 for indx, val in enumerate(row) if val), axis=1)
             .value_counts()
             .to_dict()
-        )
+        ))
         cum_count_all = 0
         cum_count = defaultdict(int)
         application_report_rows = []
@@ -530,7 +533,7 @@ class UpgradesAnalyzer:
         report_str += "-" * len(footer_str) + "\n"
         return logic_array, report_str
 
-    def get_left_out_report(self, upgrade_num: int, option_num: Optional[int] = None) -> tuple[np.ndarray, str]:
+    def get_left_out_report(self, upgrade_num: int, option_num: int | None = None) -> tuple[np.ndarray, str]:
         """Prints detailed inverse report of what is left out for a particular upgrade (and optionally, an option)
         Args:
             upgrade_num (int): The 1-indexed upgrade for which to print the report.
@@ -585,8 +588,8 @@ class UpgradesAnalyzer:
         return logic_array, report_str
 
     def get_detailed_report(
-        self, upgrade_num: int, option_num: Optional[int] = None, normalize_logic: bool = False
-    ) -> tuple[np.ndarray, str, Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+        self, upgrade_num: int, option_num: int | None = None, normalize_logic: bool = False
+    ) -> tuple[np.ndarray, str, pd.DataFrame | None, pd.DataFrame | None]:
         """Prints detailed report for a particular upgrade (and optionally, an option)
         Args:
             upgrade_num (int): The 1-indexed upgrade for which to print the report.
@@ -708,14 +711,14 @@ class UpgradesAnalyzer:
         total = total or self.total_samples
         return round(100 * count / total, 1)
 
-    def _get_logic_report(self, logic, parent=None):
-        logic_array = np.ones((1, self.total_samples), dtype=bool)
+    def _get_logic_report(self, logic: Any, parent: str | None = None):
+        logic_array: Any = np.ones((1, self.total_samples), dtype=bool)
         logic_str = [""]
         if parent not in [None, "and", "or", "not"]:
             raise ValueError(f"Logic can only include and, or, not blocks. {parent} found in {logic}.")
         if isinstance(logic, str):
             logic_condition = UpgradesAnalyzer._get_eq_str(logic)
-            logic_array = self.buildstock_df.eval(logic_condition, engine="python")
+            logic_array = cast(Any, self.buildstock_df.eval(logic_condition, engine="python"))
             count = logic_array.sum()
             logic_str = [logic + " => " + f"{count} ({self._to_pct(count)}%)"]
         elif isinstance(logic, list):
@@ -738,17 +741,17 @@ class UpgradesAnalyzer:
         elif isinstance(logic, dict):
             if len(logic) > 1:
                 raise ValueError(f"Dicts cannot have more than one keys. {logic} has.")
-            key = list(logic.keys())[0]
+            key = str(next(iter(logic.keys())))
             sub_logic = self._get_logic_report(logic[key], parent=key)
             sub_logic_str = sub_logic[1]
             logic_array = sub_logic[0]
             if key == "not":
                 logic_array = ~logic_array
-            count = logic_array.sum()
+            count = cast(Any, logic_array).sum()
             header_str = key + " => " + f"{count} ({self._to_pct(count)}%)"
             logic_str = [header_str] + [f"  {ls}" for ls in sub_logic_str]
 
-        count = logic_array.sum()
+        count = cast(Any, logic_array).sum()
         if parent is None and isinstance(logic, list) and len(logic) > 1:
             logic_str[0] = logic_str[0] + " => " + f"{count} ({self._to_pct(count)}%)"
 
@@ -800,7 +803,7 @@ class UpgradesAnalyzer:
         has_match = match_count > 0
         return {
             bldg_id: (-int(mc), int(ix))
-            for bldg_id, mc, ix, hm in zip(self.buildstock_df.index, match_count, index_sum, has_match)
+            for bldg_id, mc, ix, hm in zip(self.buildstock_df.index, match_count, index_sum, has_match, strict=False)
             if hm
         }
 
@@ -885,14 +888,14 @@ class UpgradesAnalyzer:
         if param_count_df.empty:
             return ""
         filtered_report_df = param_count_df.join(report_df.set_index(["upgrade", "parameter"])).reset_index()
-        filtered_report_df["bldg_count"] = filtered_report_df["applicable_buildings"].apply(lambda x: len(x))
+        filtered_report_df["bldg_count"] = filtered_report_df["applicable_buildings"].apply(len)
 
         # down select to parameters that applies to at least one building more than once
         # i.e. size of set-union of applicable buildings is not equal to sum of applicable buildings
         union_df = filtered_report_df.groupby(["upgrade", "parameter"]).agg(
             {"applicable_buildings": lambda x: set.union(*x), "bldg_count": "sum"}
         )
-        union_df["union_count"] = union_df["applicable_buildings"].apply(lambda x: len(x))
+        union_df["union_count"] = union_df["applicable_buildings"].apply(len)
         problem_param_df = union_df[union_df["union_count"] != union_df["bldg_count"]]
 
         if problem_param_df.empty:
@@ -901,7 +904,8 @@ class UpgradesAnalyzer:
         overlap_report_text = ""
 
         # Generate the detailed overlap report table
-        for (upgrade, parameter), row in problem_param_df.iterrows():
+        for index, _row in problem_param_df.iterrows():
+            upgrade, parameter = cast(tuple[Any, Any], index)
             overlap_report_text += f"Parameter '{parameter}' in upgrade '{upgrade}' has overlapping applications\n"
             options = filtered_report_df[
                 (filtered_report_df["upgrade"] == upgrade) & (filtered_report_df["parameter"] == parameter)
@@ -947,8 +951,6 @@ class UpgradesAnalyzer:
 
 
 def main():
-    import argparse
-
     print("Welcome to BuildStock Upgrade Analyzer 2025.04.24")
     parser = argparse.ArgumentParser(description="Analyze BuildStock upgrades")
     parser.add_argument("--yaml_file", help="Project configuration file (the yaml file)")

@@ -1,7 +1,8 @@
-import requests
+import io
 from pathlib import Path
 from urllib.parse import urlparse
-import io
+
+import requests
 
 
 class OpenOrDownload:
@@ -20,7 +21,7 @@ class OpenOrDownload:
             # Local Path: Open the file
             file_path = Path(self.path_or_url)
             if file_path.exists() and file_path.is_file():
-                self.file = open(file_path, 'r')
+                self.file = open(file_path)
             else:
                 raise FileNotFoundError(f"File not found: {self.path_or_url}")
         return self.file

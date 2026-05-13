@@ -1,10 +1,10 @@
-from buildstock_query import BuildStockQuery, KWH2MBTU
+from typing import Literal
 
 import polars as pl
-from buildstock_query.tools.upgrades_visualizer.plot_utils import PlotParams
-from typing import Union
-from typing import Literal
+
+from buildstock_query import KWH2MBTU, BuildStockQuery
 from buildstock_query.schema.utilities import validate_arguments
+from buildstock_query.tools.upgrades_visualizer.plot_utils import PlotParams
 
 num2month = {1: "January", 2: "February", 3: "March", 4: "April",
              5: "May", 6: "June", 7: "July", 8: "August",
@@ -16,12 +16,14 @@ class VizData:
     @validate_arguments
     def __init__(self, opt_sat_path: str,
                  db_name: str,
-                 run: Union[str, tuple[str, str]],
+                 run: str | tuple[str, str],
                  workgroup: str = 'largeee',
                  buildstock_type: Literal['resstock', 'comstock'] = 'resstock',
                  skip_init: bool = False,
                  include_monthly: bool = True,
-                 upgrades_selection: set[str] = set()):
+                 upgrades_selection: set[str] | None = None):
+        if upgrades_selection is None:
+            upgrades_selection = set()
         if isinstance(run, tuple):
             # Allows for separate baseline and upgrade runs
             # In this case, run[0] is the baseline run and run[1] is the upgrade run
@@ -57,7 +59,7 @@ class VizData:
             raise ValueError(f"Upgrades {unavailable_upgrades} is not available in the run")
         available_upgrades = self.upgrades_selection
         self.report = pl.from_pandas(self.main_run.report.get_success_report(), include_index=True)
-        self.available_upgrades = list(set([str(u) for u in available_upgrades]) - {'0'})
+        self.available_upgrades = list({str(u) for u in available_upgrades} - {'0'})
         self.upgrade2name = {'0': "Upgrade 0: Baseline"}
         if self.available_upgrades:
             upgrade_names = self.main_run.get_upgrade_names()
@@ -105,7 +107,7 @@ class VizData:
     def _get_metadata_df(self):
         bs_res_df = pl.read_parquet(self.run_obj('0')._download_results_csv())
         metadata_cols = [c for c in bs_res_df.columns if c.startswith(self.main_run._char_prefix)]
-        metadata_df = bs_res_df.select([self.main_run.building_id_column_name] + metadata_cols)
+        metadata_df = bs_res_df.select([self.main_run.building_id_column_name, *metadata_cols])
         metadata_df = metadata_df.rename({x: x.split('.')[1] for x in metadata_df.columns if '.' in x})
         return metadata_df
 
@@ -129,7 +131,7 @@ class VizData:
 
     def init_monthly_results(self, metadata_df):
         self.upgrade2res_monthly: dict[str, pl.DataFrame] = {}
-        for upgrade in ['0'] + self.available_upgrades:
+        for upgrade in ['0', *self.available_upgrades]:
             ts_cols = self._get_ts_enduse_cols(upgrade)
             print(f"Getting monthly results for {upgrade}")
             run_obj = self.run_obj(upgrade)
@@ -155,8 +157,7 @@ class VizData:
                 else:
                     modified_cols.append((pl.col(col) / pl.col("units_count"))
                                          .alias(col.replace("__", "_")))
-            monthly_df = monthly_df.select(['building_id', 'month'] + modified_cols
-                                           + [pl.lit(upgrade).alias("upgrade")])
+            monthly_df = monthly_df.select(['building_id', 'month', *modified_cols, pl.lit(upgrade).alias("upgrade")])
             monthly_df = monthly_df.join(metadata_df, on='building_id')
             self.upgrade2res_monthly[upgrade] = monthly_df
 
@@ -171,7 +172,7 @@ class VizData:
         missing_cols = (pl.lit(0).alias(c) for c in params.enduses if c not in df.columns)
         df = df.with_columns(missing_cols)  # add missing cols as zero
         value_cols = [pl.sum_horizontal([pl.col(c).fill_null(0) for c in params.enduses]).alias("value")]
-        other_cols = ['building_id'] + params.group_by
+        other_cols = ['building_id', *params.group_by]
         if 'month' not in params.group_by:
             other_cols += ['month']
         return df.select(other_cols + value_cols)
@@ -192,7 +193,6 @@ class VizData:
         up_df = up_df.join(baseline_df, on=('building_id', 'month'), how='left')
         if params.savings_type == "Savings":
             up_df = up_df.with_columns((pl.col("baseline_value") - pl.col("value")).alias("value"))
-            up_df = up_df
         elif params.savings_type == "Percent Savings":
             up_df = up_df.with_columns((100 * (1 - pl.col("value") / pl.col("baseline_value"))).alias("value"))
             # handle case when baseline is 0
@@ -229,16 +229,16 @@ class VizData:
         cols = []
         all_end_use_cols = self.get_all_end_use_cols(resolution=resolution)
         sep = "_"
-        for c in all_end_use_cols:
-            if fuel in c or fuel == 'All':
-                c = c.removeprefix(f"end_use{sep}{fuel}{sep}")
-                c = c.removeprefix(f"fuel_use{sep}{fuel}{sep}")
+        for raw_col in all_end_use_cols:
+            if fuel in raw_col or fuel == 'All':
+                col = raw_col.removeprefix(f"end_use{sep}{fuel}{sep}")
+                col = col.removeprefix(f"fuel_use{sep}{fuel}{sep}")
                 if fuel == 'All':
                     for f in sorted(fuels_types):
-                        c = c.removeprefix(f"end_use{sep}{f}{sep}")
-                        c = c.removeprefix(f"fuel_use{sep}{f}{sep}")
-                cols.append(c)
-        no_dup_cols = {c: None for c in cols}
+                        col = col.removeprefix(f"end_use{sep}{f}{sep}")
+                        col = col.removeprefix(f"fuel_use{sep}{f}{sep}")
+                cols.append(col)
+        no_dup_cols = dict.fromkeys(cols)
         return list(no_dup_cols.keys())
 
     def get_end_use_db_cols(self, resolution, fuel, end_use):
@@ -260,7 +260,7 @@ class VizData:
                                      params: PlotParams,
                                      ) -> pl.DataFrame:
         df_list = []
-        for upgrade in ['0'] + self.available_upgrades:
+        for upgrade in ['0', *self.available_upgrades]:
             df = self.get_plotting_df(upgrade=upgrade, params=params)
             df = df.with_columns(pl.lit(upgrade).alias("upgrade"))
             df_list.append(df)

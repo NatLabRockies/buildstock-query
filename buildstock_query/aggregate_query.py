@@ -1,22 +1,42 @@
-import sqlalchemy as sa
-from sqlalchemy.sql import func as safunc
+from __future__ import annotations
+
 import datetime
-import numpy as np
 import logging
-from buildstock_query import main
-from buildstock_query.schema.query_params import Query
-import pandas as pd
-from buildstock_query.schema.helpers import gather_params
-from typing import Literal, Optional, Union
 from collections.abc import Sequence
-from buildstock_query.schema.utilities import (
-    DBColType, RestrictTuple, SALabel, typed_literal, validate_arguments,
-)
+from dataclasses import dataclass
+from typing import Literal, cast
+
+import numpy as np
+import pandas as pd
+import sqlalchemy as sa
 from pydantic import Field
+from sqlalchemy.sql import func as safunc, visitors
+from sqlalchemy.sql.schema import Column
+from sqlalchemy.sql.util import ClauseAdapter
+
+from buildstock_query import main
+from buildstock_query.schema.helpers import gather_params
+from buildstock_query.schema.query_params import Query
+from buildstock_query.schema.utilities import (
+    ColumnExpression,
+    ColumnReference,
+    RestrictTuple,
+    SelectQuery,
+    SqlExpression,
+    SqlFrom,
+    SqlFunction,
+    SqlLabel,
+    SqlPredicate,
+    TableReference,
+    typed_literal,
+    validate_arguments,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 FUELS = ["electricity", "natural_gas", "propane", "fuel_oil", "coal", "wood_cord", "wood_pellets"]
+JoinSpec = tuple[TableReference, ColumnReference, ColumnReference]
+WeightExpression = SqlExpression | int | float | None
 
 
 class UnsupportedQueryShape(NotImplementedError):
@@ -26,409 +46,1039 @@ class UnsupportedQueryShape(NotImplementedError):
     """
 
 
+def _expression_for(column: ColumnExpression) -> SqlExpression:
+    """Return the SQL expression behind a label, or the column itself."""
+    return column.element if isinstance(column, SqlLabel) else column
+
+
+def _column_or_expression(table: QuerySideTable, column: ColumnExpression) -> SqlExpression:
+    """Return a table-bound column when available, otherwise the expression."""
+    return table.c.get(column.name, column)
+
+
+def _rebind_column_to_table(column: ColumnExpression, table: QuerySideTable) -> SqlExpression:
+    """Rebind a labeled or plain column expression to a compatible table."""
+    if not isinstance(column, SqlLabel):
+        return _column_or_expression(table, column)
+
+    if column.name in getattr(table, "c", {}):
+        return table.c[column.name]
+
+    adapted = ClauseAdapter(cast(SqlFrom, table), adapt_on_names=True).traverse(column.element)
+    return adapted.label(column.name)
+
+
+def _classify_enduse_source(
+    enduse: ColumnExpression, timeseries_table: SqlFrom
+) -> Literal["ts_only", "pure_bs", "mixed"]:
+    """Classify whether an enduse expression reads timeseries, metadata, or both."""
+    target = _expression_for(enduse)
+    ts_refs, other_refs = [], []
+
+    def visit_column(elem: object) -> None:
+        if not isinstance(elem, Column):
+            return
+        table = getattr(elem, "table", None)
+        if table is timeseries_table:
+            ts_refs.append(elem)
+        elif table is not None:
+            other_refs.append(elem)
+
+    visitors.traverse(target, {}, {"column": visit_column})
+    if ts_refs and other_refs:
+        return "mixed"
+    if other_refs:
+        return "pure_bs"
+    return "ts_only"
+
+
+class AggregateSideView:
+    """Column adapter for one output side of a timeseries aggregate."""
+
+    def __init__(
+        self,
+        ts_subq: SqlFrom,
+        prefix: str,
+        ts_enduses: Sequence[ColumnExpression],
+        group_cols: Sequence[ColumnExpression],
+        metadata_subquery: SqlFrom,
+        metadata_enduses: Sequence[ColumnExpression],
+    ) -> None:
+        """Build the lookup of projected columns for one aggregate side."""
+        self._cols_by_name = {}
+        for enduse in ts_enduses:
+            self._cols_by_name[enduse.name] = ts_subq.c[f"{prefix}__{enduse.name}"]
+        for enduse in metadata_enduses:
+            if enduse.name in metadata_subquery.c:
+                self._cols_by_name[enduse.name] = metadata_subquery.c[enduse.name]
+        for column in group_cols:
+            if column.name not in self._cols_by_name:
+                self._cols_by_name[column.name] = ts_subq.c[column.name]
+        if "_inner_rows" in ts_subq.c:
+            self._cols_by_name["_inner_rows"] = ts_subq.c["_inner_rows"]
+
+    @property
+    def c(self) -> dict[str, SqlExpression]:
+        return self._cols_by_name
+
+
+QuerySideTable = SqlFrom | AggregateSideView
+
+
+@dataclass
+class QueryTableContext:
+    baseline_side: QuerySideTable
+    upgrade_side: QuerySideTable
+    from_clause: SqlFrom
+    metadata_alias: SqlFrom
+    group_by: list[SqlExpression]
+    metadata_restrict: list[RestrictTuple]
+    extra_restrict: list[RestrictTuple]
+    extra_avoid: list[RestrictTuple]
+    total_weight: WeightExpression
+    agg_weight: WeightExpression
+    pivot_bucketed_time: bool
+
+
+@dataclass
+class EnduseProjection:
+    source: SqlExpression
+    baseline: SqlExpression
+    upgrade: SqlExpression
+    savings: SqlExpression
+
+
+@dataclass
+class AverageKwTimeWindow:
+    at_hour: list[float]
+    interval_seconds: int
+    exact_times: bool
+    lower_timestamps: list[datetime.datetime]
+    upper_timestamps: list[datetime.datetime]
+
+
 class BuildStockAggregate:
     """A class to do aggregation queries for both timeseries and annual results."""
 
-    def __init__(self, buildstock_query: "main.BuildStockQuery") -> None:
+    def __init__(self, buildstock_query: main.BuildStockQuery) -> None:
         self._bsq = buildstock_query
 
-    @validate_arguments
-    def __get_timeseries_bs_up_table(
-        self,
-        enduses: Sequence[DBColType],
-        upgrade_id: str,
-        applied_only: bool | None,
-        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
-        avoid: Sequence[RestrictTuple] = Field(default_factory=list),
-        bs_restrict: Sequence[RestrictTuple] = Field(default_factory=list),
-        bs_avoid: Sequence[RestrictTuple] = Field(default_factory=list),
-        group_by: Sequence[DBColType] = Field(default_factory=list),
-        upgrade_only: bool = False,
-        timestamp_grouping_func: Optional[str] = None,
-        total_weight=None,
-        extra_bs_cols: Optional[Sequence[sa.Column]] = None,
-        skip_bs_per_bldg: bool = False,
-        join_list: Optional[Sequence[tuple]] = None,
-        join_list_restrict: Optional[Sequence[RestrictTuple]] = None,
-        join_list_group_by_cols: Optional[Sequence[sa.Column]] = None,
-    ):
-        if self._bsq.ts_table is None:
-            raise ValueError("No timeseries table found in database.")
-
-        ts = self._bsq.ts_table
-        base = self._bsq.bs_table  # canonical alias of md_table
-
-        # Push any user-supplied bs_restrict (e.g. comstock `state='CO'`) into the
-        # inner ts ⋈ bs join condition. Without this, Athena scans the full metadata
-        # table before applying user filters — for comstock's tract-denormalized
-        # metadata that's the difference between minutes and timeouts. Adding to
-        # the JOIN ON clause (rather than wrapping bs in another subquery) keeps
-        # the SELECT list clean and lets Athena push the predicate into the bs
-        # table scan without enumerating all columns.
-        bs_restrict_clauses = self._bsq._get_restrict_clauses(bs_restrict, annual_only=True)
-        # bs-side avoid clauses (NOT IN / != predicates targeting metadata-side
-        # columns) get folded into bs_per_bldg's WHERE the same way bs_restrict
-        # is. Without this, an outer-level _add_avoid would resolve the bs col
-        # to self.bs_table and SA would introduce that table via a comma-join
-        # against the outer FROM (which is ts_aggr ⋈ bs_per_bldg, no bs).
-        bs_avoid_clauses = self._bsq._get_avoid_clauses(bs_avoid, annual_only=True)
-
-        # Unified two-level shape used for both single-upgrade and
-        # upgrade-pair queries.
-        #
-        # ts_flat: per-row scalar projection. Each enduse expression
-        #   (whether bare ts column or calc-col Label) is materialized as
-        #   `ts__<name>`. This pushes arithmetic into the scan layer.
-        # ts_aggr: per-(bldg_id, bucketed_time, state, ...) aggregate.
-        #   Single-upgrade: SUM(ts__name) → bs__<name>. Upgrade-pair:
-        #   SUM(...) FILTER (WHERE upgrade=0/N) → bs__<name> / up__<name>.
-        # outer: JOIN to bs (once) for weights/metadata, then user's GROUP BY.
-        #
-        # Pre-bucketing time at ts_aggr cuts the per-bldg shuffle key
-        # cardinality by 4×/96×/720×/35000× for hourly/daily/monthly/yearly.
-        # The shuffle is what made the old upgrade-pair pivot time out on
-        # national hourly queries and what slows down baseline TS queries
-        # at the same scale.
-        single_upgrade = upgrade_id == "0" or upgrade_only
-        ts_upgrade_ids = [upgrade_id] if single_upgrade else ["0", upgrade_id]
-
-        ts_group_by = [g for g in group_by if g.name in ts.columns]
-        bs_group_by = [g for g in group_by if g.name not in ts.columns]
-
-        ts_unique_keys = self._bsq._get_unique_keys("timeseries")
-        timestamp_col = self._bsq.timestamp_column_name
-        # When the user asks for year-collapse (`timestamp_grouping_func='year'`)
-        # the outer query never references timestamp — it's a single value per
-        # building. Carrying timestamp through the inner ts_flat / ts_aggr
-        # forces Athena to materialize the truncated timestamp before the
-        # inner GROUP BY, blocking partial-aggregation pushdown into the scan
-        # (a year-collapse query that previously scanned 1.1 GB ballooned to
-        # 4.2 GB after the unification). Skip the timestamp dimension entirely
-        # at the inner level for this case; the outer query collapses time
-        # via SUM regardless.
-        collapse_inner_time = timestamp_grouping_func == "year"
-        # Order keys for hash distribution: partition columns (typically
-        # `state`) first, then timestamp, then bldg_id last. Trino hashes
-        # by leftmost columns when shuffling for GROUP BY; partition-aligned
-        # ordering lets it distribute work along the parquet's existing
-        # layout instead of fighting it.
+    def _timeseries_key_names(
+        self, ts_unique_keys: Sequence[str], timestamp_col: str, collapse_inner_time: bool
+    ) -> list[str]:
+        """Return the inner timeseries grouping keys in stable order."""
         partition_cols = [k for k in ts_unique_keys if k != self._bsq.building_id_column_name]
-        ts_key_names_pieces = [*partition_cols]
+        key_names = [*partition_cols]
         if not collapse_inner_time:
-            ts_key_names_pieces.append(timestamp_col)
-        ts_key_names_pieces.append(self._bsq.building_id_column_name)
-        ts_key_names = list(dict.fromkeys(ts_key_names_pieces))
-        ts_extra_group_names = [g.name for g in ts_group_by if g.name not in ts_key_names]
+            key_names.append(timestamp_col)
+        key_names.append(self._bsq.building_id_column_name)
+        return list(dict.fromkeys(key_names))
 
-        # Bucketed time expression — pushed into ts_flat so ts_aggr GROUPs BY
-        # coarse buckets, not raw 15-min timestamps. Only built when we
-        # actually carry timestamp through the inner shape.
-        if timestamp_grouping_func and not collapse_inner_time:
-            sim_info = self._bsq._get_simulation_info()
-            raw_time = ts.c[timestamp_col]
-            if sim_info.offset > 0:
-                bucketed_time_expr = sa.func.date_trunc(
-                    timestamp_grouping_func,
-                    sa.func.date_add(sim_info.unit, -sim_info.offset, raw_time),
-                )
-            else:
-                bucketed_time_expr = sa.func.date_trunc(timestamp_grouping_func, raw_time)
-        elif not collapse_inner_time:
-            bucketed_time_expr = ts.c[timestamp_col]
-        else:
-            bucketed_time_expr = None
+    def _bucketed_timestamp_expression(
+        self,
+        ts: SqlFrom,
+        timestamp_col: str,
+        timestamp_grouping_func: str | None,
+        collapse_inner_time: bool,
+    ) -> SqlExpression | None:
+        """Return the timestamp expression used by the inner aggregate."""
+        if collapse_inner_time:
+            return None
+        if not timestamp_grouping_func:
+            return ts.c[timestamp_col]
 
-        ts_restrict_clauses = self._bsq._get_restrict_clauses(restrict, annual_only=False)
-        # ts-side avoid (NOT IN / != on ts columns) is symmetric to ts_restrict
-        # at this layer — apply as additional WHERE clauses on ts_flat.
-        ts_avoid_clauses = self._bsq._get_avoid_clauses(avoid, annual_only=False)
-
-        # Classify each enduse by which table(s) its leaf columns reference:
-        # - ts-only: every leaf is on ts. Routed through ts_flat / ts_aggr.
-        # - pure-bs: every leaf is on bs (no ts refs). Skips ts_flat entirely;
-        #   projected at the outer SELECT directly. This is the right path
-        #   for characteristic columns (sqft, vintage, etc.) — constant per
-        #   bldg, no need to materialize per-15-min and re-aggregate.
-        # - mixed: at least one ts and one bs leaf. Routed through ts_flat
-        #   with bs joined in (preserves today's inner-join shape).
-        from sqlalchemy.sql import visitors
-
-        def _classify(expr):
-            target = expr.element if isinstance(expr, SALabel) else expr
-            ts_refs, bs_refs = [], []
-
-            def _visit(elem):
-                if isinstance(elem, sa.Column):
-                    t = getattr(elem, "table", None)
-                    if t is ts:
-                        ts_refs.append(elem)
-                    elif t is not None:
-                        bs_refs.append(elem)
-            visitors.traverse(target, {}, {"column": _visit})
-            if ts_refs and bs_refs:
-                return "mixed"
-            if bs_refs:
-                return "pure_bs"
-            return "ts_only"
-
-        ts_only_enduses, bs_only_enduses, mixed_enduses = [], [], []
-        for e in enduses:
-            kind = _classify(e)
-            if kind == "ts_only":
-                ts_only_enduses.append(e)
-            elif kind == "pure_bs":
-                bs_only_enduses.append(e)
-            else:
-                mixed_enduses.append(e)
-
-        flat_enduses = ts_only_enduses + mixed_enduses
-        needs_bs_in_flat = bool(mixed_enduses)
-
-        # Innermost flat subquery: precomputed scalars per ts row. Pure-bs
-        # enduses are NOT projected here — they go straight to the outer
-        # SELECT. `upgrade` is projected only for the upgrade-pair case
-        # (where ts_aggr uses FILTER per side); single-upgrade filters at
-        # ts_flat WHERE and skips the column.
-        flat_select_cols = [
-            ts.c[k].label(k) for k in ts_key_names if k != timestamp_col
-        ]
-        if not collapse_inner_time:
-            flat_select_cols.append(bucketed_time_expr.label(timestamp_col))
-        flat_select_cols.extend([ts.c[name].label(name) for name in ts_extra_group_names])
-        if not single_upgrade:
-            flat_select_cols.append(ts.c["upgrade"].label("upgrade"))
-        for e in flat_enduses:
-            value_expr = e.element if isinstance(e, SALabel) else e
-            flat_select_cols.append(value_expr.label(f"ts__{e.name}"))
-
-        # FROM: ts alone unless we have a mixed enduse referencing bs from
-        # within an arithmetic expression. _baseline_timeseries_join_condition
-        # bakes in bs.upgrade=0.
-        if needs_bs_in_flat:
-            flat_from = ts.join(
-                base,
-                self._bsq._baseline_timeseries_join_condition(base, ts),
+        sim_info = self._bsq._get_simulation_info()
+        raw_time = ts.c[timestamp_col]
+        if sim_info.offset > 0:
+            return sa.func.date_trunc(
+                timestamp_grouping_func,
+                sa.func.date_add(sim_info.unit, -sim_info.offset, raw_time),
             )
-        else:
-            flat_from = ts
+        return sa.func.date_trunc(timestamp_grouping_func, raw_time)
 
-        ts_flat_subq = (
-            sa.select(*flat_select_cols)
-            .select_from(flat_from)
+    @staticmethod
+    def _split_enduses_by_source(
+        enduses: Sequence[ColumnExpression], timeseries_table: SqlFrom
+    ) -> tuple[list[ColumnExpression], list[ColumnExpression], list[ColumnExpression]]:
+        """Partition enduses by the table sources referenced in each expression."""
+        ts_only, metadata_only, mixed = [], [], []
+        for enduse in enduses:
+            kind = _classify_enduse_source(enduse, timeseries_table)
+            if kind == "ts_only":
+                ts_only.append(enduse)
+            elif kind == "pure_bs":
+                metadata_only.append(enduse)
+            else:
+                mixed.append(enduse)
+        return ts_only, metadata_only, mixed
+
+    def _build_timeseries_flat_subquery(
+        self,
+        *,
+        ts: SqlFrom,
+        metadata_table: SqlFrom,
+        flat_enduses: Sequence[ColumnExpression],
+        key_names: Sequence[str],
+        timestamp_col: str,
+        bucketed_time_expr: SqlExpression | None,
+        extra_group_names: Sequence[str],
+        single_upgrade: bool,
+        upgrade_ids: Sequence[str],
+        restrict_clauses: Sequence[SqlPredicate],
+        avoid_clauses: Sequence[SqlPredicate],
+        needs_metadata_join: bool,
+    ) -> SqlFrom:
+        """Build the row-level timeseries subquery before final aggregation."""
+        select_columns = [
+            ts.c[k].label(k) for k in key_names if k != timestamp_col
+        ]
+        if bucketed_time_expr is not None:
+            select_columns.append(bucketed_time_expr.label(timestamp_col))
+        select_columns.extend([ts.c[name].label(name) for name in extra_group_names])
+        if not single_upgrade:
+            select_columns.append(ts.c["upgrade"].label("upgrade"))
+        for enduse in flat_enduses:
+            select_columns.append(_expression_for(enduse).label(f"ts__{enduse.name}"))
+
+        from_clause = ts
+        if needs_metadata_join:
+            from_clause = ts.join(
+                metadata_table,
+                self._bsq._baseline_timeseries_join_condition(metadata_table, ts),
+            )
+
+        return (
+            sa.select(*select_columns)
+            .select_from(from_clause)
             .where(
-                ts.c["upgrade"].in_([typed_literal(ts.c["upgrade"], u) for u in ts_upgrade_ids]),
-                *ts_restrict_clauses,
-                *ts_avoid_clauses,
+                ts.c["upgrade"].in_([typed_literal(ts.c["upgrade"], u) for u in upgrade_ids]),
+                *restrict_clauses,
+                *avoid_clauses,
             )
             .subquery("ts_flat")
         )
 
-        # ts_aggr: per-(bldg, bucket, state, ...) aggregate over flat_enduses.
-        # Pure-bs enduses are not in flat_enduses, so they don't appear in
-        # ts_aggr — they get projected directly at the outer SELECT.
-        flat_group_keys = [ts_flat_subq.c[k] for k in ts_key_names]
-        flat_extra_group_cols = [ts_flat_subq.c[name] for name in ts_extra_group_names]
+    def _build_timeseries_aggregate_subquery(
+        self,
+        *,
+        ts: SqlFrom,
+        ts_flat: SqlFrom,
+        flat_enduses: Sequence[ColumnExpression],
+        key_names: Sequence[str],
+        extra_group_names: Sequence[str],
+        single_upgrade: bool,
+        upgrade_id: str,
+    ) -> tuple[SqlFrom, list[SqlExpression], list[SqlExpression]]:
+        """Aggregate the flattened timeseries rows to one row per join key."""
+        group_keys = cast(list[SqlExpression], [ts_flat.c[k] for k in key_names])
+        extra_group_columns = cast(list[SqlExpression], [ts_flat.c[name] for name in extra_group_names])
 
-        enduse_aggr_cols = []
+        enduse_columns = []
         if single_upgrade:
-            for e in flat_enduses:
-                v = ts_flat_subq.c[f"ts__{e.name}"]
-                enduse_aggr_cols.append(safunc.sum(v).label(f"bs__{e.name}"))
+            for enduse in flat_enduses:
+                value = ts_flat.c[f"ts__{enduse.name}"]
+                enduse_columns.append(safunc.sum(value).label(f"bs__{enduse.name}"))
             inner_rows = safunc.count(sa.text("*")).label("_inner_rows")
         else:
-            bs_filter = ts_flat_subq.c["upgrade"] == typed_literal(ts.c["upgrade"], "0")
-            up_filter = ts_flat_subq.c["upgrade"] == typed_literal(ts.c["upgrade"], upgrade_id)
-            for e in flat_enduses:
-                v = ts_flat_subq.c[f"ts__{e.name}"]
-                enduse_aggr_cols.append(safunc.sum(v).filter(bs_filter).label(f"bs__{e.name}"))
-                enduse_aggr_cols.append(safunc.sum(v).filter(up_filter).label(f"up__{e.name}"))
-            inner_rows = safunc.count(sa.text("*")).filter(bs_filter).label("_inner_rows")
+            baseline_filter = ts_flat.c["upgrade"] == typed_literal(ts.c["upgrade"], "0")
+            upgrade_filter = ts_flat.c["upgrade"] == typed_literal(ts.c["upgrade"], upgrade_id)
+            for enduse in flat_enduses:
+                value = ts_flat.c[f"ts__{enduse.name}"]
+                enduse_columns.append(safunc.sum(value).filter(baseline_filter).label(f"bs__{enduse.name}"))
+                enduse_columns.append(safunc.sum(value).filter(upgrade_filter).label(f"up__{enduse.name}"))
+            inner_rows = safunc.count(sa.text("*")).filter(baseline_filter).label("_inner_rows")
 
-        ts_aggr_subq = (
-            sa.select(*flat_group_keys, *flat_extra_group_cols, *enduse_aggr_cols, inner_rows)
-            .select_from(ts_flat_subq)
-            .group_by(*flat_group_keys, *flat_extra_group_cols)
+        subquery = (
+            sa.select(*group_keys, *extra_group_columns, *enduse_columns, inner_rows)
+            .select_from(ts_flat)
+            .group_by(*group_keys, *extra_group_columns)
             .subquery("ts_aggr")
         )
+        return subquery, group_keys, extra_group_columns
 
-        # Pre-aggregate bs to BUILDING grain (collapse tract fan-out).
-        #
-        # ComStock's `*_md_by_state_and_county_parquet` has multiple tract rows
-        # per (bldg_id, state) pair. A direct `ts ⋈ bs` JOIN fans out each
-        # ts/ts_aggr row by N_tracts-per-bldg, blowing up the post-join shuffle
-        # for the outer aggregate (Stage 5 of a national hourly query
-        # processed 6.28 B rows / 499 GB and aborted at 17h33m before this fix).
-        #
-        # All current outer aggregations are linear in `weight`, so we can
-        # collapse the tract dimension upfront:
-        #   bldg_weight        = SUM(weight)        per (bldg, state)
-        #   tract_count        = COUNT(*)           per (bldg, state)
-        #   bldg_<col>_weighted = SUM(<bs_col>*weight) per (bldg, state)
-        # Outer aggregates that used `bs.weight` / `bs.<col> * bs.weight` /
-        # `count_distinct(md_keys)` translate to references on this
-        # subquery's pre-summed columns. ResStock's md is one row per bldg,
-        # so the GROUP BY is a no-op there (sum of one term).
-        #
-        # `total_weight` was constructed above as `bs.weight × user_weights`
-        # bound to bs_table; we pass it in here so its multipliers are
-        # baked into bldg_weight before the outer SELECT references it.
-        bs_per_bldg_cols = [base.c[k].label(k) for k in ts_unique_keys]
-        # Carry bs-side group-by columns as TRUE GROUP BY keys of bs_per_bldg
-        # — NOT as `arbitrary()` collapsed values. ComStock's md is partitioned
-        # at (bldg_id, tract, state) granularity with `weight` divided across
-        # tract rows; a building's tracts can map to different counties. If we
-        # collapse to one row per (bldg, state) and pick `arbitrary(county)`,
-        # the outer SUM(weight × value) would attribute the FULL building to
-        # whichever county was picked — silently dropping the tract-fractional
-        # disaggregation that the data model encodes. Grouping bs_per_bldg by
-        # (bldg, state, <user_group_bys>) preserves per-tract slices: each
-        # county/region a building straddles gets its proportional weight.
-        bs_per_bldg_extra_group_exprs = []
-        for g in bs_group_by:
-            if g.name in ts_unique_keys:
-                continue
-            underlying = g.element if isinstance(g, SALabel) else g
-            bs_per_bldg_cols.append(underlying.label(g.name))
-            bs_per_bldg_extra_group_exprs.append(underlying)
-        weight_expr = total_weight if total_weight is not None else base.c["weight"]
-        bs_per_bldg_cols.append(safunc.sum(weight_expr).label("bldg_weight"))
-        bs_per_bldg_cols.append(safunc.count(sa.text("*")).label("tract_count"))
-        # Pure-bs enduses (e.g. sqft, vintage) are per-bldg constants — pick
-        # one value per bldg via `arbitrary()` (Trino's any-value aggregate).
-        # The outer SELECT can then multiply by bldg_weight uniformly with
-        # everything else, no special path needed.
-        for e in bs_only_enduses:
-            value_expr = e.element if isinstance(e, SALabel) else e
-            bs_per_bldg_cols.append(
-                safunc.arbitrary(value_expr).label(e.name)
-            )
-        # Extra bs columns the outer query needs (typically the left-side
-        # of join_list joins, e.g. `bs.in.county` for the utility eiaid
-        # join). Same semantics as bs_only_enduses: per-bldg constants
-        # collapsed via arbitrary(), labeled with the original column name
-        # so `_add_join`'s `bs.<col>` reference resolves on bs_per_bldg.
-        for ec in extra_bs_cols or ():
-            if ec.name in {c.name for c in bs_per_bldg_cols}:
-                continue
-            bs_per_bldg_cols.append(safunc.arbitrary(ec).label(ec.name))
-
-        # Fold any join_list joins (e.g. utility eiaid_weights) INTO bs_per_bldg's
-        # FROM. They're metadata-side extensions of bs (eiaid is a
-        # per-county-per-bldg attribute), so absorbing them here keeps the
-        # outer query a clean ts_aggr ⋈ bs_per_bldg shape with no extra
-        # outer JOINs. Restricts and group-bys targeting these tables are
-        # routed via `extra_bs_cols` (per-bldg via arbitrary()) and
-        # `join_list_restrict` (added to bs_per_bldg's WHERE).
-        bs_per_bldg_from = base
-        for new_table_name, baseline_col, new_col in (join_list or ()):
-            jl_table = self._bsq._get_table(new_table_name)
-            # Resolve baseline_col on the canonical bs alias (so ON's left
-            # side binds to base, which is in bs_per_bldg's FROM).
-            if isinstance(baseline_col, str):
-                bs_side = base.c[baseline_col]
-            elif isinstance(baseline_col, sa.Column) and baseline_col.name in base.c:
-                bs_side = base.c[baseline_col.name]
+    def _metadata_from_with_extensions(
+        self, metadata_table: SqlFrom, join_list: Sequence[JoinSpec] | None
+    ) -> SqlFrom:
+        """Return the metadata FROM clause with optional user joins applied."""
+        from_clause = metadata_table
+        for new_table_name, metadata_col, new_col in (join_list or ()):
+            join_table = self._bsq._get_table(new_table_name)
+            if isinstance(metadata_col, str):
+                metadata_side = metadata_table.c[metadata_col]
+            elif isinstance(metadata_col, Column) and metadata_col.name in metadata_table.c:
+                metadata_side = metadata_table.c[metadata_col.name]
             else:
-                bs_side = baseline_col
-            new_side = self._bsq._get_column(new_col, candidate_tables=[jl_table])
-            bs_per_bldg_from = bs_per_bldg_from.join(jl_table, bs_side == new_side)
+                metadata_side = metadata_col
+            joined_side = self._bsq._get_column(new_col, candidate_tables=[join_table])
+            from_clause = from_clause.join(join_table, cast(SqlPredicate, metadata_side == joined_side))
+        return from_clause
 
-        join_list_restrict_clauses = (
+    def _build_metadata_per_building_subquery(
+        self,
+        *,
+        metadata_table: SqlFrom,
+        ts_unique_keys: Sequence[str],
+        metadata_group_by: Sequence[ColumnExpression],
+        metadata_only_enduses: Sequence[ColumnExpression],
+        total_weight: WeightExpression,
+        extra_metadata_cols: Sequence[ColumnExpression] | None,
+        join_list: Sequence[tuple] | None,
+        join_list_restrict: Sequence[RestrictTuple] | None,
+        restrict_clauses: Sequence[SqlPredicate],
+        avoid_clauses: Sequence[SqlPredicate],
+    ) -> SqlFrom:
+        """Build the metadata-per-building subquery joined to timeseries aggregates."""
+        select_columns = [metadata_table.c[k].label(k) for k in ts_unique_keys]
+        extra_group_exprs = []
+
+        for group_col in metadata_group_by:
+            if group_col.name in ts_unique_keys:
+                continue
+            underlying = _expression_for(group_col)
+            select_columns.append(underlying.label(group_col.name))
+            extra_group_exprs.append(underlying)
+
+        weight_expr = total_weight if total_weight is not None else metadata_table.c["weight"]
+        select_columns.append(safunc.sum(weight_expr).label("bldg_weight"))
+        select_columns.append(safunc.count(sa.text("*")).label("tract_count"))
+
+        for enduse in metadata_only_enduses:
+            select_columns.append(
+                safunc.arbitrary(_expression_for(enduse)).label(enduse.name)
+            )
+
+        for column in extra_metadata_cols or ():
+            if column.name in {selected.name for selected in select_columns}:
+                continue
+            select_columns.append(safunc.arbitrary(column).label(column.name))
+
+        join_restrict_clauses = (
             self._bsq._get_restrict_clauses(join_list_restrict, annual_only=True)
             if join_list_restrict else []
         )
 
-        bs_per_bldg = (
-            sa.select(*bs_per_bldg_cols)
-            .select_from(bs_per_bldg_from)
+        return (
+            sa.select(*select_columns)
+            .select_from(self._metadata_from_with_extensions(metadata_table, join_list))
             .where(
-                self._bsq._upgrade_zero_filter(base),
-                *bs_restrict_clauses,
-                *bs_avoid_clauses,
-                *join_list_restrict_clauses,
+                self._bsq._upgrade_zero_filter(metadata_table),
+                *restrict_clauses,
+                *avoid_clauses,
+                *join_restrict_clauses,
             )
             .group_by(
-                *(base.c[k] for k in ts_unique_keys),
-                *bs_per_bldg_extra_group_exprs,
+                *(metadata_table.c[k] for k in ts_unique_keys),
+                *extra_group_exprs,
             )
             .subquery("bs_per_bldg")
         )
 
-        # Outer JOIN: ts_aggr ⋈ bs_per_bldg on the ts unique keys.
-        # bs_per_bldg has one row per (bldg, state, <bs-side group_by cols>).
-        # When the user groups by a tract-derived dimension (e.g. county), a
-        # building straddling counties produces N rows here — each with its
-        # proportional bldg_weight slice — so the outer SUM correctly
-        # disaggregates the building across the user's groups. No tract
-        # fan-out: the inner GROUP BY collapsed equal-county rows already.
-        bs_join_cond = sa.and_(
-            *(bs_per_bldg.c[k] == ts_aggr_subq.c[k] for k in ts_unique_keys),
-        )
-        # applied_only=True for the upgrade_only path is enforced upstream by
-        # _query, which appends a `_build_applied_subquery(all_of=[upgrade_id])`
-        # filter to bs_restrict (routed into ts_restrict at ts_flat WHERE).
-
-        tbljoin = ts_aggr_subq.join(bs_per_bldg, bs_join_cond)
-
-        # SideView adapter: indexes columns by enduse name across BOTH
-        # ts_aggr (ts-side and mixed enduses, prefixed `bs__` / `up__`) and
-        # bs_per_bldg (pure-bs enduses, projected by their original name).
-        # This way `get_col(bs_tbl, e)` resolves uniformly regardless of
-        # which side the enduse came from.
-        class _SideView:
-            """Adapter exposing aggregate-subquery columns indexed by enduse name."""
-            def __init__(self, ts_subq, prefix, ts_enduses, group_cols, bs_subq, bs_enduses):
-                self._cols_by_name = {}
-                for e in ts_enduses:
-                    self._cols_by_name[e.name] = ts_subq.c[f"{prefix}__{e.name}"]
-                for e in bs_enduses:
-                    if e.name in bs_subq.c:
-                        self._cols_by_name[e.name] = bs_subq.c[e.name]
-                for c in group_cols:
-                    if c.name not in self._cols_by_name:
-                        self._cols_by_name[c.name] = ts_subq.c[c.name]
-                if "_inner_rows" in ts_subq.c:
-                    self._cols_by_name["_inner_rows"] = ts_subq.c["_inner_rows"]
-
-            @property
-            def c(self):
-                return self._cols_by_name
-
-        passthrough_cols = flat_group_keys + flat_extra_group_cols
-        ts_b = _SideView(ts_aggr_subq, "bs", flat_enduses, passthrough_cols, bs_per_bldg, bs_only_enduses)
-        # Pure-bs enduses are upgrade-invariant (sqft is sqft regardless of
-        # upgrade), so up-side resolves to the same bs_per_bldg column.
-        ts_u = ts_b if single_upgrade else _SideView(
-            ts_aggr_subq, "up", flat_enduses, passthrough_cols, bs_per_bldg, bs_only_enduses,
-        )
-
-        # Remap user's group_by:
-        #   ts-side group_bys → ts_aggr_subq column
-        #   bs-side group_bys → bs_per_bldg column (passed through above)
-        remapped_group_by = []
-        for g in group_by:
-            if g.name in ts.columns:
-                remapped_group_by.append(ts_aggr_subq.c[g.name])
-            elif g.name in bs_per_bldg.c:
-                remapped_group_by.append(bs_per_bldg.c[g.name])
+    @staticmethod
+    def _remap_timeseries_group_by(
+        group_by: Sequence[ColumnExpression],
+        timeseries_table: SqlFrom,
+        timeseries_aggregate: SqlFrom,
+        metadata_per_building: SqlFrom,
+    ) -> list[SqlExpression]:
+        """Rebind outer group-by columns to the tables exposed by the aggregate."""
+        remapped = []
+        for group_col in group_by:
+            if group_col.name in timeseries_table.columns:
+                remapped.append(timeseries_aggregate.c[group_col.name])
+            elif group_col.name in metadata_per_building.c:
+                remapped.append(metadata_per_building.c[group_col.name])
             else:
-                remapped_group_by.append(g)
+                remapped.append(group_col)
+        return remapped
 
-        return ts_b, ts_u, tbljoin, remapped_group_by, bs_per_bldg
+    def _restrict_with_timeseries_applied_filter(
+        self, restrict: Sequence[RestrictTuple], params: Query, upgrade_id: str
+    ) -> list[RestrictTuple]:
+        """Add the applied-buildings filter when a timeseries upgrade requires it."""
+        metadata_restrict = list(restrict) if restrict else []
+        if params.annual_only or not params.applied_only or upgrade_id == "0":
+            return metadata_restrict
+
+        key_kind: Literal["metadata", "timeseries"] = (
+            "timeseries" if self._bsq.ts_table is not None else "metadata"
+        )
+        applied_select = self._bsq._build_applied_subquery(
+            all_of=[upgrade_id], any_of=None, key_kind=key_kind
+        )
+        assert applied_select is not None
+        metadata_restrict.append(
+            self._bsq._make_applied_filter_tuple(applied_select, key_kind=key_kind)
+        )
+        return metadata_restrict
+
+    def _time_grouping_position(self, params: Query) -> int:
+        """Remove time aliases from group-by and return their original position."""
+        time_index = len(params.group_by)
+        time_aliases = {"time", self._bsq.timestamp_column_name}
+        for alias in time_aliases:
+            if alias in params.group_by:
+                time_index = params.group_by.index(alias)
+                params.group_by = [g for g in params.group_by if g not in time_aliases]
+                break
+        return time_index
+
+    @staticmethod
+    def _split_join_list_restricts(
+        join_list: Sequence[JoinSpec] | None, extra_restrict: Sequence[RestrictTuple]
+    ) -> tuple[list[RestrictTuple], list[RestrictTuple]]:
+        """Separate restrictions that target explicit joined tables."""
+        if not join_list or not extra_restrict:
+            return [], list(extra_restrict)
+
+        join_table_names = set()
+        for join_entry in join_list:
+            table_ref = join_entry[0]
+            join_table_names.add(
+                table_ref if isinstance(table_ref, str) else getattr(table_ref, "name", None)
+            )
+
+        join_restricts: list[RestrictTuple] = []
+        remaining_restricts: list[RestrictTuple] = []
+        for col_ref, values in extra_restrict:
+            table = getattr(col_ref, "table", None) if isinstance(col_ref, Column) else None
+            if table is not None and getattr(table, "name", None) in join_table_names:
+                join_restricts.append((col_ref, values))
+            else:
+                remaining_restricts.append((col_ref, values))
+        return join_restricts, remaining_restricts
+
+    def _project_enduse(
+        self,
+        col: ColumnExpression,
+        params: Query,
+        upgrade_id: str,
+        baseline_side: QuerySideTable,
+        upgrade_side: QuerySideTable,
+    ) -> EnduseProjection:
+        """Build baseline, upgrade, and savings expressions for one enduse."""
+        baseline_col = _column_or_expression(baseline_side, col)
+        if upgrade_id == "0":
+            upgrade_col = baseline_col
+        elif params.annual_only and not params.applied_only:
+            upgrade_col = sa.case(
+                (
+                    self._bsq._get_success_condition(cast(SqlFrom, upgrade_side)),
+                    _rebind_column_to_table(col, upgrade_side),
+                ),
+                else_=baseline_col,
+            )
+        elif not params.annual_only and not params.applied_only and baseline_side is not upgrade_side:
+            upgrade_col = safunc.coalesce(
+                _rebind_column_to_table(col, upgrade_side), baseline_col
+            )
+        else:
+            upgrade_col = _rebind_column_to_table(col, upgrade_side)
+
+        return EnduseProjection(
+            source=col,
+            baseline=baseline_col,
+            upgrade=upgrade_col,
+            savings=safunc.coalesce(baseline_col, 0) - safunc.coalesce(upgrade_col, 0),
+        )
+
+    @staticmethod
+    def _weighted_expr(expr: SqlExpression, weight: WeightExpression) -> SqlExpression:
+        """Apply an aggregate weight expression when one is present."""
+        return expr if weight is None else expr * weight
+
+    def _aggregate_projection_column(
+        self,
+        projection: EnduseProjection,
+        value: SqlExpression,
+        suffix: str,
+        params: Query,
+        agg_func: SqlFunction,
+        agg_weight: WeightExpression,
+    ) -> SqlExpression:
+        """Aggregate one projected value under the configured aggregate function."""
+        label = self._bsq._simple_label(projection.source.name, params.agg_func)
+        return agg_func(self._weighted_expr(value, agg_weight)).label(f"{label}{suffix}")
+
+    def _nonzero_count_column(self, projection: EnduseProjection, total_weight: WeightExpression) -> SqlExpression:
+        """Return the weighted count of buildings with nonzero upgrade values."""
+        return safunc.sum(
+            sa.case((safunc.coalesce(projection.upgrade, 0) != 0, 1), else_=0) * total_weight
+        ).label(f"{self._bsq._simple_label(projection.upgrade.name)}__nonzero_units_count")
+
+    def _projection_output_columns(
+        self,
+        projection: EnduseProjection,
+        params: Query,
+        agg_func: SqlFunction,
+        agg_weight: WeightExpression,
+        total_weight: WeightExpression,
+    ) -> list[SqlExpression]:
+        """Return all requested aggregate output columns for one projection."""
+        output_columns = []
+        if params.include_baseline:
+            output_columns.append(
+                self._aggregate_projection_column(
+                    projection, projection.baseline, "__baseline", params, agg_func, agg_weight,
+                )
+            )
+        if params.include_upgrade:
+            suffix = "__upgrade" if params.include_savings or params.include_baseline else ""
+            output_columns.append(
+                self._aggregate_projection_column(
+                    projection, projection.upgrade, suffix, params, agg_func, agg_weight,
+                )
+            )
+            if params.get_nonzero_count and params.annual_only:
+                output_columns.append(self._nonzero_count_column(projection, total_weight))
+        if params.include_savings:
+            output_columns.append(
+                self._aggregate_projection_column(
+                    projection, projection.savings, "__savings", params, agg_func, agg_weight,
+                )
+            )
+        return output_columns
+
+    def _enduse_output_columns(
+        self,
+        *,
+        enduse_cols: Sequence[ColumnExpression],
+        params: Query,
+        upgrade_id: str,
+        baseline_side: QuerySideTable,
+        upgrade_side: QuerySideTable,
+        agg_func: SqlFunction,
+        agg_weight: WeightExpression,
+        total_weight: WeightExpression,
+    ) -> list[SqlExpression]:
+        """Build aggregate output columns for every requested enduse."""
+        output_columns = []
+        for col in enduse_cols:
+            projection = self._project_enduse(col, params, upgrade_id, baseline_side, upgrade_side)
+            output_columns.extend(
+                self._projection_output_columns(
+                    projection, params, agg_func, agg_weight, total_weight,
+                )
+            )
+
+            if params.get_quartiles:
+                output_columns.extend(
+                    self._quartile_output_columns(
+                        projection, params,
+                    )
+                )
+        return output_columns
+
+    def _quartile_output_columns(self, projection: EnduseProjection, params: Query) -> list[SqlExpression]:
+        """Return quartile arrays for requested baseline, upgrade, and savings values."""
+        percentiles = [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]
+        output_columns = []
+        label = self._bsq._simple_label(projection.source.name, params.agg_func)
+
+        if params.include_baseline:
+            output_columns.append(
+                sa.func.approx_percentile(projection.baseline, percentiles).label(f"{label}__baseline__quartiles")
+            )
+            output_columns.append(
+                sa.func.approx_percentile(projection.baseline, percentiles).filter(
+                    projection.baseline != 0
+                ).label(f"{label}__baseline__nonzero_quartiles")
+            )
+        if params.include_upgrade:
+            output_columns.append(
+                sa.func.approx_percentile(projection.upgrade, percentiles).label(f"{label}__upgrade__quartiles")
+            )
+            output_columns.append(
+                sa.func.approx_percentile(projection.upgrade, percentiles).filter(
+                    projection.upgrade != 0
+                ).label(f"{label}__upgrade__nonzero_quartiles")
+            )
+        if params.include_savings:
+            output_columns.append(
+                sa.func.approx_percentile(projection.savings, percentiles).label(f"{label}__savings__quartiles")
+            )
+            output_columns.append(
+                sa.func.approx_percentile(projection.savings, percentiles).filter(
+                    projection.savings != 0
+                ).label(f"{label}__savings__nonzero_quartiles")
+            )
+        return output_columns
+
+    def _model_count_can_use_count_star(
+        self, params: Query, group_by_selection: Sequence[SqlExpression], metadata_alias: SqlFrom
+    ) -> bool:
+        """Return true when model_count can use count(*) instead of distinct keys."""
+        if params.annual_only or "bldg_weight" not in getattr(metadata_alias, "c", {}):
+            return False
+
+        building_id = self._bsq.building_id_column_name
+        outer_group_names = {getattr(group_col, "name", group_col) for group_col in group_by_selection or ()}
+        partition_keys = [
+            key for key in self._bsq._get_unique_keys("timeseries")
+            if key != building_id
+        ]
+        return all(key in outer_group_names for key in partition_keys)
+
+    def _model_count_column(self, alias: QuerySideTable, *, use_count_star: bool) -> SqlExpression:
+        """Return the model_count aggregate for the current grouping shape."""
+        if use_count_star:
+            return safunc.count(sa.text("*")).label("model_count")
+        building_id = self._bsq.building_id_column_name
+        return self._bsq._count_distinct([alias.c[building_id]]).label("model_count")
+
+    def _direct_timeseries_grouping_metrics(
+        self, metadata_alias: SqlFrom, total_weight: WeightExpression, *, use_count_star: bool
+    ) -> list[SqlExpression]:
+        """Return grouping metrics computed directly from timeseries rows."""
+        md_key_cols = [metadata_alias.c[k] for k in self._bsq.md_key]
+        distinct_md_keys = self._bsq._count_distinct(md_key_cols)
+        return [
+            distinct_md_keys.label("metadata_rows_count"),
+            self._model_count_column(metadata_alias, use_count_star=use_count_star),
+            (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
+            (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
+        ]
+
+    def _metadata_per_building_grouping_metrics(
+        self,
+        baseline_side: QuerySideTable,
+        metadata_alias: SqlFrom,
+        *,
+        include_rows_per_sample: bool,
+        use_count_star: bool,
+    ) -> list[SqlExpression]:
+        """Return grouping metrics computed from one metadata row per building."""
+        metrics = [
+            safunc.sum(metadata_alias.c["tract_count"]).label("metadata_rows_count"),
+            self._model_count_column(metadata_alias, use_count_star=use_count_star),
+            safunc.sum(metadata_alias.c["bldg_weight"]).label("units_count"),
+        ]
+        if include_rows_per_sample:
+            metrics.append(
+                (safunc.sum(baseline_side.c["_inner_rows"]) / self._bsq._count_distinct(
+                    [baseline_side.c[k] for k in self._bsq._get_unique_keys("timeseries")]
+                )).label("rows_per_sample")
+            )
+        return metrics
+
+    def _annual_grouping_metrics(
+        self, baseline_side: QuerySideTable, total_weight: WeightExpression, *, use_count_star: bool
+    ) -> list[SqlExpression]:
+        """Return metadata-only grouping metrics for annual queries."""
+        return [
+            safunc.sum(1).label("metadata_rows_count"),
+            self._model_count_column(baseline_side, use_count_star=use_count_star),
+            safunc.sum(total_weight).label("units_count"),
+        ]
+
+    def _timeseries_grouping_metrics(
+        self,
+        baseline_side: QuerySideTable,
+        metadata_alias: SqlFrom,
+        total_weight: WeightExpression,
+        *,
+        include_rows_per_sample: bool,
+        use_count_star: bool,
+    ) -> list[SqlExpression]:
+        """Return metrics for raw or per-building timeseries aggregates."""
+        if "bldg_weight" in getattr(metadata_alias, "c", {}):
+            return self._metadata_per_building_grouping_metrics(
+                baseline_side,
+                metadata_alias,
+                include_rows_per_sample=include_rows_per_sample,
+                use_count_star=use_count_star,
+            )
+        if include_rows_per_sample:
+            return self._direct_timeseries_grouping_metrics(
+                metadata_alias, total_weight, use_count_star=use_count_star,
+            )
+        return self._annual_grouping_metrics(
+            baseline_side, total_weight, use_count_star=use_count_star,
+        )
+
+    def _grouping_metrics(
+        self,
+        *,
+        params: Query,
+        baseline_side: QuerySideTable,
+        metadata_alias: SqlFrom,
+        total_weight: WeightExpression,
+        group_by_selection: list[SqlExpression],
+        time_index: int,
+        pivot_bucketed_time: bool,
+    ) -> list[SqlExpression]:
+        """Choose the grouping metrics for annual, direct, or pre-aggregated tables."""
+        use_count_star = self._model_count_can_use_count_star(params, group_by_selection, metadata_alias)
+        if params.annual_only:
+            return self._annual_grouping_metrics(
+                baseline_side, total_weight, use_count_star=use_count_star,
+            )
+
+        metrics = self._timeseries_grouping_metrics(
+            baseline_side,
+            metadata_alias,
+            total_weight,
+            include_rows_per_sample=params.timestamp_grouping_func is not None,
+            use_count_star=use_count_star,
+        )
+
+        if params.timestamp_grouping_func:
+            if params.timestamp_grouping_func == "year":
+                return metrics
+            self._insert_grouped_time_column(
+                params, baseline_side, group_by_selection, time_index, pivot_bucketed_time,
+            )
+            return metrics
+
+        time_col = baseline_side.c[self._bsq.timestamp_column_name].label(self._bsq.timestamp_column_name)
+        group_by_selection.insert(time_index, time_col)
+        return metrics
+
+    def _insert_grouped_time_column(
+        self,
+        params: Query,
+        baseline_side: QuerySideTable,
+        group_by_selection: list[SqlExpression],
+        time_index: int,
+        pivot_bucketed_time: bool,
+    ) -> None:
+        """Insert the grouped timestamp expression back into group-by columns."""
+        colname = self._bsq.timestamp_column_name
+        time_col = baseline_side.c[colname]
+        if pivot_bucketed_time:
+            grouped_time = time_col.label(colname)
+        else:
+            sim_info = self._bsq._get_simulation_info()
+            if sim_info.offset > 0:
+                grouped_time = sa.func.date_trunc(
+                    params.timestamp_grouping_func,
+                    sa.func.date_add(sim_info.unit, -sim_info.offset, time_col),
+                ).label(colname)
+            else:
+                grouped_time = sa.func.date_trunc(params.timestamp_grouping_func, time_col).label(colname)
+        group_by_selection.insert(time_index, grouped_time)
+
+    def _annual_table_context(
+        self,
+        *,
+        upgrade_id: str,
+        group_by_selection: list[SqlExpression],
+        restrict: Sequence[RestrictTuple],
+        total_weight: WeightExpression,
+        agg_weight: WeightExpression,
+        applied_only: bool | None,
+    ) -> QueryTableContext:
+        """Build the table context for an annual metadata query."""
+        baseline_side, upgrade_side, from_clause = self._get_annual_metadata_sides(
+            upgrade_id, applied_only,
+        )
+        return QueryTableContext(
+            baseline_side=baseline_side,
+            upgrade_side=upgrade_side,
+            from_clause=from_clause,
+            metadata_alias=baseline_side,
+            group_by=group_by_selection,
+            metadata_restrict=list(restrict),
+            extra_restrict=[],
+            extra_avoid=[],
+            total_weight=total_weight,
+            agg_weight=agg_weight,
+            pivot_bucketed_time=False,
+        )
+
+    def _timeseries_table_context(
+        self,
+        *,
+        params: Query,
+        upgrade_id: str,
+        enduse_cols: Sequence[ColumnExpression],
+        group_by_selection: list[SqlExpression],
+        restrict: Sequence[RestrictTuple],
+        total_weight: WeightExpression,
+        agg_weight: WeightExpression,
+    ) -> QueryTableContext:
+        """Build the table context for a timeseries aggregate query."""
+        metadata_restrict, ts_restrict, extra_restrict = self._bsq._split_restrict(restrict)
+
+        metadata_avoid, ts_avoid, extra_avoid = self._bsq._split_restrict(
+            list(params.avoid) if params.avoid else []
+        )
+        upgrade_only = (
+            upgrade_id != "0"
+            and not params.include_savings
+            and not params.include_baseline
+        )
+        join_list_restrict, extra_restrict = self._split_join_list_restricts(
+            params.join_list, extra_restrict,
+        )
+        baseline_side, upgrade_side, from_clause, group_by_selection, metadata_alias = self._get_timeseries_metadata_sides(
+            enduse_cols,
+            upgrade_id,
+            ts_restrict,
+            avoid=ts_avoid,
+            metadata_restrict=metadata_restrict,
+            metadata_avoid=metadata_avoid,
+            group_by=group_by_selection,
+            upgrade_only=upgrade_only,
+            timestamp_grouping_func=params.timestamp_grouping_func,
+            total_weight=total_weight,
+            extra_metadata_cols=[],
+            join_list=params.join_list,
+            join_list_restrict=join_list_restrict,
+        )
+
+        if "bldg_weight" in getattr(metadata_alias, "c", {}):
+            total_weight = metadata_alias.c["bldg_weight"]
+            if agg_weight is not None:
+                agg_weight = total_weight
+
+        return QueryTableContext(
+            baseline_side=baseline_side,
+            upgrade_side=upgrade_side,
+            from_clause=from_clause,
+            metadata_alias=metadata_alias,
+            group_by=group_by_selection,
+            metadata_restrict=metadata_restrict,
+            extra_restrict=extra_restrict,
+            extra_avoid=extra_avoid,
+            total_weight=total_weight,
+            agg_weight=agg_weight,
+            pivot_bucketed_time=params.timestamp_grouping_func is not None,
+        )
+
+    def _prepare_query_table_context(
+        self,
+        *,
+        params: Query,
+        upgrade_id: str,
+        enduse_cols: Sequence[ColumnExpression],
+        group_by_selection: list[SqlExpression],
+        metadata_restrict: Sequence[RestrictTuple],
+        total_weight: WeightExpression,
+        agg_weight: WeightExpression,
+    ) -> QueryTableContext:
+        """Choose the annual or timeseries table context for a query."""
+        if params.annual_only:
+            return self._annual_table_context(
+                upgrade_id=upgrade_id,
+                group_by_selection=group_by_selection,
+                restrict=metadata_restrict,
+                total_weight=total_weight,
+                agg_weight=agg_weight,
+                applied_only=params.applied_only,
+            )
+        return self._timeseries_table_context(
+            params=params,
+            upgrade_id=upgrade_id,
+            enduse_cols=enduse_cols,
+            group_by_selection=group_by_selection,
+            restrict=metadata_restrict,
+            total_weight=total_weight,
+            agg_weight=agg_weight,
+        )
+
+    def _outer_join_list(self, params: Query, metadata_alias: SqlFrom) -> Sequence[JoinSpec]:
+        """Return outer join entries that still apply after pre-aggregation."""
+        if not params.annual_only and "bldg_weight" in getattr(metadata_alias, "c", {}):
+            return []
+        return params.join_list
+
+    def _assemble_outer_query(
+        self,
+        *,
+        params: Query,
+        table_context: QueryTableContext,
+        group_by_selection: Sequence[SqlExpression],
+        grouping_metrics: Sequence[SqlExpression],
+        enduse_columns: Sequence[SqlExpression],
+    ) -> SelectQuery:
+        """Assemble the final aggregate query from prepared query pieces."""
+        query_cols = list(group_by_selection) + list(grouping_metrics) + list(enduse_columns)
+        query = sa.select(*query_cols).select_from(table_context.from_clause)
+        query = self._bsq._add_join(
+            query,
+            self._outer_join_list(params, table_context.metadata_alias),
+            bs_alias=table_context.metadata_alias,
+        )
+
+        if params.annual_only:
+            query = query.where(
+                sa.and_(
+                    self._bsq._get_success_condition(cast(SqlFrom, table_context.baseline_side)),
+                    self._bsq._upgrade_zero_filter(cast(SqlFrom, table_context.baseline_side)),
+                )
+            )
+            query = self._bsq._add_restrict(
+                query, table_context.metadata_restrict, annual_only=params.annual_only,
+            )
+
+        if table_context.extra_restrict:
+            query = self._bsq._add_restrict(
+                query, table_context.extra_restrict, annual_only=params.annual_only,
+            )
+
+        outer_avoid = params.avoid if params.annual_only else table_context.extra_avoid
+        query = self._bsq._add_avoid(query, outer_avoid, annual_only=params.annual_only)
+        query = self._bsq._add_group_by(query, group_by_selection)
+        query = self._bsq._add_order_by(query, group_by_selection if params.sort else [])
+        return query.limit(params.limit) if params.limit else query
+
+    def _compiled_or_executed_query(
+        self, query: SelectQuery, params: Query, partition_by: Sequence[str]
+    ) -> pd.DataFrame | str:
+        """Return SQL text for query-only mode, otherwise execute the SQL."""
+        compiled_query = self._bsq._compile(query)
+        if params.unload_to:
+            if partition_by:
+                compiled_query = (
+                    f"UNLOAD ({compiled_query}) \n TO 's3://{params.unload_to}' \n "
+                    f"WITH (format = 'PARQUET', partitioned_by = ARRAY{partition_by})"
+                )
+            else:
+                compiled_query = (
+                    f"UNLOAD ({compiled_query}) \n TO 's3://{params.unload_to}' \n WITH (format = 'PARQUET')"
+                )
+
+        if params.get_query_only:
+            return compiled_query
+        return self._bsq.execute(compiled_query)
+
+    def _metadata_choice_for_query(self, params: Query) -> Literal["primary", "state_agg"]:
+        """Choose the metadata table that can satisfy this annual query."""
+        if not params.annual_only:
+            return "primary"
+
+        time_aliases = ("time", self._bsq.timestamp_column_name)
+        routing_group_by = [
+            group_col for group_col in params.group_by
+            if not (isinstance(group_col, str) and group_col in time_aliases)
+        ]
+        return self._bsq._pick_metadata_table(routing_group_by, params.restrict)
 
     @validate_arguments
-    def __get_annual_bs_up_table(self, upgrade_id: str, applied_only: bool | None):
+    def _get_timeseries_metadata_sides(
+        self,
+        enduses: Sequence[ColumnExpression],
+        upgrade_id: str,
+        restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        avoid: Sequence[RestrictTuple] = Field(default_factory=list),
+        metadata_restrict: Sequence[RestrictTuple] = Field(default_factory=list),
+        metadata_avoid: Sequence[RestrictTuple] = Field(default_factory=list),
+        group_by: Sequence[ColumnExpression] = Field(default_factory=list),
+        upgrade_only: bool = False,
+        timestamp_grouping_func: str | None = None,
+        total_weight: WeightExpression = None,
+        extra_metadata_cols: Sequence[Column] | None = None,
+        join_list: Sequence[JoinSpec] | None = None,
+        join_list_restrict: Sequence[RestrictTuple] | None = None,
+    ) -> tuple[AggregateSideView, AggregateSideView, SqlFrom, list[SqlExpression], SqlFrom]:
+        """Return baseline and upgrade views over the timeseries aggregate."""
+        if self._bsq.ts_table is None:
+            raise ValueError("No timeseries table found in database.")
+
+        ts = self._bsq.ts_table
+        metadata_table = self._bsq.bs_table
+
+        metadata_restrict_clauses = self._bsq._get_restrict_clauses(metadata_restrict, annual_only=True)
+        metadata_avoid_clauses = self._bsq._get_avoid_clauses(metadata_avoid, annual_only=True)
+
+        single_upgrade = upgrade_id == "0" or upgrade_only
+        ts_upgrade_ids = [upgrade_id] if single_upgrade else ["0", upgrade_id]
+
+        ts_group_by = [g for g in group_by if g.name in ts.columns]
+        metadata_group_by = [g for g in group_by if g.name not in ts.columns]
+
+        ts_unique_keys = self._bsq._get_unique_keys("timeseries")
+        timestamp_col = self._bsq.timestamp_column_name
+        collapse_inner_time = timestamp_grouping_func == "year"
+        ts_key_names = self._timeseries_key_names(ts_unique_keys, timestamp_col, collapse_inner_time)
+        ts_extra_group_names = [g.name for g in ts_group_by if g.name not in ts_key_names]
+
+        bucketed_time_expr = self._bucketed_timestamp_expression(
+            ts, timestamp_col, timestamp_grouping_func, collapse_inner_time,
+        )
+
+        ts_restrict_clauses = self._bsq._get_restrict_clauses(restrict, annual_only=False)
+        ts_avoid_clauses = self._bsq._get_avoid_clauses(avoid, annual_only=False)
+
+        ts_only_enduses, metadata_only_enduses, mixed_enduses = self._split_enduses_by_source(enduses, ts)
+
+        flat_enduses = ts_only_enduses + mixed_enduses
+        needs_metadata_join = bool(mixed_enduses)
+
+        ts_flat_subq = self._build_timeseries_flat_subquery(
+            ts=ts,
+            metadata_table=metadata_table,
+            flat_enduses=flat_enduses,
+            key_names=ts_key_names,
+            timestamp_col=timestamp_col,
+            bucketed_time_expr=bucketed_time_expr,
+            extra_group_names=ts_extra_group_names,
+            single_upgrade=single_upgrade,
+            upgrade_ids=ts_upgrade_ids,
+            restrict_clauses=ts_restrict_clauses,
+            avoid_clauses=ts_avoid_clauses,
+            needs_metadata_join=needs_metadata_join,
+        )
+
+        ts_aggr_subq, flat_group_keys, flat_extra_group_cols = self._build_timeseries_aggregate_subquery(
+            ts=ts,
+            ts_flat=ts_flat_subq,
+            flat_enduses=flat_enduses,
+            key_names=ts_key_names,
+            extra_group_names=ts_extra_group_names,
+            single_upgrade=single_upgrade,
+            upgrade_id=upgrade_id,
+        )
+
+        metadata_per_bldg = self._build_metadata_per_building_subquery(
+            metadata_table=metadata_table,
+            ts_unique_keys=ts_unique_keys,
+            metadata_group_by=metadata_group_by,
+            metadata_only_enduses=metadata_only_enduses,
+            total_weight=total_weight,
+            extra_metadata_cols=extra_metadata_cols,
+            join_list=join_list,
+            join_list_restrict=join_list_restrict,
+            restrict_clauses=metadata_restrict_clauses,
+            avoid_clauses=metadata_avoid_clauses,
+        )
+
+        metadata_join_condition = sa.and_(
+            *(metadata_per_bldg.c[k] == ts_aggr_subq.c[k] for k in ts_unique_keys),
+        )
+        tbljoin = ts_aggr_subq.join(metadata_per_bldg, metadata_join_condition)
+
+        passthrough_cols = flat_group_keys + flat_extra_group_cols
+        baseline_view = AggregateSideView(
+            ts_aggr_subq, "bs", flat_enduses, passthrough_cols, metadata_per_bldg, metadata_only_enduses
+        )
+        upgrade_view = baseline_view if single_upgrade else AggregateSideView(
+            ts_aggr_subq, "up", flat_enduses, passthrough_cols, metadata_per_bldg, metadata_only_enduses,
+        )
+
+        remapped_group_by = self._remap_timeseries_group_by(
+            group_by, ts, ts_aggr_subq, metadata_per_bldg,
+        )
+
+        return baseline_view, upgrade_view, tbljoin, remapped_group_by, metadata_per_bldg
+
+    @validate_arguments
+    def _get_annual_metadata_sides(
+        self, upgrade_id: str, applied_only: bool | None
+    ) -> tuple[SqlFrom, SqlFrom, SqlFrom]:
+        """Return metadata row aliases and FROM handle for an annual aggregate."""
         # `self._bsq.bs_table` / `.md_table` / `.md_key` may be routed to
         # the alt metadata table by the `_routing_context` swap inside
         # `_query`. Reading from `self._bsq.*` thus inherits routing
         # automatically — no explicit threading needed here.
         bs = self._bsq.bs_table
         if upgrade_id == "0":
-            # Baseline-only path: no join. The caller filters to baseline rows
-            # via `_md_baseline_successful_condition` in the outer WHERE.
+            # Baseline-only path: no self-join. The outer query filters to
+            # upgrade=0 rows.
             return bs, bs, bs
 
-        up = self._bsq.md_table.alias("up")
+        md_table = self._bsq.md_table
+        up = md_table.alias("up")
         up_col = up.c["upgrade"]
         up_id = typed_literal(up_col, upgrade_id)
         join_cond = sa.and_(
@@ -443,17 +1093,185 @@ class BuildStockAggregate:
 
         return bs, up, tbljoin
 
+    @staticmethod
+    def _normalized_at_hours(at_hour: list[float] | float, at_days: Sequence[float]) -> list[float]:
+        """Return one requested hour per requested simulation day."""
+        if isinstance(at_hour, list):
+            if len(at_hour) != len(at_days) or not at_hour:
+                raise ValueError(
+                    "The length of at_hour list should be the same as length of at_days list and not be empty"
+                )
+            return at_hour
+        if isinstance(at_hour, (float, int)):
+            return [at_hour] * len(at_days)
+        raise ValueError("At hour should be a list or a number")
+
+    @staticmethod
+    def _lower_average_kw_timestamp(
+        sim_year: int, sim_interval_seconds: int, day: float, hour: float
+    ) -> datetime.datetime:
+        """Return the simulation timestamp at or before a requested hour."""
+        start = datetime.datetime(year=sim_year, month=1, day=1)
+        return start + datetime.timedelta(
+            days=day,
+            seconds=sim_interval_seconds * int(hour * 3600 / sim_interval_seconds),
+        )
+
+    @staticmethod
+    def _upper_average_kw_timestamp(
+        sim_year: int, sim_interval_seconds: int, day: float, hour: float
+    ) -> datetime.datetime:
+        """Return the simulation timestamp at or after a requested hour."""
+        start = datetime.datetime(year=sim_year, month=1, day=1)
+        add = 0 if round(hour * 3600 % sim_interval_seconds, 2) == 0 else 1
+        upper = start + datetime.timedelta(
+            days=day,
+            seconds=sim_interval_seconds * (int(hour * 3600 / sim_interval_seconds) + add),
+        )
+        if upper.year > sim_year:
+            return start + datetime.timedelta(
+                days=day,
+                seconds=sim_interval_seconds * int(hour * 3600 / sim_interval_seconds),
+            )
+        return upper
+
+    @staticmethod
+    def _hours_align_with_sim_timestamps(at_hour: Sequence[float], sim_interval_seconds: int) -> bool:
+        """Return true when all requested hours fall exactly on simulation steps."""
+        return bool(np.all([round(h * 3600 % sim_interval_seconds, 2) == 0 for h in at_hour]))
+
+    @staticmethod
+    def _average_kw_timestamp_bounds(
+        at_days: Sequence[float], at_hour: Sequence[float], sim_year: int, sim_interval_seconds: int
+    ) -> tuple[list[datetime.datetime], list[datetime.datetime]]:
+        """Return lower and upper timestamp bounds for average-kW interpolation."""
+        lower = [
+            BuildStockAggregate._lower_average_kw_timestamp(sim_year, sim_interval_seconds, d - 1, h)
+            for d, h in zip(at_days, at_hour, strict=True)
+        ]
+        upper = [
+            BuildStockAggregate._upper_average_kw_timestamp(sim_year, sim_interval_seconds, d - 1, h)
+            for d, h in zip(at_days, at_hour, strict=True)
+        ]
+        return lower, upper
+
+    @staticmethod
+    def _average_kw_interpolation_weight(at_hour: Sequence[float], sim_interval_seconds: int) -> float:
+        """Return the average interpolation weight for upper timestamps."""
+        return np.mean(
+            [
+                offset_seconds / sim_interval_seconds
+                for hour in at_hour
+                if (offset_seconds := hour * 3600 % sim_interval_seconds)
+            ]
+        )
+
+    def _average_kw_time_window(self, at_hour: list[float], at_days: Sequence[float]) -> AverageKwTimeWindow:
+        """Return the timestamp window used for average-kW queries."""
+        sim_info = self._bsq._get_simulation_info()
+        lower_timestamps, upper_timestamps = self._average_kw_timestamp_bounds(
+            at_days, at_hour, sim_info.year, sim_info.interval,
+        )
+        return AverageKwTimeWindow(
+            at_hour=at_hour,
+            interval_seconds=sim_info.interval,
+            exact_times=self._hours_align_with_sim_timestamps(at_hour, sim_info.interval),
+            lower_timestamps=lower_timestamps,
+            upper_timestamps=upper_timestamps,
+        )
+
+    def _average_kw_base_query(
+        self,
+        *,
+        enduse_cols: Sequence[ColumnExpression],
+        total_weight: WeightExpression,
+        kw_factor: float,
+        upgrade_id: int | str,
+        restrict: Sequence[RestrictTuple],
+    ) -> SelectQuery:
+        """Build the base query reused for lower and upper average-kW timestamps."""
+        ts = self._bsq.ts_table
+        if ts is None:
+            raise ValueError("No timeseries table found in database.")
+
+        enduse_selection = [
+            safunc.avg(enduse * total_weight * kw_factor).label(self._bsq._simple_label(enduse.name))
+            for enduse in enduse_cols
+        ]
+        grouping_metrics = [
+            safunc.sum(1).label("metadata_rows_count"),
+            safunc.sum(total_weight).label("units_count"),
+        ]
+
+        upgrade_str = "0" if upgrade_id in (None, "0") else str(upgrade_id)
+        metadata_restrict, ts_restrict, extra_restrict = self._bsq._split_restrict(list(restrict))
+        metadata_restrict_clauses = self._bsq._get_restrict_clauses(metadata_restrict, annual_only=True)
+        ts_restrict_clauses = self._bsq._get_restrict_clauses(ts_restrict, annual_only=False)
+
+        ts_key_cols = self._bsq.ts_key_cols
+        metadata_table = self._bsq.bs_table
+        query = sa.select(*ts_key_cols + grouping_metrics + enduse_selection)
+        query = query.join(
+            metadata_table,
+            sa.and_(
+                self._bsq._baseline_timeseries_join_condition(metadata_table, ts),
+                self._bsq._ts_upgrade_col == typed_literal(self._bsq._ts_upgrade_col, upgrade_str),
+                *metadata_restrict_clauses,
+                *ts_restrict_clauses,
+            ),
+        )
+        query = self._bsq._add_group_by(query, ts_key_cols)
+        query = self._bsq._add_order_by(query, ts_key_cols)
+        if extra_restrict:
+            query = self._bsq._add_restrict(query, extra_restrict, annual_only=False)
+        return query
+
+    def _average_kw_query_strings(self, base_query: SelectQuery, time_window: AverageKwTimeWindow) -> list[str]:
+        """Compile lower and optional upper timestamp queries for average kW."""
+        lower_query = self._bsq._add_restrict(
+            base_query, [(self._bsq.timestamp_column_name, time_window.lower_timestamps)]
+        )
+        if time_window.exact_times:
+            queries = [lower_query]
+        else:
+            upper_query = self._bsq._add_restrict(
+                base_query, [(self._bsq.timestamp_column_name, time_window.upper_timestamps)]
+            )
+            queries = [lower_query, upper_query]
+        return [self._bsq._compile(query) for query in queries]
+
+    def _average_kw_result(
+        self, query_strs: Sequence[str], time_window: AverageKwTimeWindow, enduses: Sequence[str]
+    ) -> pd.DataFrame:
+        """Execute average-kW timestamp queries and interpolate when needed."""
+        batch_id = self._bsq.submit_batch_query(query_strs)
+        if time_window.exact_times:
+            (values,) = self._bsq.get_batch_query_result(batch_id, combine=False)
+            return values
+
+        lower_values, upper_values = self._bsq.get_batch_query_result(batch_id, combine=False)
+        upper_weight = self._average_kw_interpolation_weight(
+            time_window.at_hour, time_window.interval_seconds,
+        )
+        lower_weight = 1 - upper_weight
+        enduse_label_cols = [self._bsq._simple_label(enduse) for enduse in enduses]
+        lower_values[enduse_label_cols] = (
+            lower_values[enduse_label_cols] * lower_weight
+            + upper_values[enduse_label_cols] * upper_weight
+        )
+        return lower_values
+
     @validate_arguments
     def get_building_average_kws_at(
         self,
         *,
-        at_hour: Union[list[float], float],
+        at_hour: list[float] | float,
         at_days: list[float],
         enduses: list[str],
-        upgrade_id: Union[int, str] = "0",
+        upgrade_id: int | str = "0",
         restrict: Sequence[RestrictTuple] = Field(default_factory=list),
         get_query_only: bool = False,
-    ):
+    ) -> pd.DataFrame | list[str]:
         """
         Aggregates the timeseries result on select enduses, for the given days and hours.
         If all of the hour(s) fall exactly on the simulation timestamps, the aggregation is done by averaging the kW at
@@ -491,132 +1309,22 @@ class BuildStockAggregate:
                 supplied days.
 
         """
-        if isinstance(at_hour, list):
-            if len(at_hour) != len(at_days) or not at_hour:
-                raise ValueError(
-                    "The length of at_hour list should be the same as length of at_days list and not be empty"
-                )
-        elif isinstance(at_hour, (float, int)):
-            at_hour = [at_hour] * len(at_days)
-        else:
-            raise ValueError("At hour should be a list or a number")
-
+        at_hour = self._normalized_at_hours(at_hour, at_days)
         enduse_cols = self._bsq._get_enduse_cols(enduses, table="timeseries")
         total_weight = self._bsq._get_weight([])
-
-        sim_info = self._bsq._get_simulation_info()
-        sim_year, sim_interval_seconds = sim_info.year, sim_info.interval
-        kw_factor = 3600.0 / sim_interval_seconds
-
-        enduse_selection = [
-            safunc.avg(enduse * total_weight * kw_factor).label(self._bsq._simple_label(enduse.name))
-            for enduse in enduse_cols
-        ]
-        grouping_metrics_selection = [
-            safunc.sum(1).label("metadata_rows_count"),
-            safunc.sum(total_weight).label("units_count"),
-        ]
-
-        def get_upper_timestamps(day, hour):
-            new_dt = datetime.datetime(year=sim_year, month=1, day=1)
-
-            if round(hour * 3600 % sim_interval_seconds, 2) == 0:
-                # if the hour falls exactly on the simulation timestamp, use the same timestamp
-                # for both lower and upper
-                add = 0
-            else:
-                add = 1
-
-            upper_dt = new_dt + datetime.timedelta(
-                days=day, seconds=sim_interval_seconds * (int(hour * 3600 / sim_interval_seconds) + add)
-            )
-            if upper_dt.year > sim_year:
-                upper_dt = new_dt + datetime.timedelta(
-                    days=day, seconds=sim_interval_seconds * (int(hour * 3600 / sim_interval_seconds))
-                )
-            return upper_dt
-
-        def get_lower_timestamps(day, hour):
-            new_dt = datetime.datetime(year=sim_year, month=1, day=1)
-            lower_dt = new_dt + datetime.timedelta(
-                days=day, seconds=sim_interval_seconds * int(hour * 3600 / sim_interval_seconds)
-            )
-            return lower_dt
-
-        # check if the supplied hours fall exactly on the simulation timestamps
-        exact_times = np.all([round(h * 3600 % sim_interval_seconds, 2) == 0 for h in at_hour])
-        lower_timestamps = [get_lower_timestamps(d - 1, h) for d, h in zip(at_days, at_hour)]
-        upper_timestamps = [get_upper_timestamps(d - 1, h) for d, h in zip(at_days, at_hour)]
-
-        ts_key_cols = self._bsq.ts_key_cols
-        ts = self._bsq.ts_table
-        if ts is None:
-            raise ValueError("No timeseries table found in database.")
-        ucol = self._bsq._ts_upgrade_col
-
-        # Constrain the TS-side upgrade in the join condition. Without this, the
-        # join cross-products against every upgrade present in the TS table —
-        # the bs subquery's `WHERE upgrade = ...` doesn't filter the TS scan.
-        # Also push any user-supplied restrict into the bs/ts split so partition
-        # filters (e.g. state='CO') ride the JOIN ON instead of the outer WHERE.
-        upgrade_str = "0" if upgrade_id in (None, "0") else str(upgrade_id)
-        bs_restrict_split, ts_restrict_split, extra_restrict_split = self._bsq._split_restrict(list(restrict))
-        bs_restrict_clauses = self._bsq._get_restrict_clauses(bs_restrict_split, annual_only=True)
-        ts_restrict_clauses = self._bsq._get_restrict_clauses(ts_restrict_split, annual_only=False)
-
-        bs = self._bsq.bs_table  # canonical alias
-        query = sa.select(*ts_key_cols + grouping_metrics_selection + enduse_selection)
-        query = query.join(
-            bs,
-            sa.and_(
-                self._bsq._baseline_timeseries_join_condition(bs, ts),
-                ucol == typed_literal(ucol, upgrade_str),
-                *bs_restrict_clauses,
-                *ts_restrict_clauses,
-            ),
+        time_window = self._average_kw_time_window(at_hour, at_days)
+        base_query = self._average_kw_base_query(
+            enduse_cols=enduse_cols,
+            total_weight=total_weight,
+            kw_factor=3600.0 / time_window.interval_seconds,
+            upgrade_id=upgrade_id,
+            restrict=restrict,
         )
-        query = self._bsq._add_group_by(query, ts_key_cols)
-        query = self._bsq._add_order_by(query, ts_key_cols)
-        if extra_restrict_split:
-            query = self._bsq._add_restrict(query, extra_restrict_split, annual_only=False)
-
-        lower_val_query = self._bsq._add_restrict(query, [(self._bsq.timestamp_column_name, lower_timestamps)])
-        upper_val_query = self._bsq._add_restrict(query, [(self._bsq.timestamp_column_name, upper_timestamps)])
-
-        if exact_times:
-            # only one query is sufficient if the hours fall in exact timestamps
-            queries = [lower_val_query]
-        else:
-            queries = [lower_val_query, upper_val_query]
-
-        query_strs = [self._bsq._compile(q) for q in queries]
+        query_strs = self._average_kw_query_strings(base_query, time_window)
         if get_query_only:
             return query_strs
 
-        batch_id = self._bsq.submit_batch_query(query_strs)
-        if exact_times:
-            (vals,) = self._bsq.get_batch_query_result(batch_id, combine=False)
-            return vals
-        else:
-            lower_vals, upper_vals = self._bsq.get_batch_query_result(batch_id, combine=False)
-            avg_upper_weight = np.mean(
-                [
-                    min_of_hour / sim_interval_seconds
-                    for hour in at_hour
-                    if (min_of_hour := hour * 3600 % sim_interval_seconds)
-                ]
-            )
-            avg_lower_weight = 1 - avg_upper_weight
-            # The result columns use the simple-label form (stripped of `out.`
-            # prefix), not the raw enduse strings the user passed. Translate
-            # before indexing so the weighted-average update lands on the right
-            # columns.
-            enduse_label_cols = [self._bsq._simple_label(e) for e in enduses]
-            lower_vals[enduse_label_cols] = (
-                lower_vals[enduse_label_cols] * avg_lower_weight
-                + upper_vals[enduse_label_cols] * avg_upper_weight
-            )
-            return lower_vals
+        return self._average_kw_result(query_strs, time_window, enduses)
 
     def validate_partition_by(self, partition_by: Sequence[str]) -> Sequence[str]:
         if not partition_by:
@@ -629,7 +1337,8 @@ class BuildStockAggregate:
         self,
         *,
         params: Query,
-    ) -> Union[pd.DataFrame, str]:
+    ) -> pd.DataFrame | str:
+        """Validate query parameters and execute within the chosen metadata route."""
         [self._bsq._get_table(jl[0]) for jl in params.join_list]  # ingress all tables in join list
 
         upgrade_id = self._bsq._validate_upgrade(params.upgrade_id)
@@ -638,68 +1347,22 @@ class BuildStockAggregate:
             annual_only=params.annual_only,
             upgrade_id=upgrade_id,
         )
-        # Route to the smaller alt metadata table when the query is
-        # eligible. When ineligible — or when the schema declares no
-        # alt — fall through to today's primary-table behavior. See
-        # INVESTIGATION_partition_overhead.md for the ~2× engine-time
-        # win this typically delivers (Fix #2 in the priority list).
-        #
-        # Currently restricted to annual queries: the TS-flow joins MD on
-        # `(bldg_id, state)` where `state` is the bare partition column on
-        # both TS and primary MD. The alt MD's state column is `in.state`
-        # (different physical name), so the existing equi-join helpers
-        # can't bridge it without a cross-name mapping. Until that's
-        # added, TS-flow stays on the primary table.
-        if params.annual_only:
-            # Strip placeholder time tokens — `time` and the timestamp
-            # column name are reinjected later as bucketing expressions,
-            # not group-by columns the alt table must support. Only
-            # apply the strip to plain string entries; MappedColumns and
-            # SA Columns are passed through unchanged (they're never
-            # time-marker tokens).
-            time_aliases = ("time", self._bsq.timestamp_column_name)
-            routing_group_by = [
-                g for g in params.group_by
-                if not (isinstance(g, str) and g in time_aliases)
-            ]
-            md_choice = self._bsq._pick_metadata_table(routing_group_by, params.restrict)
-        else:
-            md_choice = "primary"
-        try:
-            with self._bsq._routing_context(md_choice):
-                return self._query_inner(
-                    params=params, upgrade_id=upgrade_id, md_choice=md_choice,
-                )
-        except Exception:
-            raise
+        md_choice = self._metadata_choice_for_query(params)
+        with self._bsq._routing_context(md_choice):
+            return self._query_inner(
+                params=params, upgrade_id=upgrade_id,
+            )
 
     def _query_inner(
         self,
         *,
         params: Query,
         upgrade_id: str,
-        md_choice: str,
-    ) -> Union[pd.DataFrame, str]:
-        # On TS paths, `applied_only=True` must filter the surviving md_keys to
-        # buildings where the upgrade applied — the annual flow does this via the
-        # md self-join on (bs.bldg_id = up.bldg_id AND up.applicability=true), but
-        # the TS flow has no such join in the single-upgrade or upgrade-pair shapes.
-        # Append a `_build_applied_subquery(all_of=[upgrade_id])` filter to the
-        # restrict list (which enforces `_md_successful_condition` on the upgrade
-        # rows). Without this filter, inapplicable buildings (which have TS rows
-        # under inapplicables_have_ts) would silently inflate totals across all
-        # `applied_only=True` TS queries.
-        bs_restrict: list[RestrictTuple] = list(params.restrict) if params.restrict else []
-        if not params.annual_only and params.applied_only and upgrade_id != "0":
-            use_ts_side = self._bsq.ts_table is not None
-            key_kind: Literal["metadata", "timeseries"] = "timeseries" if use_ts_side else "metadata"
-            applied_select = self._bsq._build_applied_subquery(
-                all_of=[upgrade_id], any_of=None, key_kind=key_kind
-            )
-            assert applied_select is not None  # all_of=[upgrade_id] is non-empty
-            bs_restrict.append(
-                self._bsq._make_applied_filter_tuple(applied_select, key_kind=key_kind)
-            )
+    ) -> pd.DataFrame | str:
+        """Build and run an aggregate query after routing has been selected."""
+        metadata_restrict = self._restrict_with_timeseries_applied_filter(
+            params.restrict, params, upgrade_id,
+        )
         enduse_cols = self._bsq._get_enduse_cols(
             params.enduses, table="baseline" if params.annual_only else "timeseries"
         )
@@ -719,448 +1382,51 @@ class BuildStockAggregate:
         # aggregate aligned with the parquet's existing layout instead of
         # forcing a re-shuffle by timestamp. If the user explicitly
         # positions `"time"` in their group_by list, their position wins.
-        time_indx = len(params.group_by)
-        time_aliases = {"time", self._bsq.timestamp_column_name}
-        for alias in time_aliases:
-            if alias in params.group_by:
-                time_indx = params.group_by.index(alias)
-                params.group_by = [g for g in params.group_by if g not in time_aliases]
-                break
+        time_indx = self._time_grouping_position(params)
         group_by_selection = self._bsq._process_groupby_cols(params.group_by, annual_only=params.annual_only)
 
-        pivot_bucketed_time = False
-        if params.annual_only:
-            bs_tbl, up_tbl, tbljoin = self.__get_annual_bs_up_table(upgrade_id, params.applied_only)
-            md_alias = bs_tbl  # annual: bs_tbl IS the metadata-side handle
-            extra_restrict: list = []
-            extra_avoid: list = []
-        else:
-            bs_restrict, ts_restrict, extra_restrict = self._bsq._split_restrict(bs_restrict)
-            # Split avoid the same way: bs-side avoid clauses (e.g. NOT IN
-            # applied-buildings subquery on bldg_id) must be folded into
-            # bs_per_bldg's WHERE because the outer FROM (ts_aggr ⋈ bs_per_bldg)
-            # has no bs_table — _add_avoid at the outer level would comma-join
-            # bs against the FROM and silently drop the predicate.
-            bs_avoid, ts_avoid, extra_avoid = self._bsq._split_restrict(
-                list(params.avoid) if params.avoid else []
-            )
-            # When the caller wants only upgrade values (no savings, no baseline column),
-            # skip the pivot subquery. For `applied_only=True` the only-upgrade-rows
-            # behavior is the definition. For `applied_only=False`, the pivot's bs side
-            # exists solely for the COALESCE fallback when a building is missing an
-            # upgrade row — but `inapplicables_have_ts=True` (forced for this codebase)
-            # guarantees every building has a TS row for every upgrade, so the fallback
-            # never fires. Taking the single-scan path halves the TS scan and skips the
-            # CASE/GROUP-BY pivot, restoring the pre-pivot timing for this shape.
-            upgrade_only = (
-                upgrade_id != "0"
-                and not params.include_savings
-                and not params.include_baseline
-            )
-            # Folding (below) puts join_list joins INSIDE bs_per_bldg, so
-            # we don't need to expose the bs-side join columns at the outer
-            # level via arbitrary(). Leaving as empty.
-            join_bs_cols = []
-            # Utility queries with join_list bring in additional metadata-
-            # side tables (e.g. eiaid_weights mapping bldg→eiaid). Fold
-            # those joins INTO bs_per_bldg so the outer query stays a
-            # clean ts_aggr ⋈ bs_per_bldg shape. Detect:
-            # - join_list_restrict: extra_restrict clauses targeting any
-            #   of the join_list tables (e.g. eiaid_weights.eiaid IN [...]).
-            # - extra_restrict_remaining: restricts that don't target any
-            #   join_list table (e.g. utility join_list table extras with
-            #   no relevant clauses) — kept at outer.
-            # join_list entries: jl[0] can be a string table name or an SA
-            # Table object. Build a set of name-strings for matching.
-            jl_name_set = set()
-            for jl in (params.join_list or ()):
-                t0 = jl[0]
-                jl_name_set.add(t0 if isinstance(t0, str) else getattr(t0, "name", None))
-            join_list_restrict, extra_restrict = [], extra_restrict
-            if params.join_list and extra_restrict:
-                kept = []
-                for col_ref, vals in extra_restrict:
-                    targets_jl = False
-                    if isinstance(col_ref, sa.Column):
-                        t = getattr(col_ref, "table", None)
-                        targets_jl = t is not None and getattr(t, "name", None) in jl_name_set
-                    if targets_jl:
-                        join_list_restrict.append([col_ref, vals])
-                    else:
-                        kept.append([col_ref, vals])
-                extra_restrict = kept
-            bs_tbl, up_tbl, tbljoin, group_by_selection, md_alias = self.__get_timeseries_bs_up_table(
-                enduse_cols, upgrade_id, params.applied_only, ts_restrict,
-                avoid=ts_avoid,
-                bs_restrict=bs_restrict, bs_avoid=bs_avoid,
-                group_by=group_by_selection,
-                upgrade_only=upgrade_only,
-                timestamp_grouping_func=params.timestamp_grouping_func,
-                total_weight=total_weight,
-                extra_bs_cols=join_bs_cols,
-                join_list=params.join_list,
-                join_list_restrict=join_list_restrict,
-            )
-            # md_alias is now the bs_per_bldg subquery (per-(bldg, state) row
-            # with sum(weight) AS bldg_weight, count(*) AS tract_count, and
-            # SUM(<col>*weight) AS _w__<name> for any pure-bs enduses). The
-            # outer SELECT below references these pre-summed columns instead
-            # of bs.weight / count_distinct(md_keys) / etc. directly. This
-            # eliminates ComStock's tract fan-out at the post-join shuffle.
-            #
-            # The outer per-row weight becomes md_alias.c["bldg_weight"] —
-            # already includes sample_wt × user_weights from total_weight,
-            # pre-summed at building grain.
-            #
-            # When skip_bs_per_bldg fired (e.g. utility join_list queries),
-            # md_alias IS just the canonical bs alias — no `bldg_weight`
-            # column. Outer SELECT keeps using bs.weight × user_weights
-            # directly (the pre-refactor shape).
-            uses_bs_per_bldg = "bldg_weight" in getattr(md_alias, "c", {})
-            if uses_bs_per_bldg:
-                ts_total_weight = md_alias.c["bldg_weight"]
-                total_weight = ts_total_weight
-                if agg_weight is not None:
-                    agg_weight = ts_total_weight
-            # Inner ts_aggr always pre-buckets time when grouping_func is
-            # set — true for both single-upgrade (upgrade_id=="0" or
-            # upgrade_only) and upgrade-pair branches. The outer SELECT
-            # references `ts_aggr.<timestamp>` directly (already bucketed)
-            # and uses `_inner_rows` instead of raw sum(1) for the
-            # rows_per_sample / units_count denominator.
-            inner_bucketed_time = params.timestamp_grouping_func is not None
-            # Legacy alias kept for the rest of _query() which references
-            # the prior name. TODO: rename once the dust settles.
-            pivot_bucketed_time = inner_bucketed_time
-
-        def get_col(tbl, col):  # column could be MappedColumn not available in tbl
-            return tbl.c[col.name] if col.name in tbl.c else col
-
-        def rebind_to(col, target_tbl):
-            """Bind an enduse expression to `target_tbl`.
-
-            For bare columns (Column / SACol): if the column name exists on
-            `target_tbl`, return that column; otherwise return the original.
-            For Labels (from get_calculated_column): the underlying expression
-            references columns on whichever table get_calculated_column was
-            given (typically bs_tbl). Use SA's ClauseAdapter to rewrite each
-            column reference to its counterpart on `target_tbl`, then re-label.
-            Falls through unchanged for `_SideView` (pivot subquery columns
-            already carry per-side prefix, so target_tbl's `.c[name]` lookup
-            already returns the correct pivot column — no traversal needed).
-            """
-            if isinstance(col, SALabel):
-                # _SideView adapters expose calc-col labels directly (already
-                # per-side); plain Aliases / subqueries don't, so we adapt the
-                # underlying expression's column refs to point at target_tbl.
-                if col.name in getattr(target_tbl, "c", {}):
-                    return target_tbl.c[col.name]
-                from sqlalchemy.sql.util import ClauseAdapter
-                # adapt_on_names=True needed because bs_tbl and up_tbl are
-                # both aliases of the same md_table; SA's default
-                # corresponding_column resolution doesn't bridge cross-alias
-                # references (it stops at the alias boundary).
-                adapted = ClauseAdapter(target_tbl, adapt_on_names=True).traverse(col.element)
-                return adapted.label(col.name)
-            return get_col(target_tbl, col)
-
-        query_cols = []
-        for col in enduse_cols:
-            if params.annual_only:
-                baseline_col = get_col(bs_tbl, col)
-                if upgrade_id != "0":
-                    if params.applied_only:
-                        upgrade_col = rebind_to(col, up_tbl)
-                    else:
-                        upgrade_col = sa.case(
-                            (self._bsq._get_success_condition(up_tbl), rebind_to(col, up_tbl)), else_=baseline_col
-                        )
-                else:
-                    upgrade_col = baseline_col
-                savings_col = safunc.coalesce(baseline_col, 0) - safunc.coalesce(upgrade_col, 0)
-            else:
-                baseline_col = get_col(bs_tbl, col)
-                if upgrade_id != "0":
-                    if params.applied_only or bs_tbl is up_tbl:
-                        # Single-scan path (applied_only=True OR the
-                        # upgrade_only short-circuit path which returns
-                        # bs_tbl == up_tbl == ts): the upgrade col is just
-                        # the ts row's value, no COALESCE fallback needed.
-                        upgrade_col = rebind_to(col, up_tbl)
-                    else:
-                        # Pivot path: per-(bldg_id, timestamp) row, up_<col>
-                        # is NULL when the upgrade didn't produce a row for
-                        # this bldg. Fall back to baseline via COALESCE.
-                        upgrade_col = safunc.coalesce(rebind_to(col, up_tbl), baseline_col)
-                else:
-                    upgrade_col = baseline_col
-                savings_col = safunc.coalesce(baseline_col, 0) - safunc.coalesce(upgrade_col, 0)
-
-            if params.include_baseline:
-                query_cols.append(
-                    agg_func(baseline_col if agg_weight is None else baseline_col * agg_weight).label(
-                        f"{self._bsq._simple_label(col.name, params.agg_func)}__baseline"
-                    )
-                )
-            if params.include_upgrade:
-                suffix = "__upgrade" if params.include_savings or params.include_baseline else ""
-                query_cols.append(
-                    agg_func(upgrade_col if agg_weight is None else upgrade_col * agg_weight).label(
-                        f"{self._bsq._simple_label(col.name, params.agg_func)}{suffix}"
-                    )
-                )
-                if params.get_nonzero_count and params.annual_only:
-                    # Nonzero count is only valid for annual queries
-                    query_cols.append(
-                        safunc.sum(sa.case((safunc.coalesce(upgrade_col, 0) != 0, 1), else_=0) * total_weight).label(
-                            f"{self._bsq._simple_label(upgrade_col.name)}__nonzero_units_count"
-                        )
-                    )
-            if params.include_savings:
-                query_cols.append(
-                    agg_func(savings_col if agg_weight is None else savings_col * agg_weight).label(
-                        f"{self._bsq._simple_label(col.name, params.agg_func)}__savings"
-                    )
-                )
-
-            if params.get_quartiles:
-                if params.include_baseline:
-                    query_cols.append(
-                        sa.func.approx_percentile(baseline_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).label(
-                            f"{self._bsq._simple_label(col.name, params.agg_func)}__baseline__quartiles"
-                        )
-                    )
-                    query_cols.append(
-                        sa.func.approx_percentile(baseline_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).filter(
-                            baseline_col != 0
-                        ).label(
-                            f"{self._bsq._simple_label(col.name, params.agg_func)}__baseline__nonzero_quartiles"
-                        )
-                    )
-                if params.include_upgrade:
-                    query_cols.append(
-                        sa.func.approx_percentile(upgrade_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).label(
-                            f"{self._bsq._simple_label(col.name, params.agg_func)}__upgrade__quartiles"
-                        )
-                    )
-                    query_cols.append(
-                        sa.func.approx_percentile(upgrade_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).filter(
-                            upgrade_col != 0
-                        ).label(
-                            f"{self._bsq._simple_label(col.name, params.agg_func)}__upgrade__nonzero_quartiles"
-                        )
-                    )
-                if params.include_savings:
-                    query_cols.append(
-                        sa.func.approx_percentile(savings_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).label(
-                            f"{self._bsq._simple_label(col.name, params.agg_func)}__savings__quartiles"
-                        )
-                    )
-                    query_cols.append(
-                        sa.func.approx_percentile(savings_col, [0, 0.02, 0.1, 0.25, 0.5, 0.75, 0.9, 0.98, 1]).filter(
-                            savings_col != 0
-                        ).label(
-                            f"{self._bsq._simple_label(col.name, params.agg_func)}__savings__nonzero_quartiles"
-                        )
-                    )
-
-        # Helper: model_count = count of distinct simulation models (distinct
-        # bldg_id) contributing to the outer group. Equals metadata_rows_count
-        # when the underlying metadata is one-row-per-bldg (ResStock; the
-        # state_agg-routed ComStock alt at queries that can't trip cross-state
-        # duplication of bldgs). Smaller than metadata_rows_count otherwise —
-        # most commonly when ComStock's primary table contributes multiple
-        # tract/state slices per bldg into the same outer group.
-        #
-        # Optimization for the bs_per_bldg-based TS flow: when each outer
-        # group sees each bldg at most once post-join, `count(*)` equals
-        # `count(distinct bldg_id)` and is ~22% cheaper at scale (Athena
-        # does not auto-rewrite count-distinct to count-star even when the
-        # cardinality is provably equivalent). Safety check: count(*) is OK
-        # iff every ts_unique_keys partition column other than bldg_id is
-        # in the outer group_by. For ts_unique_keys=[bldg_id] (ResStock)
-        # that's vacuously true. For ts_unique_keys=[bldg_id, state]
-        # (ComStock) we need state in the outer group.
-        #
-        # The optimization only applies when bs_per_bldg is in use (TS flow
-        # with the per-bldg pre-aggregation): bs_per_bldg has at most one
-        # row per ts_unique_key tuple, so post-join row identity matches
-        # `(ts_aggr_keys, bs_per_bldg_extra_group_cols)`. On the annual
-        # path or the no-bs_per_bldg TS path, post-join rows can include
-        # multiple tract rows per bldg per outer group, so count(*) would
-        # over-count distinct bldgs.
-        bldg_id_col = self._bsq.building_id_column_name
-        outer_group_names = {
-            getattr(g, "name", g) for g in (group_by_selection or ())
-        }
-        ts_partition_keys_minus_bldg = [
-            k for k in self._bsq._get_unique_keys("timeseries")
-            if k != bldg_id_col
-        ]
-        bs_per_bldg_in_use = (
-            not params.annual_only
-            and "bldg_weight" in getattr(md_alias, "c", {})
+        table_context = self._prepare_query_table_context(
+            params=params,
+            upgrade_id=upgrade_id,
+            enduse_cols=enduse_cols,
+            group_by_selection=group_by_selection,
+            metadata_restrict=metadata_restrict,
+            total_weight=total_weight,
+            agg_weight=agg_weight,
         )
-        model_count_via_count_star = (
-            bs_per_bldg_in_use
-            and all(k in outer_group_names for k in ts_partition_keys_minus_bldg)
+        baseline_side = table_context.baseline_side
+        upgrade_side = table_context.upgrade_side
+        metadata_alias = table_context.metadata_alias
+        group_by_selection = table_context.group_by
+        total_weight = table_context.total_weight
+        agg_weight = table_context.agg_weight
+
+        enduse_columns = self._enduse_output_columns(
+            enduse_cols=enduse_cols,
+            params=params,
+            upgrade_id=upgrade_id,
+            baseline_side=baseline_side,
+            upgrade_side=upgrade_side,
+            agg_func=agg_func,
+            agg_weight=agg_weight,
+            total_weight=total_weight,
         )
 
-        def _model_count_from(alias):
-            if model_count_via_count_star:
-                # count(*) is exact under the safety predicate above; the
-                # framework doesn't auto-rewrite count(distinct) -> count(*)
-                # so we emit it explicitly to skip the distinct-aggregation
-                # work on the post-join row stream.
-                return safunc.count(sa.text("*")).label("model_count")
-            return self._bsq._count_distinct([alias.c[bldg_id_col]]).label("model_count")
+        grouping_metrics = self._grouping_metrics(
+            params=params,
+            baseline_side=baseline_side,
+            metadata_alias=metadata_alias,
+            total_weight=total_weight,
+            group_by_selection=group_by_selection,
+            time_index=time_indx,
+            pivot_bucketed_time=table_context.pivot_bucketed_time,
+        )
 
-        if params.annual_only:  # Use annual tables
-            grouping_metrics_selection = [
-                safunc.sum(1).label("metadata_rows_count"),
-                _model_count_from(bs_tbl),
-                safunc.sum(total_weight).label("units_count"),
-            ]
-        elif params.timestamp_grouping_func == "year":  # Use timeseries tables but collapse timeseries
-            uses_bs_per_bldg = "bldg_weight" in getattr(md_alias, "c", {})
-            if uses_bs_per_bldg:
-                # bs_per_bldg shape: pre-summed columns at building grain.
-                grouping_metrics_selection = [
-                    safunc.sum(md_alias.c["tract_count"]).label("metadata_rows_count"),
-                    _model_count_from(md_alias),
-                    safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
-                    (safunc.sum(bs_tbl.c["_inner_rows"]) / self._bsq._count_distinct(
-                        [bs_tbl.c[k] for k in self._bsq._get_unique_keys("timeseries")]
-                    )).label("rows_per_sample"),
-                ]
-            else:
-                # Direct ts ⋈ bs join shape (e.g. utility join_list queries).
-                md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
-                distinct_md_keys = self._bsq._count_distinct(md_key_cols)
-                grouping_metrics_selection = [
-                    distinct_md_keys.label("metadata_rows_count"),
-                    _model_count_from(md_alias),
-                    (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
-                    (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
-                ]
-        elif params.timestamp_grouping_func:
-            colname = self._bsq.timestamp_column_name
-            uses_bs_per_bldg = "bldg_weight" in getattr(md_alias, "c", {})
-            if uses_bs_per_bldg:
-                grouping_metrics_selection = [
-                    safunc.sum(md_alias.c["tract_count"]).label("metadata_rows_count"),
-                    _model_count_from(md_alias),
-                    safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
-                    (safunc.sum(bs_tbl.c["_inner_rows"]) / self._bsq._count_distinct(
-                        [bs_tbl.c[k] for k in self._bsq._get_unique_keys("timeseries")]
-                    )).label("rows_per_sample"),
-                ]
-            else:
-                md_key_cols = [md_alias.c[k] for k in self._bsq.md_key]
-                distinct_md_keys = self._bsq._count_distinct(md_key_cols)
-                grouping_metrics_selection = [
-                    distinct_md_keys.label("metadata_rows_count"),
-                    _model_count_from(md_alias),
-                    (distinct_md_keys * safunc.sum(total_weight) / safunc.sum(1)).label("units_count"),
-                    (safunc.sum(1) / distinct_md_keys).label("rows_per_sample"),
-                ]
-            time_col = bs_tbl.c[self._bsq.timestamp_column_name]
-            if pivot_bucketed_time:
-                # Pivot subquery already date_trunc'd the time at the inner
-                # GROUP BY (the perf-critical optimization). The outer SELECT
-                # just references the bucketed column directly.
-                new_col = time_col.label(colname)
-            else:
-                sim_info = self._bsq._get_simulation_info()
-                if sim_info.offset > 0:
-                    # If timestamps are not period beginning we should make them so
-                    # for timestamp_grouping_func aggregation.
-                    new_col = sa.func.date_trunc(
-                        params.timestamp_grouping_func, sa.func.date_add(sim_info.unit, -sim_info.offset, time_col)
-                    ).label(colname)
-                else:
-                    new_col = sa.func.date_trunc(params.timestamp_grouping_func, time_col).label(colname)
-            group_by_selection.insert(time_indx, new_col)
-        else:
-            # Raw 15-min TS output (no timestamp_grouping_func). The outer
-            # SELECT references the ts_aggr (or pivot subquery) timestamp
-            # column directly. units_count uses bs_per_bldg's pre-summed
-            # weight; metadata_rows_count counts tract rows via tract_count.
-            time_col = bs_tbl.c[self._bsq.timestamp_column_name].label(self._bsq.timestamp_column_name)
-            uses_bs_per_bldg = "bldg_weight" in getattr(md_alias, "c", {})
-            if uses_bs_per_bldg:
-                grouping_metrics_selection = [
-                    safunc.sum(md_alias.c["tract_count"]).label("metadata_rows_count"),
-                    _model_count_from(md_alias),
-                    safunc.sum(md_alias.c["bldg_weight"]).label("units_count"),
-                ]
-            else:
-                grouping_metrics_selection = [
-                    safunc.sum(1).label("metadata_rows_count"),
-                    _model_count_from(bs_tbl),
-                    safunc.sum(total_weight).label("units_count"),
-                ]
-            group_by_selection.insert(time_indx, time_col)
-
-        query_cols = list(group_by_selection) + grouping_metrics_selection + query_cols
-        query = sa.select(*query_cols).select_from(tbljoin)
-        # For TS queries with bs_per_bldg, join_list joins are folded INTO
-        # bs_per_bldg's FROM (not added at outer). For annual queries, _add_join
-        # at outer is the only place. Pass an empty list to skip outer
-        # _add_join when folding happened.
-        if not params.annual_only and "bldg_weight" in getattr(md_alias, "c", {}):
-            outer_join_list = []  # already folded into bs_per_bldg
-        else:
-            outer_join_list = params.join_list
-        query = self._bsq._add_join(query, outer_join_list, bs_alias=md_alias)
-        if params.annual_only:
-            # Successful baseline rows on the bs alias that's in the FROM. For
-            # upgrade-pair queries the join's ON already enforces bs.upgrade=0
-            # — Trino dedupes the duplicate predicate at planning time.
-            query = query.where(
-                sa.and_(
-                    self._bsq._get_success_condition(bs_tbl),
-                    self._bsq._upgrade_zero_filter(bs_tbl),
-                )
-            )
-            # Annual queries have no inner join helper to fold bs_restrict into,
-            # so the outer WHERE is the only place to apply it. `_get_column`
-            # inside resolves against the routed `self.bs_table`, so a
-            # state='CO' filter resolves to the alt-table column on the
-            # state_agg path automatically.
-            query = self._bsq._add_restrict(query, bs_restrict, annual_only=params.annual_only)
-        # TS queries fold bs_restrict into the inner ts ⋈ bs JOIN ON inside
-        # __get_timeseries_bs_up_table, so adding it again here would just
-        # produce duplicate predicates that Trino has to dedupe.
-        # Restricts on join_list tables (e.g. utility eiaid_weights.eiaid) didn't
-        # land on bs or ts — they go to the outer WHERE after _add_join has
-        # introduced their referenced tables.
-        if extra_restrict:
-            query = self._bsq._add_restrict(query, extra_restrict, annual_only=params.annual_only)
-        # On TS, bs_avoid was folded into bs_per_bldg's WHERE and ts_avoid was
-        # folded into ts_flat's WHERE; only extra_avoid (avoids on join_list
-        # tables that aren't bs or ts) remains for the outer level. On annual
-        # the outer FROM has bs_table directly, so all avoid clauses apply
-        # straightforwardly.
-        outer_avoid = params.avoid if params.annual_only else extra_avoid
-        query = self._bsq._add_avoid(query, outer_avoid, annual_only=params.annual_only)
-        query = self._bsq._add_group_by(query, group_by_selection)
-        query = self._bsq._add_order_by(query, group_by_selection if params.sort else [])
-        query = query.limit(params.limit) if params.limit else query
-
-        compiled_query = self._bsq._compile(query)
-        if params.unload_to:
-            if partition_by:
-                compiled_query = (
-                    f"UNLOAD ({compiled_query}) \n TO 's3://{params.unload_to}' \n "
-                    f"WITH (format = 'PARQUET', partitioned_by = ARRAY{partition_by})"
-                )
-            else:
-                compiled_query = (
-                    f"UNLOAD ({compiled_query}) \n TO 's3://{params.unload_to}' \n WITH (format = 'PARQUET')"
-                )
-
-        if params.get_query_only:
-            return compiled_query
-
-        return self._bsq.execute(compiled_query)
+        query = self._assemble_outer_query(
+            params=params,
+            table_context=table_context,
+            group_by_selection=group_by_selection,
+            grouping_metrics=grouping_metrics,
+            enduse_columns=enduse_columns,
+        )
+        return self._compiled_or_executed_query(query, params, partition_by)

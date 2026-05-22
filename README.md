@@ -8,3 +8,40 @@ Documentation and walkthrough: https://github.com/NREL/buildstock-query/wiki
 
 Usage examples: https://github.com/NREL/buildstock-query/tree/main/example_usage
 
+## AWS Athena Cleanup Tool
+
+A standalone CLI utility to scan an Athena database and identify (or drop) stale tables and views whose underlying S3 data no longer exists.
+
+### Usage
+
+```bash
+# Dry-run: report stale tables/views without dropping
+aws_athena_cleanup --database my_db --workgroup primary --region us-west-2
+
+# Actually drop stale objects
+aws_athena_cleanup --database my_db --workgroup primary --drop
+
+# Skip view inspection (tables only)
+aws_athena_cleanup --database my_db --workgroup primary --skip-views
+
+# Specify an S3 output location (if the workgroup has no default)
+aws_athena_cleanup --database my_db --workgroup primary --s3-output s3://my-bucket/athena-results/
+
+# Help: see available configuration setting
+aws_athena_cleanup --help
+```
+
+### Programmatic Usage
+
+```python
+from buildstock_query.tools import cleanup_database
+
+summary = cleanup_database(
+    database="my_db",
+    workgroup="primary",
+    region="us-west-2",
+    drop=False,  # set True to actually remove stale objects
+)
+print(summary["stale_tables"])
+```
+

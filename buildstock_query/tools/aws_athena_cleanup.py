@@ -200,7 +200,7 @@ def aws_athena_cleanup(
         print("Deleted all stale tables" + ("." if skip_views else " and views."))
     print(f"{'='*60}")
     if not drop and (summary["stale_tables"] or summary["stale_views"]):
-        print(f"\n  Rerun with --drop (or -D) to remove stale objects.")
+        print("\n  Rerun with --drop (or -D) to remove stale objects.")
     print()
 
     return summary
@@ -213,8 +213,10 @@ def main():
     parser.add_argument("-d", "--database", required=True, help="Athena/Glue database name.")
     parser.add_argument("-w", "--workgroup", default="primary", help="Athena workgroup (default: primary).")
     parser.add_argument("-r", "--region", default="us-west-2", help="AWS region (default: us-west-2).")
-    parser.add_argument("-o", "--s3-output", default=None, help="S3 path for query results (if workgroup has no default).")
-    parser.add_argument("-D", "--drop", action="store_true", help="Actually drop stale tables/views. Without this flag, only reports.")
+    parser.add_argument("-o", "--s3-output", default=None,
+                        help="S3 path for query results (if workgroup has no default).")
+    parser.add_argument("-D", "--drop", action="store_true",
+                        help="Actually drop stale tables/views. Without this flag, only reports.")
     parser.add_argument("-S", "--skip-views", action="store_true", help="Skip view inspection (only check tables).")
     args = parser.parse_args()
 

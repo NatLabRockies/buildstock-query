@@ -146,9 +146,12 @@ def main():
     )
     parser.add_argument("-t", "--table", required=True, help="Table name to search for.")
     parser.add_argument("-r", "--region", default="us-west-2", help="AWS region (default: us-west-2).")
-    parser.add_argument("-s", "--substring", action="store_true", help="Match tables containing the search term as a substring.")
-    parser.add_argument("-E", "--regex", action="store_true", help="Treat the search term as a regex pattern.")
-    parser.add_argument("-f", "--database-filter", default=None, help="Only search databases whose name contains this substring.")
+    parser.add_argument("-s", "--substring", action="store_true",
+                        help="Match tables containing the search term as a substring.")
+    parser.add_argument("-E", "--regex", action="store_true",
+                        help="Treat the search term as a regex pattern.")
+    parser.add_argument("-f", "--database-filter", default=None,
+                        help="Only search databases whose name contains this substring.")
     args = parser.parse_args()
 
     aws_athena_table_search(

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from buildstock_query.tools.aws_utils.athena import (
+    get_workgroup_output_location,
     wait_for_query,
     start_query,
     run_query,
@@ -37,6 +38,39 @@ class TestClients:
     def test_get_s3_client(self, mock_boto3):
         get_s3_client("us-east-1")
         mock_boto3.client.assert_called_once_with("s3", region_name="us-east-1")
+
+
+class TestGetWorkgroupOutputLocation:
+    def test_returns_output_location(self):
+        athena = MagicMock()
+        athena.get_work_group.return_value = {
+            "WorkGroup": {
+                "Configuration": {
+                    "ResultConfiguration": {
+                        "OutputLocation": "s3://my-bucket/athena-results/"
+                    }
+                }
+            }
+        }
+        loc = get_workgroup_output_location(athena, "my-workgroup")
+        assert loc == "s3://my-bucket/athena-results/"
+
+    def test_returns_none_when_no_config(self):
+        athena = MagicMock()
+        athena.get_work_group.return_value = {
+            "WorkGroup": {"Configuration": {}}
+        }
+        loc = get_workgroup_output_location(athena, "my-workgroup")
+        assert loc is None
+
+    def test_returns_none_on_client_error(self):
+        from botocore.exceptions import ClientError
+
+        athena = MagicMock()
+        error_response = {"Error": {"Code": "InvalidRequestException", "Message": "not found"}}
+        athena.get_work_group.side_effect = ClientError(error_response, "GetWorkGroup")
+        loc = get_workgroup_output_location(athena, "bad-workgroup")
+        assert loc is None
 
 
 class TestWaitForQuery:

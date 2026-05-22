@@ -15,6 +15,7 @@ from typing import Optional
 
 from .aws_utils import (
     get_clients,
+    get_workgroup_output_location,
     wait_for_query,
     start_query,
     run_query,
@@ -75,7 +76,6 @@ def aws_athena_cleanup(
     database: str,
     workgroup: str = "primary",
     region: str = "us-west-2",
-    s3_output: Optional[str] = None,
     drop: bool = False,
     skip_views: bool = False,
 ) -> dict:
@@ -97,8 +97,6 @@ def aws_athena_cleanup(
         Athena workgroup.
     region : str
         AWS region.
-    s3_output : str, optional
-        S3 output location for query results.
     drop : bool
         If True, drop stale objects. If False, only report them.
     skip_views : bool
@@ -110,6 +108,7 @@ def aws_athena_cleanup(
         Summary with keys: 'stale_tables', 'stale_views', 'healthy_tables', 'healthy_views'.
     """
     athena_client, glue_client, s3_client = get_clients(region)
+    s3_output = get_workgroup_output_location(athena_client, workgroup)
 
     summary = {
         "stale_tables": [],
@@ -125,7 +124,7 @@ def aws_athena_cleanup(
     print(f"Database:    {database}")
     print(f"Workgroup:   {workgroup}")
     print(f"Region:      {region}")
-    print(f"S3 Output:   {s3_output or '(workgroup default)'}")
+    print(f"S3 Output:   {s3_output}")
     print(f"Drop:        {drop}")
     print(f"Skip Views:  {skip_views}")
     print(f"{'='*60}")
@@ -213,8 +212,6 @@ def main():
     parser.add_argument("-d", "--database", required=True, help="Athena/Glue database name.")
     parser.add_argument("-w", "--workgroup", default="primary", help="Athena workgroup (default: primary).")
     parser.add_argument("-r", "--region", default="us-west-2", help="AWS region (default: us-west-2).")
-    parser.add_argument("-o", "--s3-output", default=None,
-                        help="S3 path for query results (if workgroup has no default).")
     parser.add_argument("-D", "--drop", action="store_true",
                         help="Actually drop stale tables/views. Without this flag, only reports.")
     parser.add_argument("-S", "--skip-views", action="store_true", help="Skip view inspection (only check tables).")
@@ -224,7 +221,6 @@ def main():
         database=args.database,
         workgroup=args.workgroup,
         region=args.region,
-        s3_output=args.s3_output,
         drop=args.drop,
         skip_views=args.skip_views,
     )

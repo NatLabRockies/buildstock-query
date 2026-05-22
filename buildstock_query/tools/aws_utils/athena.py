@@ -6,6 +6,16 @@ from typing import Optional
 from botocore.exceptions import ClientError
 
 
+def get_workgroup_output_location(athena_client, workgroup: str) -> Optional[str]:
+    """Get the default output location configured for an Athena workgroup."""
+    try:
+        response = athena_client.get_work_group(WorkGroup=workgroup)
+        config = response["WorkGroup"].get("Configuration", {})
+        return config.get("ResultConfiguration", {}).get("OutputLocation")
+    except ClientError:
+        return None
+
+
 def wait_for_query(athena_client, execution_id: str, max_wait: int = 300) -> dict:
     """Poll until an Athena query completes or fails."""
     elapsed = 0
@@ -42,7 +52,7 @@ def start_query(
         if "output location" in error_msg.lower():
             raise RuntimeError(
                 f"Workgroup '{workgroup}' has no default output location. "
-                f"Pass --s3-output or configure the workgroup."
+                f"Configure the workgroup's result output location in AWS."
             ) from e
         raise
     return response["QueryExecutionId"]

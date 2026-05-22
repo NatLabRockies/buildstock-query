@@ -8,13 +8,16 @@ Documentation and walkthrough: https://github.com/NREL/buildstock-query/wiki
 
 Usage examples: https://github.com/NREL/buildstock-query/tree/main/example_usage
 
-## AWS Athena Cleanup Tool
-
-A standalone CLI utility to scan an Athena database and identify (or drop) stale tables and views whose underlying S3 data no longer exists.
+## AWS Athena Helper Tools
+Standalone CLI utilities to help with AWS Athena table maintenance and search.
 
 Programmatic usage examples: [example_usage/aws_athena_tools.ipynb](example_usage/aws_athena_tools.ipynb)
 
-### Usage
+### Cleanup Tool
+
+Scan an Athena database and identify (or drop) stale tables and views whose underlying S3 data no longer exists.
+
+#### Usage
 
 ```bash
 # Dry-run: report stale tables/views without dropping
@@ -33,11 +36,11 @@ aws_athena_cleanup --database my_db --workgroup primary --s3-output s3://my-buck
 aws_athena_cleanup --help
 ```
 
-## AWS Athena Table Search Tool
+### Table Search Tool
 
-A standalone CLI utility to search for a table across all Glue/Athena databases in your catalog. See programmatic usage in example_usage/aws_athena_tools.ipynb.
+Search for a table across all Glue/Athena databases in your catalog.
 
-### Usage
+#### Usage
 
 ```bash
 # Exact match across all databases

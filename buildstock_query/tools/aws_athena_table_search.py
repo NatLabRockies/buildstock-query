@@ -14,23 +14,9 @@ import argparse
 import re
 from typing import Optional
 
-import boto3
 from botocore.exceptions import ClientError
 
-
-def get_glue_client(region_name: str = "us-west-2"):
-    """Create a boto3 Glue client."""
-    return boto3.client("glue", region_name=region_name)
-
-
-def list_databases(glue_client) -> list[str]:
-    """List all databases in the Glue catalog."""
-    databases = []
-    paginator = glue_client.get_paginator("get_databases")
-    for page in paginator.paginate():
-        for db in page["DatabaseList"]:
-            databases.append(db["Name"])
-    return databases
+from .aws_utils import get_glue_client, list_databases
 
 
 def search_table_in_database(

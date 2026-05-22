@@ -58,6 +58,7 @@ setup(
         "console_scripts": [
             "upgrades_analyzer=buildstock_query.tools.upgrades_analyzer:main",
             "upgrades_visualizer=buildstock_query.tools.upgrades_visualizer:main",
+            "aws_athena_cleanup=buildstock_query.tools.aws_athena_cleanup:main",
         ]
     },
 )

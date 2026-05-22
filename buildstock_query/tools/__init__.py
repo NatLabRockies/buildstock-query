@@ -1,2 +1,3 @@
 from .upgrades_analyzer import UpgradesAnalyzer
-__all__ = ['UpgradesAnalyzer']
+from .aws_athena_cleanup import cleanup_database
+__all__ = ['UpgradesAnalyzer', 'cleanup_database']

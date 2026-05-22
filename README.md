@@ -24,7 +24,7 @@ aws_athena_cleanup --database my_db --workgroup primary --drop
 # Skip view inspection (tables only)
 aws_athena_cleanup --database my_db --workgroup primary --skip-views
 
-# Specify an S3 output location (if the workgroup has no default)
+# Optional: specify an S3 output location (if the workgroup has no default)
 aws_athena_cleanup --database my_db --workgroup primary --s3-output s3://my-bucket/athena-results/
 
 # Help: see available configuration setting
@@ -34,14 +34,55 @@ aws_athena_cleanup --help
 ### Programmatic Usage
 
 ```python
-from buildstock_query.tools import cleanup_database
+from buildstock_query.tools import aws_athena_cleanup
 
-summary = cleanup_database(
+summary = aws_athena_cleanup(
     database="my_db",
     workgroup="primary",
     region="us-west-2",
     drop=False,  # set True to actually remove stale objects
 )
 print(summary["stale_tables"])
+```
+
+## AWS Athena Table Search Tool
+
+A standalone CLI utility to search for a table across all Glue/Athena databases in your catalog.
+
+### Usage
+
+```bash
+# Exact match across all databases
+aws_athena_table_search --table my_table_name
+
+# Substring match (find tables containing "baseline")
+aws_athena_table_search --table baseline --substring
+
+# Regex match
+aws_athena_table_search --table "baseline_\d+" --regex
+
+# Only search databases whose name contains "resstock"
+aws_athena_table_search --table my_table --database-filter resstock
+
+# Different region
+aws_athena_table_search --table my_table --region us-east-1
+
+# Help: see available configuration setting
+aws_athena_table_search --help
+```
+
+### Programmatic Usage
+
+```python
+from buildstock_query.tools import aws_athena_table_search
+
+matches = aws_athena_table_search(
+    table_name="my_table",
+    region="us-west-2",
+    substring=True,  # substring match
+    database_filter="resstock",  # optional: limit to certain databases
+)
+for m in matches:
+    print(f"{m['database']}.{m['table']} -> {m['s3_location']}")
 ```
 

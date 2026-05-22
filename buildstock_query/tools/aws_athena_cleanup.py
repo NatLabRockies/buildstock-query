@@ -187,7 +187,7 @@ def drop_view(
         print(f"  WARNING: DROP VIEW failed for '{view_name}': {reason}")
 
 
-def cleanup_database(
+def aws_athena_cleanup(
     database: str,
     workgroup: str = "primary",
     region: str = "us-west-2",
@@ -334,7 +334,7 @@ def main():
     parser.add_argument("-S", "--skip-views", action="store_true", help="Skip view inspection (only check tables).")
     args = parser.parse_args()
 
-    cleanup_database(
+    aws_athena_cleanup(
         database=args.database,
         workgroup=args.workgroup,
         region=args.region,

@@ -6,139 +6,23 @@ whose underlying S3 data no longer exists or that return zero rows, then
 optionally drops them.
 
 Usage:
-    python cleanup_aws_athena_database.py --database my_db --workgroup primary --region us-west-2
-    python cleanup_aws_athena_database.py --database my_db --workgroup primary --drop  # actually drop stale objects
+    aws_athena_cleanup -d my_db -w primary -r us-west-2
+    aws_athena_cleanup -d my_db -w primary --drop
 """
 
 import argparse
-import time
 from typing import Optional
 
-import boto3
-from botocore.exceptions import ClientError
-
-
-def get_clients(region_name: str = "us-west-2"):
-    """Create boto3 Athena, Glue, and S3 clients."""
-    return (
-        boto3.client("athena", region_name=region_name),
-        boto3.client("glue", region_name=region_name),
-        boto3.client("s3", region_name=region_name),
-    )
-
-
-def wait_for_query(athena_client, execution_id: str, max_wait: int = 300) -> dict:
-    """Poll until an Athena query completes or fails."""
-    elapsed = 0
-    while elapsed < max_wait:
-        response = athena_client.get_query_execution(QueryExecutionId=execution_id)
-        state = response["QueryExecution"]["Status"]["State"]
-        if state in ("SUCCEEDED", "FAILED", "CANCELLED"):
-            return response
-        time.sleep(2)
-        elapsed += 2
-    raise TimeoutError(f"Query {execution_id} did not complete within {max_wait}s")
-
-
-def start_query(
-    athena_client,
-    query: str,
-    database: str,
-    workgroup: str,
-    s3_output: Optional[str] = None,
-) -> str:
-    """Start an Athena query and return the execution ID."""
-    kwargs = {
-        "QueryString": query,
-        "QueryExecutionContext": {"Database": database},
-        "WorkGroup": workgroup,
-    }
-    if s3_output:
-        kwargs["ResultConfiguration"] = {"OutputLocation": s3_output}
-
-    try:
-        response = athena_client.start_query_execution(**kwargs)
-    except ClientError as e:
-        error_msg = e.response["Error"]["Message"]
-        if "output location" in error_msg.lower():
-            raise RuntimeError(
-                f"Workgroup '{workgroup}' has no default output location. "
-                f"Pass --s3-output or configure the workgroup."
-            ) from e
-        raise
-    return response["QueryExecutionId"]
-
-
-def run_query(
-    athena_client,
-    query: str,
-    database: str,
-    workgroup: str,
-    s3_output: Optional[str] = None,
-) -> list[dict]:
-    """Run a query and return result rows (list of row dicts)."""
-    exec_id = start_query(athena_client, query, database, workgroup, s3_output)
-    result = wait_for_query(athena_client, exec_id)
-
-    state = result["QueryExecution"]["Status"]["State"]
-    if state != "SUCCEEDED":
-        reason = result["QueryExecution"]["Status"].get("StateChangeReason", "unknown")
-        raise RuntimeError(f"Query failed ({state}): {reason}\nQuery: {query}")
-
-    rows = []
-    paginator = athena_client.get_paginator("get_query_results")
-    for page in paginator.paginate(QueryExecutionId=exec_id):
-        for row in page["ResultSet"]["Rows"]:
-            rows.append(row)
-    return rows
-
-
-def list_tables(athena_client, database: str, workgroup: str, s3_output: Optional[str] = None) -> list[str]:
-    """List all tables in the database."""
-    rows = run_query(athena_client, f"SHOW TABLES IN {database}", database, workgroup, s3_output)
-    # First row is header for SHOW TABLES
-    return [row["Data"][0]["VarCharValue"] for row in rows]
-
-
-def list_views(athena_client, database: str, workgroup: str, s3_output: Optional[str] = None) -> list[str]:
-    """List all views in the database."""
-    rows = run_query(athena_client, f"SHOW VIEWS IN {database}", database, workgroup, s3_output)
-    return [row["Data"][0]["VarCharValue"] for row in rows]
-
-
-def get_table_s3_location(glue_client, database: str, table_name: str) -> Optional[str]:
-    """Get the S3 location of a Glue table. Returns None for views or if not found."""
-    try:
-        response = glue_client.get_table(DatabaseName=database, Name=table_name)
-        storage = response["Table"].get("StorageDescriptor", {})
-        return storage.get("Location")
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "EntityNotFoundException":
-            return None
-        raise
-
-
-def s3_path_has_data(s3_client, s3_uri: str) -> bool:
-    """
-    Check if an S3 path contains any objects.
-    Returns False if the path is empty or doesn't exist.
-    """
-    if not s3_uri or not s3_uri.startswith("s3://"):
-        return False
-
-    # Parse s3://bucket/prefix
-    path = s3_uri[5:]  # strip "s3://"
-    bucket, _, prefix = path.partition("/")
-
-    # Ensure prefix ends with / for directory-like listing
-    if prefix and not prefix.endswith("/"):
-        prefix += "/"
-
-    try:
-        response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
-        return response.get("KeyCount", 0) > 0
-    except ClientError:
-        return False
+from .aws_utils import (
+    get_clients,
+    wait_for_query,
+    start_query,
+    run_query,
+    list_tables,
+    list_views,
+    get_table_s3_location,
+    s3_path_has_data,
+)
 
 
 def table_has_rows(

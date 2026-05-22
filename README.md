@@ -29,9 +29,6 @@ aws_athena_cleanup --database my_db --workgroup primary --drop
 # Skip view inspection (tables only)
 aws_athena_cleanup --database my_db --workgroup primary --skip-views
 
-# Optional: specify an S3 output location (if the workgroup has no default)
-aws_athena_cleanup --database my_db --workgroup primary --s3-output s3://my-bucket/athena-results/
-
 # Help: see available configuration setting
 aws_athena_cleanup --help
 ```

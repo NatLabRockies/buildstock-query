@@ -80,9 +80,10 @@ class TestDropView:
 @patch("buildstock_query.tools.aws_athena_cleanup.get_table_s3_location")
 @patch("buildstock_query.tools.aws_athena_cleanup.list_views")
 @patch("buildstock_query.tools.aws_athena_cleanup.list_tables")
+@patch("buildstock_query.tools.aws_athena_cleanup.get_workgroup_output_location", return_value="s3://bucket/output/")
 @patch("buildstock_query.tools.aws_athena_cleanup.get_clients")
 class TestAwsAthenaCleanup:
-    def test_all_healthy(self, mock_clients, mock_tables, mock_views, mock_location, mock_s3):
+    def test_all_healthy(self, mock_clients, mock_wg_output, mock_tables, mock_views, mock_location, mock_s3):
         mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock())
         mock_tables.return_value = ["table_a", "table_b"]
         mock_views.return_value = []
@@ -95,7 +96,7 @@ class TestAwsAthenaCleanup:
         assert "table_b" in summary["healthy_tables"]
 
     @patch("buildstock_query.tools.aws_athena_cleanup.table_has_rows")
-    def test_identifies_stale_table(self, mock_rows, mock_clients, mock_tables, mock_views, mock_location, mock_s3):
+    def test_identifies_stale_table(self, mock_rows, mock_clients, mock_wg_output, mock_tables, mock_views, mock_location, mock_s3):
         mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock())
         mock_tables.return_value = ["good_table", "stale_table"]
         mock_views.return_value = []
@@ -108,7 +109,7 @@ class TestAwsAthenaCleanup:
         assert "good_table" in summary["healthy_tables"]
 
     @patch("buildstock_query.tools.aws_athena_cleanup.table_has_rows")
-    def test_s3_empty_but_has_rows_is_healthy(self, mock_rows, mock_clients, mock_tables, mock_views, mock_location, mock_s3):
+    def test_s3_empty_but_has_rows_is_healthy(self, mock_rows, mock_clients, mock_wg_output, mock_tables, mock_views, mock_location, mock_s3):
         mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock())
         mock_tables.return_value = ["weird_table"]
         mock_views.return_value = []
@@ -120,7 +121,7 @@ class TestAwsAthenaCleanup:
         assert "weird_table" in summary["healthy_tables"]
         assert summary["stale_tables"] == []
 
-    def test_no_s3_location_treated_as_healthy(self, mock_clients, mock_tables, mock_views, mock_location, mock_s3):
+    def test_no_s3_location_treated_as_healthy(self, mock_clients, mock_wg_output, mock_tables, mock_views, mock_location, mock_s3):
         mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock())
         mock_tables.return_value = ["managed_table"]
         mock_views.return_value = []
@@ -132,7 +133,7 @@ class TestAwsAthenaCleanup:
 
     @patch("buildstock_query.tools.aws_athena_cleanup.drop_table")
     @patch("buildstock_query.tools.aws_athena_cleanup.table_has_rows")
-    def test_drop_mode_calls_drop_table(self, mock_rows, mock_drop, mock_clients, mock_tables, mock_views, mock_location, mock_s3):
+    def test_drop_mode_calls_drop_table(self, mock_rows, mock_drop, mock_clients, mock_wg_output, mock_tables, mock_views, mock_location, mock_s3):
         mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock())
         mock_tables.return_value = ["stale_table"]
         mock_views.return_value = []
@@ -143,7 +144,7 @@ class TestAwsAthenaCleanup:
         aws_athena_cleanup(database="db", workgroup="wg", region="us-west-2", drop=True)
         mock_drop.assert_called_once()
 
-    def test_skip_views(self, mock_clients, mock_tables, mock_views, mock_location, mock_s3):
+    def test_skip_views(self, mock_clients, mock_wg_output, mock_tables, mock_views, mock_location, mock_s3):
         mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock())
         mock_tables.return_value = ["table_a"]
         mock_location.return_value = "s3://bucket/a/"
@@ -155,7 +156,7 @@ class TestAwsAthenaCleanup:
         assert summary["stale_views"] == []
 
     @patch("buildstock_query.tools.aws_athena_cleanup.table_has_rows")
-    def test_stale_view_identified(self, mock_rows, mock_clients, mock_tables, mock_views, mock_location, mock_s3):
+    def test_stale_view_identified(self, mock_rows, mock_clients, mock_wg_output, mock_tables, mock_views, mock_location, mock_s3):
         mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock())
         mock_tables.return_value = ["my_view"]  # SHOW TABLES includes views
         mock_views.return_value = ["my_view"]

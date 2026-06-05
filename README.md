@@ -15,7 +15,7 @@ Programmatic usage examples: [example_usage/aws_athena_tools.ipynb](example_usag
 
 ### Cleanup Tool
 
-Scan an Athena database and identify (or drop) stale tables and views whose underlying S3 data no longer exists.
+Scan an Athena database and identify (or drop) stale tables and views whose underlying S3 data no longer exists. If `--drop` is used and all tables/views in the database are stale, the empty database itself is also dropped.
 
 #### Usage
 
@@ -23,7 +23,7 @@ Scan an Athena database and identify (or drop) stale tables and views whose unde
 # Dry-run: report stale tables/views without dropping
 aws_athena_cleanup --database my_db --workgroup primary --region us-west-2
 
-# Actually drop stale objects
+# Actually drop stale objects (drops the database too if it becomes empty)
 aws_athena_cleanup --database my_db --workgroup primary --drop
 
 # Skip view inspection (tables only)

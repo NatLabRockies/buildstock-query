@@ -519,14 +519,22 @@ class QueryCore:
 
     def _read_s3_parquet(self, s3_path: str) -> pd.DataFrame:
         """Read a parquet file/directory from S3 using boto3-resolved credentials."""
+        if not s3_path.startswith("s3://"):
+            raise ValueError(f"Expected an s3:// path, got: {s3_path}")
         # Strip the s3:// prefix for PyArrow filesystem
-        path = s3_path.replace("s3://", "", 1).rstrip("/")
+        path = s3_path.removeprefix("s3://").rstrip("/")
+
+        fs = self._pa_s3fs
         try:
-            return pd.read_parquet(path, filesystem=self._pa_s3fs)
-        except Exception:
-            # If credential-aware FS fails (e.g. token expired), refresh and retry once
-            self._pa_s3fs = self._create_pa_s3_filesystem()
-            return pd.read_parquet(path, filesystem=self._pa_s3fs)
+            return pd.read_parquet(path, filesystem=fs)
+        except Exception as e:
+            fs = self._create_pa_s3_filesystem()
+            try:
+                df = pd.read_parquet(path, filesystem=fs)
+            except Exception as e2:
+                raise e2 from e
+            self._pa_s3fs = fs
+            return df
 
     def _compile(self, query) -> str:
         compiled_query = CustomCompiler(AthenaDialect(), query).process(query, literal_binds=True)

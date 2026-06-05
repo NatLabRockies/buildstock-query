@@ -7,6 +7,7 @@ from buildstock_query.tools.aws_athena_cleanup import (
     table_has_rows,
     drop_table,
     drop_view,
+    drop_database,
 )
 
 
@@ -131,18 +132,21 @@ class TestAwsAthenaCleanup:
         summary = aws_athena_cleanup(database="db", workgroup="wg", region="us-west-2")
         assert "managed_table" in summary["healthy_tables"]
 
+    @patch("buildstock_query.tools.aws_athena_cleanup.drop_database")
     @patch("buildstock_query.tools.aws_athena_cleanup.drop_table")
     @patch("buildstock_query.tools.aws_athena_cleanup.table_has_rows")
-    def test_drop_mode_calls_drop_table(self, mock_rows, mock_drop, mock_clients, mock_wg_output, mock_tables, mock_views, mock_location, mock_s3):
+    def test_drop_mode_calls_drop_table(self, mock_rows, mock_drop, mock_drop_db, mock_clients, mock_wg_output, mock_tables, mock_views, mock_location, mock_s3):
         mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock())
         mock_tables.return_value = ["stale_table"]
         mock_views.return_value = []
         mock_location.return_value = "s3://bucket/stale/"
         mock_s3.return_value = False
         mock_rows.return_value = False
+        mock_drop_db.return_value = True
 
         aws_athena_cleanup(database="db", workgroup="wg", region="us-west-2", drop=True)
         mock_drop.assert_called_once()
+        mock_drop_db.assert_called_once()
 
     def test_skip_views(self, mock_clients, mock_wg_output, mock_tables, mock_views, mock_location, mock_s3):
         mock_clients.return_value = (MagicMock(), MagicMock(), MagicMock())

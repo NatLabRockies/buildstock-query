@@ -25,6 +25,7 @@ from buildstock_query.helpers import save_pickle, load_pickle, read_csv
 from typing import TypedDict, NewType
 from botocore.config import Config
 import urllib3
+import pyarrow.fs as _pafs
 from buildstock_query.schema.run_params import RunParams
 from buildstock_query.db_schema.db_schema_model import DBSchema
 from buildstock_query.schema.utilities import (
@@ -112,6 +113,7 @@ class QueryCore:
         self._aws_s3 = boto3.client("s3")
         self._aws_athena = boto3.client("athena", region_name=params.region_name)
         self._aws_glue = boto3.client("glue", region_name=params.region_name)
+        self._pa_s3fs = self._create_pa_s3_filesystem()
         self._async_conn = Connection(
             work_group=params.workgroup,
             region_name=params.region_name,
@@ -496,6 +498,36 @@ class QueryCore:
             f" {self.execution_cost['GB']:.1f} GB (${self.execution_cost['Dollars']:.1f})"
         )
 
+    def _create_pa_s3_filesystem(self) -> _pafs.S3FileSystem:
+        """Create a PyArrow S3FileSystem using boto3 session credentials.
+
+        This ensures SSO, instance profiles, and other boto3 credential chains
+        are respected when PyArrow reads parquet from S3.
+        """
+        session = boto3.Session()
+        credentials = session.get_credentials()
+        if credentials is None:
+            # Fall back to anonymous/default — let PyArrow try its own resolution
+            return _pafs.S3FileSystem()
+        frozen = credentials.get_frozen_credentials()
+        return _pafs.S3FileSystem(
+            access_key=frozen.access_key,
+            secret_key=frozen.secret_key,
+            session_token=frozen.token,
+            region=session.region_name or "us-west-2",
+        )
+
+    def _read_s3_parquet(self, s3_path: str) -> pd.DataFrame:
+        """Read a parquet file/directory from S3 using boto3-resolved credentials."""
+        # Strip the s3:// prefix for PyArrow filesystem
+        path = s3_path.replace("s3://", "", 1).rstrip("/")
+        try:
+            return pd.read_parquet(path, filesystem=self._pa_s3fs)
+        except Exception:
+            # If credential-aware FS fails (e.g. token expired), refresh and retry once
+            self._pa_s3fs = self._create_pa_s3_filesystem()
+            return pd.read_parquet(path, filesystem=self._pa_s3fs)
+
     def _compile(self, query) -> str:
         compiled_query = CustomCompiler(AthenaDialect(), query).process(query, literal_binds=True)
         return compiled_query
@@ -512,7 +544,7 @@ class QueryCore:
                 and "HIVE_PATH_ALREADY_EXISTS" in self.get_query_error(execution_id)
             ):
                 try:
-                    df = pd.read_parquet(result_location)
+                    df = self._read_s3_parquet(result_location)
                 except FileNotFoundError:  # empty result
                     df = pd.DataFrame()
                 return df
@@ -612,7 +644,7 @@ class QueryCore:
         result_path = f"s3://{self.run_params.query_unload_s3_bucket}/bsq_athena_unload_results/{query_hash}"
         # check if result already exists in s3
         if (result_location := self._get_query_result_location(result_path)):
-            self._query_cache[query] = pd.read_parquet(result_location)
+            self._query_cache[query] = self._read_s3_parquet(result_location)
             if run_async:
                 return "CACHED", CachedFutureDf(self._query_cache[query].copy())
             return self._query_cache[query].copy()
@@ -993,7 +1025,7 @@ class QueryCore:
             bucket = path.split("/")[2]
             key = "/".join(path.split("/")[3:])
             full_path = f"s3://{bucket}/{key}/"
-            df = pd.read_parquet(full_path)
+            df = self._read_s3_parquet(full_path)
             return df
         # If failed, return error message
         elif query_status == "FAILED":

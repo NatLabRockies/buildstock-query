@@ -72,6 +72,22 @@ def drop_view(
         print(f"  WARNING: DROP VIEW failed for '{view_name}': {reason}")
 
 
+def drop_database(
+    athena_client, database: str, workgroup: str, s3_output: Optional[str] = None
+) -> bool:
+    """Drop an empty database from Athena. Returns True if successful."""
+    exec_id = start_query(
+        athena_client, f'DROP DATABASE IF EXISTS `{database}`', database, workgroup, s3_output
+    )
+    result = wait_for_query(athena_client, exec_id)
+    state = result["QueryExecution"]["Status"]["State"]
+    if state != "SUCCEEDED":
+        reason = result["QueryExecution"]["Status"].get("StateChangeReason", "unknown")
+        print(f"  WARNING: DROP DATABASE failed for '{database}': {reason}")
+        return False
+    return True
+
+
 def aws_athena_cleanup(
     database: str,
     workgroup: str = "primary",
@@ -187,6 +203,15 @@ def aws_athena_cleanup(
                 print(f"  OK:    {view}")
                 summary["healthy_views"].append(view)
 
+    # --- Drop empty database ---
+    db_dropped = False
+    if drop and not summary["healthy_tables"] and not summary["healthy_views"]:
+        print()
+        print(f"  Database '{database}' is now empty. Dropping database...")
+        db_dropped = drop_database(athena_client, database, workgroup, s3_output)
+        if db_dropped:
+            print(f"  Database '{database}' dropped successfully.")
+
     # --- Summary ---
     print(f"\n{'='*60}")
     print("SUMMARY")
@@ -196,7 +221,9 @@ def aws_athena_cleanup(
     print(f"  Healthy views:  {len(summary['healthy_views'])}")
     print(f"  Stale views:    {len(summary['stale_views'])}")
     if drop:
-        print("Deleted all stale tables" + ("." if skip_views else " and views."))
+        print("  Deleted all stale tables" + ("." if skip_views else " and views."))
+        if db_dropped:
+            print(f"  Dropped empty database '{database}'.")
     print(f"{'='*60}")
     if not drop and (summary["stale_tables"] or summary["stale_views"]):
         print("\n  Rerun with --drop (or -D) to remove stale objects.")

@@ -44,6 +44,7 @@ setup(
             "coverage >= 6.5.0",
             "plotly >= 5.10.0",
             "dash >= 2.6.2",
+            "moto[server] >= 5.0.0",
         ],
         "full": [
             "dash-bootstrap-components >= 1.2.1",

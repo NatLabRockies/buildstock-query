@@ -84,11 +84,11 @@ def run_query(
 
 def list_tables(athena_client, database: str, workgroup: str, s3_output: Optional[str] = None) -> list[str]:
     """List all tables in the database."""
-    rows = run_query(athena_client, f"SHOW TABLES IN {database}", database, workgroup, s3_output)
+    rows = run_query(athena_client, "SHOW TABLES", database, workgroup, s3_output)
     return [row["Data"][0]["VarCharValue"] for row in rows]
 
 
 def list_views(athena_client, database: str, workgroup: str, s3_output: Optional[str] = None) -> list[str]:
     """List all views in the database."""
-    rows = run_query(athena_client, f"SHOW VIEWS IN {database}", database, workgroup, s3_output)
+    rows = run_query(athena_client, "SHOW VIEWS", database, workgroup, s3_output)
     return [row["Data"][0]["VarCharValue"] for row in rows]

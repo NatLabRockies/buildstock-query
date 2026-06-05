@@ -245,7 +245,7 @@ def main():
     args = parser.parse_args()
 
     aws_athena_cleanup(
-        database=args.database,
+        database=args.database.strip("\"'"),
         workgroup=args.workgroup,
         region=args.region,
         drop=args.drop,

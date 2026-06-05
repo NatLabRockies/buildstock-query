@@ -504,17 +504,17 @@ class QueryCore:
         This ensures SSO, instance profiles, and other boto3 credential chains
         are respected when PyArrow reads parquet from S3.
         """
-        session = boto3.Session()
+        session = boto3.Session(region_name=self.run_params.region_name)
         credentials = session.get_credentials()
         if credentials is None:
-            # Fall back to anonymous/default — let PyArrow try its own resolution
-            return _pafs.S3FileSystem()
+            # Fall back to PyArrow's own resolution, but keep region consistent with RunParams
+            return _pafs.S3FileSystem(region=self.run_params.region_name)
         frozen = credentials.get_frozen_credentials()
         return _pafs.S3FileSystem(
             access_key=frozen.access_key,
             secret_key=frozen.secret_key,
             session_token=frozen.token,
-            region=session.region_name or "us-west-2",
+            region=self.run_params.region_name,
         )
 
     def _read_s3_parquet(self, s3_path: str) -> pd.DataFrame:

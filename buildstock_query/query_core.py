@@ -114,21 +114,12 @@ class QueryCore:
         self._aws_athena = boto3.client("athena", region_name=params.region_name)
         self._aws_glue = boto3.client("glue", region_name=params.region_name)
         self._pa_s3fs = self._create_pa_s3_filesystem()
-        
-        # Determine S3 staging directory for Athena query results
-        # Preserve backward compatibility: default "resstock-core" gets the bsq_athena_unload_results/ subfolder
-        if params.query_unload_s3_bucket == "resstock-core":
-            s3_staging_dir = "s3://resstock-core/bsq_athena_unload_results/"
-        else:
-            s3_staging_dir = f"s3://{params.query_unload_s3_bucket}"
-        
         self._async_conn = Connection(
             work_group=params.workgroup,
             region_name=params.region_name,
             cursor_class=AsyncPandasCursor,
             schema_name=params.db_name,
             config=Config(max_pool_connections=20),
-            s3_staging_dir=s3_staging_dir,
         )
 
         self.db_name = params.db_name
@@ -658,7 +649,16 @@ class QueryCore:
             return self._query_cache[query].copy()
 
         query_hash = hashlib.sha256(query.encode()).hexdigest()
-        result_path = f"s3://{self.run_params.query_unload_s3_bucket}/bsq_athena_unload_results/{query_hash}"
+        
+        # Construct result path: only append bsq_athena_unload_results/ if bucket is just a name (no path)
+        # If it's a full path (contains /), use it as-is for the base location
+        bucket_param = self.run_params.query_unload_s3_bucket
+        if "/" in bucket_param:
+            # Full path provided (e.g., from workgroup config like "resstock-panels/athena_query")
+            result_path = f"s3://{bucket_param}/{query_hash}"
+        else:
+            # Just bucket name provided, append the standard subfolder for backward compatibility
+            result_path = f"s3://{bucket_param}/bsq_athena_unload_results/{query_hash}"
         # check if result already exists in s3
         if (result_location := self._get_query_result_location(result_path)):
             self._query_cache[query] = self._read_s3_parquet(result_location)

@@ -56,19 +56,20 @@ def _get_workgroup_query_output_location(workgroup: str, region_name: str = "us-
         if output_location:
             # Output location is like s3://bucket-name/path/
             # pyathena expects s3://bucket-name/path without appending bsq_athena_unload_results/
-            # Extract the part after s3://
+            # Extract the part after s3:// and remove trailing slash
             if output_location.startswith("s3://"):
-                s3_path = output_location[5:]  # Remove s3://
+                s3_path = output_location[5:].rstrip("/")  # Remove s3:// and trailing slashes
                 logger.info(
                     f"Using Athena workgroup '{workgroup}' query output location: s3://{s3_path}"
                 )
                 return s3_path
             else:
                 # Already without s3:// prefix
+                s3_path = output_location.rstrip("/")  # Remove trailing slashes
                 logger.info(
-                    f"Using Athena workgroup '{workgroup}' query output location: s3://{output_location}"
+                    f"Using Athena workgroup '{workgroup}' query output location: s3://{s3_path}"
                 )
-                return output_location
+                return s3_path
     except Exception as e:  # noqa: BLE001
         logger.debug(
             f"Could not fetch workgroup '{workgroup}' output location from AWS: {e}. "

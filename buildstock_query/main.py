@@ -30,12 +30,14 @@ FUELS = ["electricity", "natural_gas", "propane", "fuel_oil", "coal", "wood_cord
 def _get_workgroup_query_output_location(workgroup: str, region_name: str = "us-west-2") -> Optional[str]:
     """Fetch the configured query output location from an Athena workgroup.
 
+    Extracts the S3 bucket/path portion (without s3:// prefix) that pyathena expects.
+
     Args:
         workgroup: Name of the Athena workgroup
         region_name: AWS region where the workgroup exists
 
     Returns:
-        The S3 path (e.g., s3://bucket/path) or None if unable to fetch
+        The S3 bucket/path portion (e.g., 'bucket-name/path') or None if unable to fetch
     """
     try:
         import boto3
@@ -52,10 +54,21 @@ def _get_workgroup_query_output_location(workgroup: str, region_name: str = "us-
         output_location = result_config.get("OutputLocation", "")
         
         if output_location:
-            logger.info(
-                f"Using Athena workgroup '{workgroup}' query output location: {output_location}"
-            )
-            return output_location
+            # Output location is like s3://bucket-name/path/
+            # pyathena expects s3://bucket-name/path without appending bsq_athena_unload_results/
+            # Extract the part after s3://
+            if output_location.startswith("s3://"):
+                s3_path = output_location[5:]  # Remove s3://
+                logger.info(
+                    f"Using Athena workgroup '{workgroup}' query output location: s3://{s3_path}"
+                )
+                return s3_path
+            else:
+                # Already without s3:// prefix
+                logger.info(
+                    f"Using Athena workgroup '{workgroup}' query output location: s3://{output_location}"
+                )
+                return output_location
     except Exception as e:  # noqa: BLE001
         logger.debug(
             f"Could not fetch workgroup '{workgroup}' output location from AWS: {e}. "

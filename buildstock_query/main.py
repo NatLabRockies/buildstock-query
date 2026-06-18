@@ -104,6 +104,7 @@ class BuildStockQuery(QueryCore):
         athena_query_reuse: bool = True,
         query_unload_s3_bucket: Optional[str] = None,
         cache_folder: str = ".bsq_cache",
+        skip_timestamp_offset_validation: bool = False,
     ) -> None:
         """A class to run Athena queries for BuildStock runs and download results as pandas DataFrame.
 
@@ -135,6 +136,9 @@ class BuildStockQuery(QueryCore):
                 results. If not provided, will attempt to fetch from the Athena workgroup configuration.
                 Falls back to 'resstock-core' if workgroup lookup fails. Specify this only if you want to override
                 the workgroup's configured location.
+            skip_timestamp_offset_validation (bool, optional): If True, skips validation of timeseries timestamp 
+                offsets. Set to True if your timeseries data has non-standard intervals (e.g., aggregated to hourly 
+                instead of the expected minute-level). Defaults to False.
         """
         db_schema = db_schema or f"{buildstock_type}_default"
         
@@ -163,6 +167,7 @@ class BuildStockQuery(QueryCore):
             athena_query_reuse=athena_query_reuse,
             query_unload_s3_bucket=query_unload_s3_bucket,
             cache_folder=cache_folder,
+            skip_timestamp_offset_validation=skip_timestamp_offset_validation,
         )
         self._run_params = self.params.get_run_params()
         super(BuildStockQuery, self).__init__(params=self._run_params)
@@ -665,7 +670,14 @@ class BuildStockQuery(QueryCore):
             interval = sim_interval_seconds
             offset = start_offset_seconds
             unit = "second"
-        assert offset in [0, interval]
+        
+        if not self.run_params.skip_timestamp_offset_validation:
+            assert offset in [0, interval], (
+                f"Unexpected timestamp offset in timeseries data. "
+                f"offset={offset}, interval={interval}. "
+                f"Set skip_timestamp_offset_validation=True if your timeseries data has non-standard intervals."
+            )
+        
         return SimInfo(sim_year, interval, offset, unit)
 
     def _get_special_column(

@@ -32,10 +32,6 @@ class TestTableHasRows:
         mock_run.side_effect = RuntimeError("Query failed")
         assert table_has_rows(MagicMock(), "db", "wg", "my_table") is False
 
-    def test_returns_false_on_timeout(self, mock_run):
-        mock_run.side_effect = TimeoutError("Query timed out")
-        assert table_has_rows(MagicMock(), "db", "wg", "my_table") is False
-
 
 @patch("buildstock_query.tools.aws_athena_cleanup.wait_for_query")
 @patch("buildstock_query.tools.aws_athena_cleanup.start_query")

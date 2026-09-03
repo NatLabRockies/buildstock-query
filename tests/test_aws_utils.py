@@ -179,7 +179,6 @@ class TestListTables:
     @patch("buildstock_query.tools.aws_utils.athena.run_query")
     def test_returns_table_names(self, mock_run):
         mock_run.return_value = [
-            {"Data": [{"VarCharValue": "tab_name"}]},
             {"Data": [{"VarCharValue": "table_a"}]},
             {"Data": [{"VarCharValue": "table_b"}]},
         ]
@@ -191,7 +190,6 @@ class TestListViews:
     @patch("buildstock_query.tools.aws_utils.athena.run_query")
     def test_returns_view_names(self, mock_run):
         mock_run.return_value = [
-            {"Data": [{"VarCharValue": "view_name"}]},
             {"Data": [{"VarCharValue": "view_x"}]},
         ]
         views = list_views(MagicMock(), "mydb", "primary")
@@ -258,7 +256,6 @@ class TestS3PathHasData:
         assert s3_path_has_data(s3, "") is False
         assert s3_path_has_data(s3, "http://not-s3/path") is False
         assert s3_path_has_data(s3, None) is False
-        assert s3_path_has_data(s3, "s3://") is False
 
     def test_returns_false_on_client_error(self):
         from botocore.exceptions import ClientError

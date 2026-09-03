@@ -29,7 +29,7 @@ aws_athena_cleanup --database my_db --workgroup primary --drop
 # Skip view inspection (tables only)
 aws_athena_cleanup --database my_db --workgroup primary --skip-views
 
-# Help: see available configuration settings
+# Help: see available configuration setting
 aws_athena_cleanup --help
 ```
 
@@ -55,6 +55,7 @@ aws_athena_table_search --table my_table --database-filter resstock
 # Different region
 aws_athena_table_search --table my_table --region us-east-1
 
-# Help: see available configuration settings
+# Help: see available configuration setting
 aws_athena_table_search --help
 ```
+

@@ -1,6 +1,6 @@
 """AWS S3 helpers."""
 
-from botocore.exceptions import ClientError, ParamValidationError
+from botocore.exceptions import ClientError
 
 
 def s3_path_has_data(s3_client, s3_uri: str) -> bool:
@@ -14,8 +14,6 @@ def s3_path_has_data(s3_client, s3_uri: str) -> bool:
     # Parse s3://bucket/prefix
     path = s3_uri[5:]  # strip "s3://"
     bucket, _, prefix = path.partition("/")
-    if not bucket:
-        return False
 
     # Ensure prefix ends with / for directory-like listing
     if prefix and not prefix.endswith("/"):
@@ -24,5 +22,5 @@ def s3_path_has_data(s3_client, s3_uri: str) -> bool:
     try:
         response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
         return response.get("KeyCount", 0) > 0
-    except (ClientError, ParamValidationError):
+    except ClientError:
         return False

@@ -40,7 +40,7 @@ def table_has_rows(
         )
         # rows includes header row, so >1 means data exists
         return len(rows) > 1
-    except (RuntimeError, TimeoutError):
+    except RuntimeError:
         return False
 
 

@@ -215,7 +215,7 @@ class BuildStockQuery(QueryCore):
             return self._compile(ts_query)
         df = self.execute(ts_query)
         if (df["row_count"] == df["row_count"][0]).all():  # verify all buildings got same number of rows
-            return int(df["row_count"][0])
+            return df["row_count"][0]
         else:
             raise ValueError("Not all buildings have same number of rows.")
 
@@ -567,7 +567,15 @@ class BuildStockQuery(QueryCore):
     @validate_arguments
     def _get_simulation_info(self, get_query_only: bool = False) -> Union[str, SimInfo]:
         # find the simulation time interval
-        query1 = sa.select(self.timestamp_column.distinct().label(self.timestamp_column_name))
+        query0 = sa.select(self.ts_bldgid_column, self._ts_upgrade_col).limit(1)  # get a building id and upgrade
+        bldg_df = self.execute(query0)
+        bldg_id = bldg_df.values[0][0]
+        upgrade_id = bldg_df.values[0][1]
+        query1 = sa.select(self.timestamp_column.distinct().label(self.timestamp_column_name)).where(
+            self.ts_bldgid_column == bldg_id
+        )
+        if self.up_table is not None:
+            query1 = query1.where(self._ts_upgrade_col == str(upgrade_id))
         query1 = query1.order_by(self.timestamp_column).limit(2)
         if get_query_only:
             return self._compile(query1)

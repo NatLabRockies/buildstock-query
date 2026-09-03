@@ -27,6 +27,59 @@ logger = logging.getLogger(__name__)
 FUELS = ["electricity", "natural_gas", "propane", "fuel_oil", "coal", "wood_cord", "wood_pellets"]
 
 
+def _get_workgroup_query_output_location(workgroup: str, region_name: str = "us-west-2") -> Optional[str]:
+    """Fetch the configured query output location from an Athena workgroup.
+
+    Extracts the S3 bucket/path portion (without s3:// prefix) that pyathena expects.
+
+    Args:
+        workgroup: Name of the Athena workgroup
+        region_name: AWS region where the workgroup exists
+
+    Returns:
+        The S3 bucket/path portion (e.g., 'bucket-name/path') or None if unable to fetch
+    """
+    try:
+        import boto3
+
+        athena = boto3.client("athena", region_name=region_name)
+        response = athena.get_work_group(WorkGroup=workgroup)
+        
+        # Try to get the output location from ResultConfiguration
+        result_config = (
+            response.get("WorkGroup", {})
+            .get("Configuration", {})
+            .get("ResultConfiguration", {})
+        )
+        output_location = result_config.get("OutputLocation", "")
+        
+        if output_location:
+            # Output location is like s3://bucket-name/path/
+            # pyathena expects s3://bucket-name/path without appending bsq_athena_unload_results/
+            # Extract the part after s3:// and remove trailing slash
+            if output_location.startswith("s3://"):
+                s3_path = output_location[5:].rstrip("/")  # Remove s3:// and trailing slashes
+                logger.info(
+                    f"Using Athena workgroup '{workgroup}' query output location: s3://{s3_path}"
+                )
+                return s3_path
+            else:
+                # Already without s3:// prefix
+                s3_path = output_location.rstrip("/")  # Remove trailing slashes
+                logger.info(
+                    f"Using Athena workgroup '{workgroup}' query output location: s3://{s3_path}"
+                )
+                return s3_path
+    except Exception as e:  # noqa: BLE001
+        logger.debug(
+            f"Could not fetch workgroup '{workgroup}' output location from AWS: {e}. "
+            "Will use default fallback."
+        )
+    
+    return None
+
+
+
 @dataclass
 class SimInfo:
     year: int
@@ -49,8 +102,9 @@ class BuildStockQuery(QueryCore):
         execution_history: Optional[str] = None,
         skip_reports: bool = False,
         athena_query_reuse: bool = True,
-        query_unload_s3_bucket: str = "resstock-core",
+        query_unload_s3_bucket: Optional[str] = None,
         cache_folder: str = ".bsq_cache",
+        skip_timestamp_offset_validation: bool = False,
     ) -> None:
         """A class to run Athena queries for BuildStock runs and download results as pandas DataFrame.
 
@@ -78,10 +132,29 @@ class BuildStockQuery(QueryCore):
             athena_query_reuse (bool, optional): When true, Athena will make use of its built-in 7 day query cache.
                 When false, it will not. Defaults to True. One use case to set this to False is when you have modified
                 the underlying s3 data or glue schema and want to make sure you are not using the cached results.
-            query_unload_s3_bucket (str, optional): The s3 bucket to use for unloading athena query results.
-                Defaults to 'resstock-core'.
+            query_unload_s3_bucket (str, optional): The s3 bucket or s3 path to use for unloading athena query
+                results. If not provided, will attempt to fetch from the Athena workgroup configuration.
+                Falls back to 'resstock-core' if workgroup lookup fails. Specify this only if you want to override
+                the workgroup's configured location.
+            skip_timestamp_offset_validation (bool, optional): If True, skips validation of timeseries timestamp 
+                offsets. Set to True if your timeseries data has non-standard intervals (e.g., aggregated to hourly 
+                instead of the expected minute-level). Defaults to False.
         """
         db_schema = db_schema or f"{buildstock_type}_default"
+        
+        # Determine query_unload_s3_bucket: explicit > workgroup config > fallback default
+        if not query_unload_s3_bucket:
+            workgroup_output = _get_workgroup_query_output_location(workgroup, region_name)
+            if workgroup_output:
+                query_unload_s3_bucket = workgroup_output
+            else:
+                # Fall back to hardcoded default only if workgroup lookup fails
+                logger.warning(
+                    f"Could not determine query output location from workgroup '{workgroup}'. "
+                    "Falling back to default 'resstock-core'."
+                )
+                query_unload_s3_bucket = "resstock-core"
+        
         self.params = BSQParams(
             workgroup=workgroup,
             db_name=db_name,
@@ -94,6 +167,7 @@ class BuildStockQuery(QueryCore):
             athena_query_reuse=athena_query_reuse,
             query_unload_s3_bucket=query_unload_s3_bucket,
             cache_folder=cache_folder,
+            skip_timestamp_offset_validation=skip_timestamp_offset_validation,
         )
         self._run_params = self.params.get_run_params()
         super(BuildStockQuery, self).__init__(params=self._run_params)
@@ -596,7 +670,14 @@ class BuildStockQuery(QueryCore):
             interval = sim_interval_seconds
             offset = start_offset_seconds
             unit = "second"
-        assert offset in [0, interval]
+        
+        if not self.run_params.skip_timestamp_offset_validation:
+            assert offset in [0, interval], (
+                f"Unexpected timestamp offset in timeseries data. "
+                f"offset={offset}, interval={interval}. "
+                f"Set skip_timestamp_offset_validation=True if your timeseries data has non-standard intervals."
+            )
+        
         return SimInfo(sim_year, interval, offset, unit)
 
     def _get_special_column(

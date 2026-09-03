@@ -17,6 +17,7 @@ class RunParams(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     keep_column_prefix: bool = False
     query_unload_s3_bucket: str = "resstock-core"
+    skip_timestamp_offset_validation: bool = False
 
 
 class BSQParams(RunParams):

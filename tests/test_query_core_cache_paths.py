@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import datetime
 import logging
+import hashlib
 from unittest.mock import MagicMock
+
+import pandas as pd
 
 from buildstock_query.query_core import QueryCore
 
@@ -85,3 +88,28 @@ class TestQueryCoreCachePaths:
         result = qc._get_query_result_location("s3://test-bucket/bsq_athena_unload_results/abc123")
 
         assert result == "s3://test-bucket/bsq_athena_unload_results/abc123/leaf/"
+
+    def test_execute_keeps_unload_namespace_for_prefixed_s3_root(self) -> None:
+        query = "SELECT 1"
+        query_hash = hashlib.sha256(query.encode()).hexdigest()
+        expected_root = (
+            f"s3://test-bucket/custom/prefix/bsq_athena_unload_results/{query_hash}"
+        )
+        cached_location = f"{expected_root}/cached/"
+        expected_df = pd.DataFrame({"value": [1]})
+
+        qc = QueryCore.__new__(QueryCore)
+        qc.run_params = MagicMock(
+            query_unload_s3_bucket="test-bucket/custom/prefix",
+            athena_query_reuse=True,
+        )
+        qc._session_queries = set()
+        qc._query_cache = {}
+        qc._get_query_result_location = MagicMock(return_value=cached_location)
+        qc._read_s3_parquet = MagicMock(return_value=expected_df)
+
+        result = qc.execute(query)
+
+        qc._get_query_result_location.assert_called_once_with(expected_root)
+        qc._read_s3_parquet.assert_called_once_with(cached_location)
+        pd.testing.assert_frame_equal(result, expected_df)

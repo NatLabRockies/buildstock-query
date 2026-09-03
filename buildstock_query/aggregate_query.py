@@ -316,14 +316,15 @@ class BuildStockAggregate:
             ]
             indx = group_by.index(colname)
             sim_info = self._bsq._get_simulation_info()
+            time_col = self._bsq.ts_table.c[self._bsq.timestamp_column_name]
             if sim_info.offset > 0:
                 # If timestamps are not period beginning we should make them so for timestamp_grouping_func aggregation.
                 new_col = sa.func.date_trunc(
                     params.timestamp_grouping_func,
-                    sa.func.date_add(sim_info.unit, -sim_info.offset, self._bsq.timestamp_column),
+                    sa.func.date_add(sim_info.unit, -sim_info.offset, time_col),
                 ).label(colname)
             else:
-                new_col = sa.func.date_trunc(params.timestamp_grouping_func, self._bsq.timestamp_column).label(colname)
+                new_col = sa.func.date_trunc(params.timestamp_grouping_func, time_col).label(colname)
             group_by[indx] = new_col
 
         group_by_selection = self._bsq._process_groupby_cols(group_by, annual_only=False)

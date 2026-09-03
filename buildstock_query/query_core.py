@@ -649,16 +649,11 @@ class QueryCore:
             return self._query_cache[query].copy()
 
         query_hash = hashlib.sha256(query.encode()).hexdigest()
-        
-        # Construct result path: only append bsq_athena_unload_results/ if bucket is just a name (no path)
-        # If it's a full path (contains /), use it as-is for the base location
-        bucket_param = self.run_params.query_unload_s3_bucket
-        if "/" in bucket_param:
-            # Full path provided (e.g., from workgroup config like "resstock-panels/athena_query")
-            result_path = f"s3://{bucket_param}/{query_hash}"
-        else:
-            # Just bucket name provided, append the standard subfolder for backward compatibility
-            result_path = f"s3://{bucket_param}/bsq_athena_unload_results/{query_hash}"
+
+        # Keep UNLOAD outputs in the dedicated buildstock_query cache namespace,
+        # regardless of whether the configured root is a bucket or a bucket/prefix.
+        bucket_param = self.run_params.query_unload_s3_bucket.rstrip("/")
+        result_path = f"s3://{bucket_param}/bsq_athena_unload_results/{query_hash}"
         # check if result already exists in s3
         if (result_location := self._get_query_result_location(result_path)):
             self._query_cache[query] = self._read_s3_parquet(result_location)

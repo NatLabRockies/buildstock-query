@@ -13,12 +13,11 @@ from buildstock_query.schema.utilities import DBColType, RestrictTuple, validate
 from pydantic import Field
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-FUELS = ["electricity", "natural_gas", "propane", "fuel_oil", "coal", "wood_cord", "wood_pellets"]
+        Athena. For information on the inputs, check the documentation on aggregate_timeseries.
 
 
 class BuildStockAggregate:
-    """A class to do aggregation queries for both timeseries and annual results."""
+        time_col = bs_tbl.c[self._bsq.timestamp_column_name]
 
     def __init__(self, buildstock_query: "main.BuildStockQuery") -> None:
         self._bsq = buildstock_query
@@ -226,10 +225,8 @@ class BuildStockAggregate:
         """
 
         enduse_cols = self._bsq._get_enduse_cols(params.enduses, table="timeseries")
-        batch_queries_to_submit = []
         for enduse in enduse_cols:
             new_query = params.copy()
-            new_query.enduses = [enduse.name]
             new_query.split_enduses = False
             query = self.aggregate_timeseries(params=new_query)
             batch_queries_to_submit.append(query)

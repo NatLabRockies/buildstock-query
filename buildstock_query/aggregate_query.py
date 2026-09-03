@@ -4,7 +4,7 @@ import datetime
 import numpy as np
 import logging
 from buildstock_query import main
-from buildstock_query.schema.query_params import BaseQuery, TSQuery, Query
+from buildstock_query.schema.query_params import BaseQuery, TSQuery, Query, SavingsQuery
 import pandas as pd
 from buildstock_query.schema.helpers import gather_params
 from typing import Union
@@ -494,6 +494,16 @@ class BuildStockAggregate:
         *,
         params: Query,
     ) -> Union[pd.DataFrame, str]:
+        if params.include_baseline and params.include_savings and not params.include_upgrade:
+            savings_params = {
+                field_name: getattr(params, field_name)
+                for field_name in SavingsQuery.model_fields
+                if hasattr(params, field_name)
+            }
+            if savings_params["unload_to"] is None:
+                savings_params["unload_to"] = ""
+            return self._bsq.savings.savings_shape(**savings_params)
+
         [self._bsq._get_table(jl[0]) for jl in params.join_list]  # ingress all tables in join list
 
         upgrade_id = self._bsq._validate_upgrade(params.upgrade_id)

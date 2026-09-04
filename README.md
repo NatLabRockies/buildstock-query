@@ -8,3 +8,54 @@ Documentation and walkthrough: https://github.com/NREL/buildstock-query/wiki
 
 Usage examples: https://github.com/NREL/buildstock-query/tree/main/example_usage
 
+## AWS Athena Helper Tools
+Standalone CLI utilities to help with AWS Athena table maintenance and search.
+
+Programmatic usage examples: [example_usage/aws_athena_tools.ipynb](example_usage/aws_athena_tools.ipynb)
+
+### Cleanup Tool
+
+Scan an Athena database and identify (or drop) stale tables and views whose underlying S3 data no longer exists. If `--drop` is used and all tables/views in the database are stale, the empty database itself is also dropped.
+
+#### Usage
+
+```bash
+# Dry-run: report stale tables/views without dropping
+aws_athena_cleanup --database my_db --workgroup primary --region us-west-2
+
+# Actually drop stale objects (drops the database too if it becomes empty)
+aws_athena_cleanup --database my_db --workgroup primary --drop
+
+# Skip view inspection (tables only)
+aws_athena_cleanup --database my_db --workgroup primary --skip-views
+
+# Help: see available configuration setting
+aws_athena_cleanup --help
+```
+
+### Table Search Tool
+
+Search for a table across all Glue/Athena databases in your catalog.
+
+#### Usage
+
+```bash
+# Exact match across all databases
+aws_athena_table_search --table my_table_name
+
+# Substring match (find tables containing "baseline")
+aws_athena_table_search --table baseline --substring
+
+# Regex match
+aws_athena_table_search --table "baseline_\d+" --regex
+
+# Only search databases whose name contains "resstock"
+aws_athena_table_search --table my_table --database-filter resstock
+
+# Different region
+aws_athena_table_search --table my_table --region us-east-1
+
+# Help: see available configuration setting
+aws_athena_table_search --help
+```
+

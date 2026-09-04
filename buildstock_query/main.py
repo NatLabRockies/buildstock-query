@@ -215,7 +215,7 @@ class BuildStockQuery(QueryCore):
             return self._compile(ts_query)
         df = self.execute(ts_query)
         if (df["row_count"] == df["row_count"][0]).all():  # verify all buildings got same number of rows
-            return df["row_count"][0]
+            return int(df["row_count"].iloc[0])
         else:
             raise ValueError("Not all buildings have same number of rows.")
 

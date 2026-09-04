@@ -4,7 +4,6 @@ import polars as pl
 from buildstock_query.tools.upgrades_visualizer.plot_utils import PlotParams
 from typing import Union
 from typing import Literal
-import datetime
 from buildstock_query.schema.utilities import validate_arguments
 
 num2month = {1: "January", 2: "February", 3: "March", 4: "April",
@@ -141,17 +140,7 @@ class VizData:
                                                                   upgrade_id=upgrade,
                                                                   timestamp_grouping_func='month',
                                                                   )
-            if monthly_vals_query in run_obj._query_cache:
-                monthly_vals = run_obj._query_cache[monthly_vals_query].copy()
-            else:
-                month_year = f"{datetime.datetime.now().strftime('%b%Y')}"
-                s3_unload_path = f"s3://{run_obj.params.query_unload_s3_bucket}/bsq_athena_unload_results/{month_year}/"
-                pd_cursor = run_obj._conn.cursor(unload=True, s3_staging_dir=s3_unload_path).execute(
-                    monthly_vals_query,
-                    result_reuse_enable=True,
-                    result_reuse_minutes=60 * 24 * 7)
-                monthly_vals = pd_cursor.as_pandas()
-                run_obj._query_cache[monthly_vals_query] = monthly_vals
+            monthly_vals = run_obj.execute(monthly_vals_query)
             run_obj.save_cache()
             monthly_df = pl.from_pandas(monthly_vals, include_index=True)
             monthly_df = monthly_df.with_columns(pl.col('time').dt.month().alias("month"))

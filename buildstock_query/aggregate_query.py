@@ -494,7 +494,13 @@ class BuildStockAggregate:
         *,
         params: Query,
     ) -> Union[pd.DataFrame, str]:
-        if params.include_baseline and params.include_savings and not params.include_upgrade:
+        if (
+            params.include_baseline
+            and params.include_savings
+            and not params.include_upgrade
+            and not params.get_quartiles
+            and params.timestamp_grouping_func in {None, "month", "day", "hour"}
+        ):
             savings_params = {
                 field_name: getattr(params, field_name)
                 for field_name in SavingsQuery.model_fields

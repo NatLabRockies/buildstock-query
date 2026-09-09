@@ -347,13 +347,13 @@ class BuildStockUtility:
         """
         eiaid_map_table_name, map_baseline_column, map_eiaid_column = self.get_eiaid_map()
         eiaid_map_table = self._bsq._get_table(eiaid_map_table_name)
-        query = sa.select(*[eiaid_map_table.c[map_eiaid_column].distinct()])
+        query = sa.select(*[eiaid_map_table.c[map_baseline_column].distinct()])
         query = self._bsq._add_restrict(query, [(self._bsq._get_column("eiaid", [eiaid_map_table_name]), eiaids)])
         query = query.where(eiaid_map_table.c["weight"] > 0)
         if get_query_only:
             return self._bsq._compile(query)
         res = self._bsq.execute(query)
-        return list(res[map_eiaid_column].values)
+        return list(res[map_baseline_column].values)
 
     def get_rate_map(self, weekend_csv_path: str, weekday_csv_path: str) -> dict[tuple[int, int, int], float]:
         def read_rate_file(file_path: str) -> pd.DataFrame:

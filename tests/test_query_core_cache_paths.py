@@ -55,6 +55,34 @@ class TestQueryCoreCachePaths:
         )
         assert "Multiple cached UNLOAD result folders found" in caplog.text
 
+    def test_get_query_result_location_ignores_success_marker_timestamp(self) -> None:
+        base = "bsq_athena_unload_results/abc123/"
+        pages = [{
+            "Contents": [
+                {
+                    "Key": f"{base}older/part-0.parquet",
+                    "LastModified": datetime.datetime(2024, 1, 2, tzinfo=datetime.timezone.utc),
+                },
+                {
+                    "Key": f"{base}older/_SUCCESS",
+                    "LastModified": datetime.datetime(2024, 1, 5, tzinfo=datetime.timezone.utc),
+                },
+                {
+                    "Key": f"{base}newer/part-0.parquet",
+                    "LastModified": datetime.datetime(2024, 1, 3, tzinfo=datetime.timezone.utc),
+                },
+                {
+                    "Key": f"{base}newer/_SUCCESS",
+                    "LastModified": datetime.datetime(2024, 1, 4, tzinfo=datetime.timezone.utc),
+                },
+            ]
+        }]
+        qc, _ = _make_query_core(pages)
+
+        result = qc._get_query_result_location("s3://test-bucket/bsq_athena_unload_results/abc123")
+
+        assert result == "s3://test-bucket/bsq_athena_unload_results/abc123/newer/"
+
     def test_get_query_result_location_returns_none_without_child_folders(self) -> None:
         pages = [{
             "Contents": [

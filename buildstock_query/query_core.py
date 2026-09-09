@@ -570,6 +570,7 @@ class QueryCore:
                         continue
                     if rest == "_SUCCESS":
                         complete_folders.add(folder)
+                        continue
 
                     current = folders.get(folder)
                     if current is None or last_modified > current:

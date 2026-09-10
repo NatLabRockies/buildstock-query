@@ -320,7 +320,7 @@ class TestBuildStockQuery:
             enduses=["fuel_use__electricity__total__kwh"],
             group_by=["geometry_building_type_recs"],
             annual_only=False,
-        )
+        ).sort_values(["geometry_building_type_recs", "time"]).reset_index(drop=True)
         df2 = bsq.query(
             annual_only=False,
             upgrade_id=2,
@@ -329,7 +329,7 @@ class TestBuildStockQuery:
             include_upgrade=False,
             enduses=["fuel_use__electricity__total__kwh"],
             group_by=["geometry_building_type_recs"],
-        )
+        ).sort_values(["geometry_building_type_recs", "time"]).reset_index(drop=True)
         pd.testing.assert_frame_equal(df1, df2)
 
     def test_quartile_savings_shape(self, bsq: BuildStockQuery):

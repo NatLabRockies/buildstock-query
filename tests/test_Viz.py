@@ -4,6 +4,10 @@ from buildstock_query.tools.upgrades_visualizer.plot_utils import PlotParams, Sa
 from buildstock_query.tools.upgrades_visualizer.upgrades_visualizer import get_app
 import pathlib
 import itertools as it
+from types import SimpleNamespace
+
+import pandas as pd
+import polars as pl
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 from tests.utils import load_tbl_from_pkl
@@ -29,6 +33,49 @@ from tests.utils import load_tbl_from_pkl
 
 
 class TestViz:
+    def test_init_monthly_results_uses_execute_without_conn(self):
+        class FakeRun:
+            def __init__(self):
+                self.ts_table = object()
+                self.bs_bldgid_column = "building_id"
+                self._query_cache = {}
+                self.agg = SimpleNamespace(aggregate_timeseries=self.aggregate_timeseries)
+                self.executed_queries = []
+                self.saved_cache = False
+
+            def aggregate_timeseries(self, **kwargs):
+                return "SELECT monthly"
+
+            def get_cols(self, table):
+                return [SimpleNamespace(name="fuel_use__electricity__total__kwh")]
+
+            def execute(self, query):
+                self.executed_queries.append(query)
+                return pd.DataFrame(
+                    {
+                        "building_id": [1],
+                        "time": [pd.Timestamp("2024-01-01")],
+                        "units_count": [1],
+                        "fuel_use__electricity__total__kwh": [10.0],
+                    }
+                )
+
+            def save_cache(self):
+                self.saved_cache = True
+
+        viz_data = VizData.__new__(VizData)
+        viz_data.available_upgrades = []
+        fake_run = FakeRun()
+        viz_data.run_obj = lambda upgrade: fake_run
+
+        metadata_df = pl.DataFrame({"building_id": [1], "sample_weight": [1.0]})
+
+        viz_data.init_monthly_results(metadata_df)
+
+        assert fake_run.executed_queries == ["SELECT monthly"]
+        assert fake_run.saved_cache is True
+        assert viz_data.upgrade2res_monthly["0"]["month"].to_list() == ["January"]
+
     @pytest.fixture(scope="class")
     def viz_data(self):
         folder_path = pathlib.Path(__file__).parent.resolve()

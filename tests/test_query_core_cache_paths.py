@@ -26,11 +26,19 @@ class TestQueryCoreCachePaths:
                     "LastModified": datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc),
                 },
                 {
+                    "Key": f"{base}older/_SUCCESS",
+                    "LastModified": datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc),
+                },
+                {
                     "Key": f"{base}newer/part-0.parquet",
                     "LastModified": datetime.datetime(2024, 1, 2, tzinfo=datetime.timezone.utc),
                 },
                 {
                     "Key": f"{base}newer/part-1.parquet",
+                    "LastModified": datetime.datetime(2024, 1, 3, tzinfo=datetime.timezone.utc),
+                },
+                {
+                    "Key": f"{base}newer/_SUCCESS",
                     "LastModified": datetime.datetime(2024, 1, 3, tzinfo=datetime.timezone.utc),
                 },
             ]
@@ -46,6 +54,34 @@ class TestQueryCoreCachePaths:
             Prefix="bsq_athena_unload_results/abc123/",
         )
         assert "Multiple cached UNLOAD result folders found" in caplog.text
+
+    def test_get_query_result_location_ignores_success_marker_timestamp(self) -> None:
+        base = "bsq_athena_unload_results/abc123/"
+        pages = [{
+            "Contents": [
+                {
+                    "Key": f"{base}older/part-0.parquet",
+                    "LastModified": datetime.datetime(2024, 1, 2, tzinfo=datetime.timezone.utc),
+                },
+                {
+                    "Key": f"{base}older/_SUCCESS",
+                    "LastModified": datetime.datetime(2024, 1, 5, tzinfo=datetime.timezone.utc),
+                },
+                {
+                    "Key": f"{base}newer/part-0.parquet",
+                    "LastModified": datetime.datetime(2024, 1, 3, tzinfo=datetime.timezone.utc),
+                },
+                {
+                    "Key": f"{base}newer/_SUCCESS",
+                    "LastModified": datetime.datetime(2024, 1, 4, tzinfo=datetime.timezone.utc),
+                },
+            ]
+        }]
+        qc, _ = _make_query_core(pages)
+
+        result = qc._get_query_result_location("s3://test-bucket/bsq_athena_unload_results/abc123")
+
+        assert result == "s3://test-bucket/bsq_athena_unload_results/abc123/newer/"
 
     def test_get_query_result_location_returns_none_without_child_folders(self) -> None:
         pages = [{
@@ -78,6 +114,10 @@ class TestQueryCoreCachePaths:
                     "Key": f"{base}leaf/part-0.parquet",
                     "LastModified": datetime.datetime(2024, 1, 2, tzinfo=datetime.timezone.utc),
                 },
+                {
+                    "Key": f"{base}leaf/_SUCCESS",
+                    "LastModified": datetime.datetime(2024, 1, 2, tzinfo=datetime.timezone.utc),
+                },
             ]
         }]
         qc, _ = _make_query_core(pages)
@@ -85,3 +125,32 @@ class TestQueryCoreCachePaths:
         result = qc._get_query_result_location("s3://test-bucket/bsq_athena_unload_results/abc123")
 
         assert result == "s3://test-bucket/bsq_athena_unload_results/abc123/leaf/"
+
+    def test_get_query_result_location_ignores_disrupted_partial_folder(self) -> None:
+        """A folder left by a killed/interrupted UNLOAD (no `_SUCCESS`) must never be reused."""
+        base = "bsq_athena_unload_results/abc123/"
+        pages = [{
+            "Contents": [
+                {
+                    "Key": f"{base}partial-uuid/part-0.parquet",
+                    "LastModified": datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc),
+                },
+            ]
+        }]
+        qc, _ = _make_query_core(pages)
+
+        result = qc._get_query_result_location("s3://test-bucket/bsq_athena_unload_results/abc123")
+
+        assert result is None
+
+    def test_mark_unload_complete_writes_success_marker(self) -> None:
+        qc = QueryCore.__new__(QueryCore)
+        qc._aws_s3 = MagicMock()
+
+        qc._mark_unload_complete("s3://test-bucket/bsq_athena_unload_results/abc123/done-uuid/")
+
+        qc._aws_s3.put_object.assert_called_once_with(
+            Bucket="test-bucket",
+            Key="bsq_athena_unload_results/abc123/done-uuid/_SUCCESS",
+            Body=b"",
+        )

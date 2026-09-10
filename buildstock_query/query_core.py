@@ -506,11 +506,14 @@ class QueryCore:
         timeout_minutes = 30
         while time.time() - t < timeout_minutes * 60:
             stat = self.get_query_status(execution_id)
-            if (
-                stat.upper() == "SUCCEEDED"
-                or stat.upper() == "FAILED"
-                and "HIVE_PATH_ALREADY_EXISTS" in self.get_query_error(execution_id)
-            ):
+            if stat.upper() == "SUCCEEDED":
+                self._mark_unload_complete(result_location)
+                try:
+                    df = pd.read_parquet(result_location)
+                except FileNotFoundError:  # empty result
+                    df = pd.DataFrame()
+                return df
+            elif stat.upper() == "FAILED" and "HIVE_PATH_ALREADY_EXISTS" in self.get_query_error(execution_id):
                 try:
                     df = pd.read_parquet(result_location)
                 except FileNotFoundError:  # empty result
@@ -527,8 +530,19 @@ class QueryCore:
                 time.sleep(1)
         raise TimeoutError("Query failed to complete within 30 mins.")
 
+    def _mark_unload_complete(self, result_location: str) -> None:
+        """Write a completion marker so only fully materialized UNLOAD results are ever reused."""
+        bucket_name, prefix = result_location.replace("s3://", "").split("/", 1)
+        marker_key = prefix.rstrip("/") + "/_SUCCESS"
+        with contextlib.suppress(ClientError):
+            self._aws_s3.put_object(Bucket=bucket_name, Key=marker_key, Body=b"")
+
     def _get_query_result_location(self, result_path: str) -> Optional[str]:
-        """Check if the UNLOAD result already exists in S3.
+        """Check if a fully completed UNLOAD result already exists in S3.
+
+        Folders left behind by a disrupted/partial UNLOAD (no `_SUCCESS` marker) are
+        ignored so they are never mistaken for a reusable result. This lets `execute`
+        automatically retry instead of requiring the folder to be deleted manually.
 
         Args:
             result_path (str): The S3 path where the UNLOAD result would be stored.
@@ -540,6 +554,7 @@ class QueryCore:
         try:
             paginator = self._aws_s3.get_paginator("list_objects_v2")
             folders: dict[str, datetime.datetime] = {}
+            complete_folders: set[str] = set()
             for page in paginator.paginate(Bucket=bucket_name, Prefix=normalized_prefix):
                 for obj in page.get("Contents", []):
                     key = obj.get("Key", "")
@@ -549,15 +564,19 @@ class QueryCore:
                     if not remainder or "/" not in remainder:
                         continue
 
-                    folder = remainder.split("/", 1)[0]
+                    folder, rest = remainder.split("/", 1)
                     last_modified = obj.get("LastModified")
                     if not folder or last_modified is None:
+                        continue
+                    if rest == "_SUCCESS":
+                        complete_folders.add(folder)
                         continue
 
                     current = folders.get(folder)
                     if current is None or last_modified > current:
                         folders[folder] = last_modified
 
+            folders = {folder: ts for folder, ts in folders.items() if folder in complete_folders}
             if not folders:
                 return None
 

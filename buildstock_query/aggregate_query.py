@@ -4,7 +4,7 @@ import datetime
 import numpy as np
 import logging
 from buildstock_query import main
-from buildstock_query.schema.query_params import BaseQuery, TSQuery, Query
+from buildstock_query.schema.query_params import BaseQuery, TSQuery, Query, SavingsQuery
 import pandas as pd
 from buildstock_query.schema.helpers import gather_params
 from typing import Union
@@ -18,7 +18,7 @@ FUELS = ["electricity", "natural_gas", "propane", "fuel_oil", "coal", "wood_cord
 
 
 class BuildStockAggregate:
-    """A class to do aggregation queries for both timeseries and annual results."""
+    """Class for doing aggregation queries for both timeseries and annual results."""
 
     def __init__(self, buildstock_query: "main.BuildStockQuery") -> None:
         self._bsq = buildstock_query
@@ -316,14 +316,15 @@ class BuildStockAggregate:
             ]
             indx = group_by.index(colname)
             sim_info = self._bsq._get_simulation_info()
+            time_col = self._bsq.ts_table.c[self._bsq.timestamp_column_name]
             if sim_info.offset > 0:
                 # If timestamps are not period beginning we should make them so for timestamp_grouping_func aggregation.
                 new_col = sa.func.date_trunc(
                     params.timestamp_grouping_func,
-                    sa.func.date_add(sim_info.unit, -sim_info.offset, self._bsq.timestamp_column),
+                    sa.func.date_add(sim_info.unit, -sim_info.offset, time_col),
                 ).label(colname)
             else:
-                new_col = sa.func.date_trunc(params.timestamp_grouping_func, self._bsq.timestamp_column).label(colname)
+                new_col = sa.func.date_trunc(params.timestamp_grouping_func, time_col).label(colname)
             group_by[indx] = new_col
 
         group_by_selection = self._bsq._process_groupby_cols(group_by, annual_only=False)
@@ -493,6 +494,22 @@ class BuildStockAggregate:
         *,
         params: Query,
     ) -> Union[pd.DataFrame, str]:
+        if (
+            params.include_baseline
+            and params.include_savings
+            and not params.include_upgrade
+            and not params.get_quartiles
+            and params.timestamp_grouping_func in {None, "month", "day", "hour"}
+        ):
+            savings_params = {
+                field_name: getattr(params, field_name)
+                for field_name in SavingsQuery.model_fields
+                if hasattr(params, field_name)
+            }
+            if savings_params["unload_to"] is None:
+                savings_params["unload_to"] = ""
+            return self._bsq.savings.savings_shape(**savings_params)
+
         [self._bsq._get_table(jl[0]) for jl in params.join_list]  # ingress all tables in join list
 
         upgrade_id = self._bsq._validate_upgrade(params.upgrade_id)

@@ -272,7 +272,7 @@ class BuildStockAggregate:
         # `total_weight` was constructed above as `bs.weight × user_weights`
         # bound to bs_table; we pass it in here so its multipliers are
         # baked into bldg_weight before the outer SELECT references it.
-        bs_per_bldg_cols = [base.c[k].label(k) for k in ts_unique_keys]
+        bs_per_bldg_cols = [self._bsq._key_column(base, k).label(k) for k in ts_unique_keys]
         # Carry bs-side group-by columns as TRUE GROUP BY keys of bs_per_bldg
         # — NOT as `arbitrary()` collapsed values. ComStock's md is partitioned
         # at (bldg_id, tract, state) granularity with `weight` divided across
@@ -348,7 +348,7 @@ class BuildStockAggregate:
                 *join_list_restrict_clauses,
             )
             .group_by(
-                *(base.c[k] for k in ts_unique_keys),
+                *(self._bsq._key_column(base, k) for k in ts_unique_keys),
                 *bs_per_bldg_extra_group_exprs,
             )
             .subquery("bs_per_bldg")

@@ -1344,7 +1344,7 @@ class BuildStockQuery(QueryCore):
         union_ids = list(dict.fromkeys(all_ids + any_ids))
         typed_union = [typed_literal(up_col, uid) for uid in union_ids]
         key_names = self._get_unique_keys(key_kind)
-        md_key_cols = [self.bs_table.c[name] for name in key_names]
+        md_key_cols = [self._key_column(self.bs_table, name) for name in key_names]
 
         select = (
             sa.select(*md_key_cols)
@@ -1407,7 +1407,7 @@ class BuildStockQuery(QueryCore):
         if key_kind == "timeseries" and self.ts_table is not None:
             cols = [self.ts_table.c[name] for name in key_names]
         else:
-            cols = [self.bs_table.c[name] for name in key_names]
+            cols = [self._key_column(self.bs_table, name) for name in key_names]
         if len(cols) == 1:
             return (cols[0], select)
         return (tuple(cols), select)

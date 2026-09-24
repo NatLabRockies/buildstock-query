@@ -309,14 +309,23 @@ class BuildStockAggregate:
             ]
 
         if (colname := self._bsq.timestamp_column_name) in group_by and params.timestamp_grouping_func:
+            # The timestamp grouping folds several timesteps into one row, so the row count
+            # has to be divided back down by the rows each profile contributed.
             # sample_count = count(distinct(building_id))
-            # units_count = count(distinct(buuilding_id)) * sum(total_weight) / sum(1)
+            # units_count = count(distinct(profile)) * sum(total_weight) / sum(1)
+            # A profile is one building, except on a run allocated across geographies, where
+            # the timeseries is written once per geography and a profile is a (building,
+            # geography) pair. Counting buildings there would divide by the geographies as
+            # well as the timesteps and undercount the units.
+            sample_key = self._bsq.ts_sample_key
+            # An integer weight column makes the whole expression integer arithmetic, which
+            # Athena answers in truncating decimal; the profile key is only ever composite on
+            # an allocated run, so float the sum there rather than churn every other query.
+            weight_sum = safunc.sum(total_weight if sample_key is self._bsq.ts_bldgid_column else total_weight * 1.0)
             grouping_metrics_selection = [
                 safunc.count(safunc.distinct(self._bsq.ts_bldgid_column)).label("sample_count"),
-                (
-                    safunc.count(safunc.distinct(self._bsq.ts_bldgid_column)) * safunc.sum(total_weight) / safunc.sum(1)
-                ).label("units_count"),
-                (safunc.sum(1) / safunc.count(safunc.distinct(self._bsq.ts_bldgid_column))).label("rows_per_sample"),
+                (safunc.count(safunc.distinct(sample_key)) * weight_sum / safunc.sum(1)).label("units_count"),
+                (safunc.sum(1) / safunc.count(safunc.distinct(sample_key))).label("rows_per_sample"),
             ]
             indx = group_by.index(colname)
             sim_info = self._bsq._get_simulation_info()
@@ -649,14 +658,22 @@ class BuildStockAggregate:
         elif params.timestamp_grouping_func:
             colname = self._bsq.timestamp_column_name
             bldg_id_col = bs_tbl.c[self._bsq.building_id_column_name]
+            # The timestamp grouping folds several timesteps into one row, so units_count
+            # divides the weighted sum back down by the rows each profile contributed. A
+            # profile is one building, except on a run allocated across geographies, where
+            # the timeseries is written once per geography and a profile is a (building,
+            # geography) pair; counting buildings there divides by the geographies as well
+            # as the timesteps and undercounts the units. The upgrade path reads from
+            # subquery aliases rather than the timeseries table, so it keeps the building
+            # id until it can be verified against an allocated run with upgrades (see #84).
+            sample_key = self._bsq.ts_sample_key if bs_tbl is self._bsq.ts_table else bldg_id_col
+            # An integer weight column, which the allocated runs have, otherwise makes the
+            # whole expression integer arithmetic that Athena answers in truncating decimal.
+            weight_sum = safunc.sum(total_weight if sample_key is bldg_id_col else total_weight * 1.0)
             grouping_metrics_selection = [
                 safunc.count(sa.func.distinct(bldg_id_col)).label("sample_count"),
-                (
-                    safunc.count(sa.func.distinct(bldg_id_col))
-                    * safunc.sum(total_weight)
-                    / safunc.sum(1)
-                ).label("units_count"),
-                (safunc.sum(1) / safunc.count(sa.func.distinct(bldg_id_col))).label("rows_per_sample"),
+                (safunc.count(sa.func.distinct(sample_key)) * weight_sum / safunc.sum(1)).label("units_count"),
+                (safunc.sum(1) / safunc.count(sa.func.distinct(sample_key))).label("rows_per_sample"),
             ]
             sim_info = self._bsq._get_simulation_info()
             time_col = bs_tbl.c[self._bsq.timestamp_column_name]

@@ -8,7 +8,7 @@ import pytest
 import sqlalchemy as sa
 
 from buildstock_query.db_schema.db_schema_model import Structure
-from buildstock_query.query_core import QueryException, build_ts_baseline_join_condition
+from buildstock_query.query_core import QueryException, build_ts_baseline_join_condition, build_ts_sample_key
 
 
 def _tables(bs_columns: list[str], ts_columns: list[str]) -> tuple[sa.Table, sa.Table]:
@@ -95,3 +95,35 @@ class TestStructureSchema:
     def test_geography_partition_round_trips(self) -> None:
         structure = Structure.model_validate({"inapplicables_have_ts": True, "geography_partition": "state"})
         assert structure.geography_partition == "state"
+
+
+class TestBuildTsSampleKey:
+    def test_is_the_building_id_when_no_geography_partition(self) -> None:
+        """One timeseries per building, so the building id identifies a profile."""
+        _, ts = _tables(["bldg_id", "in.state"], ["bldg_id", "state"])
+
+        key = build_ts_sample_key(ts_table=ts, building_id_column="bldg_id", geography_partition=None)
+
+        assert key is ts.c["bldg_id"]
+
+    def test_combines_building_and_geography_when_configured(self) -> None:
+        """An allocated run writes the timeseries once per geography, so a profile is a pair.
+
+        Counting distinct building ids there would divide the row count by the geographies
+        as well as by the timesteps, undercounting the units behind the aggregate.
+        """
+        _, ts = _tables(["bldg_id", "in.state"], ["bldg_id", "state"])
+
+        key = build_ts_sample_key(ts_table=ts, building_id_column="bldg_id", geography_partition="state")
+
+        rendered = str(key)
+        assert "run_timeseries.bldg_id" in rendered
+        assert "run_timeseries.state" in rendered
+        assert "concat" in rendered.lower()
+
+    def test_raises_when_the_geography_column_is_missing(self) -> None:
+        """Same refusal as the join: silently counting buildings would undercount."""
+        _, ts = _tables(["bldg_id", "in.state"], ["bldg_id"])
+
+        with pytest.raises(QueryException, match="geography_partition"):
+            build_ts_sample_key(ts_table=ts, building_id_column="bldg_id", geography_partition="state")

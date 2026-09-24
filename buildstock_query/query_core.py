@@ -107,6 +107,45 @@ def build_ts_baseline_join_condition(
     return sa.and_(condition, bs_table.c[bs_geography_column] == ts_table.c[geography_partition])
 
 
+def build_ts_sample_key(
+    ts_table: sa.Table,
+    building_id_column: str,
+    geography_partition: Optional[str] = None,
+):
+    """Build the expression identifying one timeseries profile in the timeseries table.
+
+    A profile is normally one building, so the building id identifies it. When a run's
+    dwelling units are allocated across geographies the timeseries is written once per
+    geography, so a profile is a (building, geography) pair and counting distinct building
+    ids undercounts the rows behind an aggregate. Metrics derived from rows per profile,
+    such as units_count over a timestamp grouping, need this key rather than the building
+    id.
+
+    Args:
+        ts_table: the timeseries table.
+        building_id_column: name of the building id column.
+        geography_partition: name of the geography column in the timeseries table, when
+            the run is allocated across geographies. None for the usual publications.
+
+    Returns:
+        The building id column itself when there is no partition, otherwise a string
+        expression combining building id and geography.
+    """
+    bldgid_column = ts_table.c[building_id_column]
+    if not geography_partition:
+        return bldgid_column
+    if geography_partition not in ts_table.c:
+        raise QueryException(
+            f"db_schema sets structure.geography_partition to '{geography_partition}', but the "
+            "timeseries table has no such column."
+        )
+    return safunc.concat(
+        sa.cast(bldgid_column, sa.String),
+        sa.literal("|"),
+        sa.cast(ts_table.c[geography_partition], sa.String),
+    )
+
+
 ExeId = NewType("ExeId", str)
 
 
@@ -270,6 +309,11 @@ class QueryCore:
         if self.ts_table is not None:
             self.timestamp_column = self.ts_table.c[self.timestamp_column_name]
             self.ts_bldgid_column = self.ts_table.c[self.building_id_column_name]
+            self.ts_sample_key = build_ts_sample_key(
+                ts_table=self.ts_table,
+                building_id_column=self.building_id_column_name,
+                geography_partition=self.db_schema.structure.geography_partition,
+            )
             self.ts_bs_join_condition = build_ts_baseline_join_condition(
                 bs_table=self.bs_table,
                 ts_table=self.ts_table,

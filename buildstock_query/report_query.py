@@ -706,7 +706,7 @@ class BuildStockReport:
         # SA to comma-join md_table and bs_table — a Cartesian that Athena
         # rejects with "mismatched input 'GROUP'".
         bs = bsq.bs_table
-        ts_key_cols = [bs.c[c] for c in bsq.ts_key]
+        ts_key_cols = [bsq._key_column(bs, c) for c in bsq.ts_key]
         distinct_expr = bsq._count_distinct(ts_key_cols)
         upgrade_col = bs.c["upgrade"]
 

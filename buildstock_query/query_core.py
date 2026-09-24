@@ -175,7 +175,8 @@ class QueryCore:
         if self.md_table_state_agg is not None:
             self.bs_table_state_agg = self.md_table_state_agg.alias("bs")
             self.md_state_agg_key: tuple[str, ...] = tuple(
-                self._get_unique_keys("metadata_state_agg")
+                self._key_column(self.bs_table_state_agg, k).name
+                for k in self._get_unique_keys("metadata_state_agg")
             )
         else:
             self.bs_table_state_agg = None
@@ -186,7 +187,12 @@ class QueryCore:
             self.timestamp_column = self.ts_table.c[self.timestamp_column_name]
             self.ts_bldgid_column = self.ts_table.c[self.building_id_column_name]
 
-        self.md_key: tuple[str, ...] = tuple(self._get_unique_keys("metadata"))
+        # md_key holds the metadata table's own column names (e.g. `in.state`
+        # when the key is written `state` and md carries it prefixed), so
+        # `bs.c[k]` and DataFrame indexing by md_key both work unchanged.
+        self.md_key: tuple[str, ...] = tuple(
+            self._key_column(self.bs_table, k).name for k in self._get_unique_keys("metadata")
+        )
         self.ts_key: tuple[str, ...] = tuple(self._get_unique_keys("timeseries"))
 
         self.sample_wt = self._get_sample_weight(self.sample_weight)
@@ -273,6 +279,29 @@ class QueryCore:
             self.sample_wt = prev_sample_wt
             self.md_bldgid_column = prev_md_bldgid
 
+    def _key_column(self, table: AnyTableType, key: str) -> sa.ColumnElement:
+        """Resolve a unique-key name to its column on `table`.
+
+        Keys are written with the timeseries column names (e.g. `state`). The
+        timeseries table carries them bare, but a metadata table may carry the
+        same value behind the characteristics prefix (e.g. ResStock's
+        `in.state`). An exact name match wins, so schemas whose metadata already
+        has the bare column (ComStock's `state` partition) are unaffected.
+
+        Raises rather than falling back to a narrower join: dropping a key from
+        a ts ⋈ md join silently double counts every building that spans more
+        than one value of it.
+        """
+        if key in table.c:
+            return table.c[key]
+        prefixed = f"{self.db_schema.column_prefix.characteristics}{key}"
+        if prefixed in table.c:
+            return table.c[prefixed]
+        raise QueryException(
+            f"Unique key '{key}' is not a column of {getattr(table, 'name', table)} "
+            f"(also tried '{prefixed}'). Check [unique_keys] in the db_schema."
+        )
+
     def _join_condition(
         self,
         left_table: AnyTableType,
@@ -281,7 +310,9 @@ class QueryCore:
         extra_keys: Sequence[str] = (),
     ) -> sa.ColumnElement:
         keys = list(dict.fromkeys([*self._get_unique_keys(kind), *extra_keys]))
-        return sa.and_(*(left_table.c[key] == right_table.c[key] for key in keys))
+        return sa.and_(
+            *(self._key_column(left_table, key) == self._key_column(right_table, key) for key in keys)
+        )
 
     def _baseline_timeseries_join_condition(
         self,

@@ -551,3 +551,116 @@ def test_query_applied_filter_adds_subquery_restrict(
     # for upgrade-applied filtering (was completed_status='Success' on the
     # legacy 3-table shape).
     assert "applicability = 'true'" in query
+
+
+# ---------------------------------------------------------------------------
+# Prefixed metadata key columns — ResStock runs allocated across states carry
+# the partition as `in.state` on the metadata side and `state` on the ts side.
+
+
+_RESSTOCK_BY_STATE_SCHEMA_PATH = (
+    _PROJECT_ROOT / "buildstock_query" / "db_schema" / "resstock_oedi_by_state.toml"
+)
+
+
+def _prefixed_key_bsq(monkeypatch: pytest.MonkeyPatch, *, md_state_column: str = "in.state") -> BuildStockQuery:
+    """BSQ on the resstock_oedi_by_state schema: unique keys (bldg_id, state),
+    with the metadata carrying the state as `md_state_column`."""
+    db_schema_dict = toml.load(_RESSTOCK_BY_STATE_SCHEMA_PATH)
+    enduse = "out.electricity.total.energy_consumption..kwh"
+    metadata = sa.MetaData()
+    md = sa.Table(
+        "alloc_run_md_by_state_parquet", metadata,
+        sa.Column("bldg_id", sa.Integer),
+        sa.Column(md_state_column, sa.String),
+        sa.Column("upgrade", sa.String),
+        sa.Column("applicability", sa.String),
+        sa.Column("weight", sa.Float),
+        sa.Column(enduse, sa.Float),
+    )
+    timeseries = sa.Table(
+        "alloc_run_ts_by_state", metadata,
+        sa.Column("bldg_id", sa.Integer),
+        sa.Column("state", sa.String),
+        sa.Column("timestamp", sa.DateTime),
+        sa.Column("upgrade", sa.String),
+        sa.Column(enduse, sa.Float),
+    )
+    monkeypatch.setattr(BuildStockQuery, "_get_tables", lambda self, name: (md, timeseries))
+    bsq = BuildStockQuery(
+        db_name="resstock_oedi",
+        table_name="alloc_run",
+        workgroup="rescore",
+        buildstock_type="resstock",
+        db_schema=db_schema_dict,
+        skip_reports=True,
+    )
+    monkeypatch.setattr(bsq, "get_available_upgrades", lambda: ["0", "1"])
+    return bsq
+
+
+def test_resstock_by_state_schema_validates() -> None:
+    db_schema = DBSchema.model_validate(toml.load(_RESSTOCK_BY_STATE_SCHEMA_PATH))
+    assert db_schema.unique_keys.metadata == ["bldg_id", "state"]
+    assert db_schema.unique_keys.timeseries == ["bldg_id", "state"]
+
+
+def test_prefixed_key_resolves_to_metadata_column_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """md_key holds the metadata's own column names so bs.c[k] and DataFrame
+    indexing keep working; ts_key keeps the timeseries names."""
+    bsq = _prefixed_key_bsq(monkeypatch)
+    assert bsq.md_key == ("bldg_id", "in.state")
+    assert bsq.ts_key == ("bldg_id", "state")
+    assert [c.name for c in bsq.md_key_cols] == ["bldg_id", "in.state"]
+
+
+def test_prefixed_key_joins_timeseries_on_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ts ⋈ md join must match state as well as bldg_id; otherwise each
+    state's profile pairs with every state's weight."""
+    bsq = _prefixed_key_bsq(monkeypatch)
+    query = bsq.query(
+        annual_only=False,
+        enduses=["out.electricity.total.energy_consumption..kwh"],
+        get_query_only=True,
+    )
+    assert 'bs."in.state" AS state' in query
+    assert "bs_per_bldg.bldg_id = ts_aggr.bldg_id AND bs_per_bldg.state = ts_aggr.state" in query
+    assert 'GROUP BY bs.bldg_id, bs."in.state"' in query
+
+
+def test_prefixed_key_joins_upgrade_on_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    bsq = _prefixed_key_bsq(monkeypatch)
+    query = bsq.query(
+        upgrade_id="1", annual_only=True,
+        enduses=["out.electricity.total.energy_consumption..kwh"],
+        get_query_only=True,
+    )
+    assert "bs.bldg_id = up.bldg_id" in query
+    assert 'bs."in.state" = up."in.state"' in query
+
+
+def test_prefixed_key_timeseries_applied_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ts-keyed applied filter compares ts columns against the metadata's
+    prefixed columns positionally."""
+    bsq = _prefixed_key_bsq(monkeypatch)
+    applied_filter = bsq._make_applied_filter_tuple(
+        bsq._build_applied_subquery(all_of=["1"], key_kind="timeseries"), key_kind="timeseries",
+    )
+    lhs, select = applied_filter
+    assert [c.name for c in lhs] == ["bldg_id", "state"]
+    assert 'SELECT bs.bldg_id, bs."in.state"' in bsq._compile(select)
+
+
+def test_exact_key_name_wins_over_prefixed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A metadata table with the bare column (ComStock's `state` partition)
+    keeps using it."""
+    bsq = _prefixed_key_bsq(monkeypatch, md_state_column="state")
+    assert bsq.md_key == ("bldg_id", "state")
+
+
+def test_missing_key_column_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Falling back to a bldg_id-only join would silently double count."""
+    from buildstock_query.query_core import QueryException
+
+    with pytest.raises(QueryException, match="Unique key 'state'"):
+        _prefixed_key_bsq(monkeypatch, md_state_column="in.county")

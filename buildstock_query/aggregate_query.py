@@ -45,7 +45,7 @@ class BuildStockAggregate:
                 tbljoin = ts.join(
                     base,
                     sa.and_(
-                        self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column,
+                        self._bsq.ts_bs_join_condition,
                         *self._bsq._get_restrict_clauses(restrict, annual_only=True),
                     ),
                 )
@@ -53,7 +53,7 @@ class BuildStockAggregate:
                 tbljoin = ts.join(
                     base,
                     sa.and_(
-                        self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column,
+                        self._bsq.ts_bs_join_condition,
                         ucol == upgrade_id,
                         *self._bsq._get_restrict_clauses(restrict, annual_only=True),
                     ),
@@ -76,6 +76,10 @@ class BuildStockAggregate:
         subquery_cols = must_have_cols + ts_group_cols + bs_group_by + enduse_cols
 
         # Create subquery with proper join to baseline table
+        # NOTE: the upgrade path still joins on building id alone. It needs the same
+        # geography clause as the baseline path for allocated runs, but that is left for a
+        # follow-up: it also joins the baseline a second time through the ts_b/ts_u
+        # aliases below, and there is no allocated run with upgrades to verify against yet.
         subquery_base = sa.select(*subquery_cols).select_from(
             ts.join(base, ts.c[self._bsq.building_id_column_name] == base.c[self._bsq.building_id_column_name])
         )
@@ -329,7 +333,7 @@ class BuildStockAggregate:
         group_by_selection = self._bsq._process_groupby_cols(group_by, annual_only=False)
 
         query = sa.select(*(group_by_selection + grouping_metrics_selection + enduse_selection))
-        query = query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column)
+        query = query.join(self._bsq.bs_table, self._bsq.ts_bs_join_condition)
         if params.join_list:
             query = self._bsq._add_join(query, params.join_list)
 
@@ -446,7 +450,7 @@ class BuildStockAggregate:
         upper_timestamps = [get_upper_timestamps(d - 1, h) for d, h in zip(at_days, at_hour)]
 
         query = sa.select(*[self._bsq.ts_bldgid_column] + grouping_metrics_selection + enduse_selection)
-        query = query.join(self._bsq.bs_table, self._bsq.bs_bldgid_column == self._bsq.ts_bldgid_column)
+        query = query.join(self._bsq.bs_table, self._bsq.ts_bs_join_condition)
         query = self._bsq._add_group_by(query, [self._bsq.ts_bldgid_column])
         query = self._bsq._add_order_by(query, [self._bsq.ts_bldgid_column])
 

@@ -53,6 +53,60 @@ class QueryException(Exception):
     pass
 
 
+def build_ts_baseline_join_condition(
+    bs_table: sa.Table,
+    ts_table: sa.Table,
+    building_id_column: str,
+    geography_partition: Optional[str] = None,
+    characteristics_prefix: str = "",
+):
+    """Build the ON clause joining the timeseries table to the baseline table.
+
+    Normally a building has one baseline row and one timeseries, so matching on building
+    id is enough. When a run's dwelling units are allocated across geographies, though,
+    both tables are keyed on (building, geography): the baseline carries one row and one
+    weight per geography the building's units landed in, and the timeseries is written
+    once per geography as well. Matching on building id alone then pairs every geography's
+    timeseries with every geography's weight, inflating each geography's totals.
+
+    Args:
+        bs_table: the baseline table.
+        ts_table: the timeseries table.
+        building_id_column: name of the building id column, present in both tables.
+        geography_partition: name of the geography column in the timeseries table, when
+            the baseline holds one row per (building, geography). None for the usual
+            one-row-per-building publications.
+        characteristics_prefix: prefix the baseline puts on characteristic columns, used
+            to find the baseline's copy of the geography column (e.g. "in." -> "in.state").
+
+    Returns:
+        A SQLAlchemy boolean clause for the join.
+
+    Raises:
+        QueryException: if geography_partition is set but the column is missing from
+            either table. Falling back to a building-id join would silently inflate every
+            result, so this is raised rather than warned about.
+    """
+    condition = bs_table.c[building_id_column] == ts_table.c[building_id_column]
+    if not geography_partition:
+        return condition
+
+    bs_geography_column = f"{characteristics_prefix}{geography_partition}"
+    missing = [
+        name
+        for name, table in ((bs_geography_column, bs_table), (geography_partition, ts_table))
+        if name not in table.c
+    ]
+    if missing:
+        raise QueryException(
+            f"db_schema sets structure.geography_partition to '{geography_partition}', but "
+            f"{', '.join(missing)} is missing from the table it should be in. The join would "
+            "silently double count, so it is refused. Unset geography_partition if this run "
+            "has one baseline row per building."
+        )
+    return sa.and_(condition, bs_table.c[bs_geography_column] == ts_table.c[geography_partition])
+
+
 ExeId = NewType("ExeId", str)
 
 
@@ -216,6 +270,13 @@ class QueryCore:
         if self.ts_table is not None:
             self.timestamp_column = self.ts_table.c[self.timestamp_column_name]
             self.ts_bldgid_column = self.ts_table.c[self.building_id_column_name]
+            self.ts_bs_join_condition = build_ts_baseline_join_condition(
+                bs_table=self.bs_table,
+                ts_table=self.ts_table,
+                building_id_column=self.building_id_column_name,
+                geography_partition=self.db_schema.structure.geography_partition,
+                characteristics_prefix=self.db_schema.column_prefix.characteristics,
+            )
         if self.up_table is not None:
             self.up_bldgid_column = self.up_table.c[self.building_id_column_name]
         self.sample_wt = self._get_sample_weight(self.sample_weight)

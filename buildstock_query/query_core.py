@@ -242,6 +242,59 @@ class QueryCore:
     @typing.overload
     def _get_table(self, table_name: AnyTableType, missing_ok: Literal[False] = False) -> sa.Table: ...
 
+    def _reflect_via_information_schema(self, table_name: str) -> sa.Table:
+        """Reflect column metadata for a table or view via information_schema.
+
+        Athena views do not store column definitions in the Glue catalog, so
+        PyAthena's autoload machinery returns an empty column list and
+        SQLAlchemy raises NoSuchTableError.  Querying information_schema.columns
+        works for both regular tables and views.  Raises sa.exc.NoSuchTableError
+        when no rows are returned (i.e., the object does not exist).
+        """
+        _ATHENA_TYPE_MAP = {
+            "boolean": sa.Boolean,
+            "tinyint": sa.SmallInteger,
+            "smallint": sa.SmallInteger,
+            "integer": sa.Integer,
+            "int": sa.Integer,
+            "bigint": sa.BigInteger,
+            "real": sa.Float,
+            "double": sa.Float,
+            "float": sa.Float,
+            "decimal": sa.Numeric,
+            "varchar": sa.String,
+            "char": sa.String,
+            "varbinary": sa.LargeBinary,
+            "date": sa.Date,
+            "time": sa.Time,
+            "timestamp": sa.DateTime,
+        }
+
+        def _map_type(type_str: str) -> sa.types.TypeEngine:
+            base = type_str.split("(")[0].split("<")[0].lower()
+            return _ATHENA_TYPE_MAP.get(base, sa.String)()
+
+        query = sa.text(
+            "SELECT column_name, data_type "
+            "FROM information_schema.columns "
+            "WHERE table_schema = :schema AND table_name = :table "
+            "ORDER BY ordinal_position"
+        )
+        with self._engine.connect() as conn:
+            rows = conn.execute(query, {"schema": self.db_name, "table": table_name}).fetchall()
+
+        if not rows:
+            raise sa.exc.NoSuchTableError(table_name)
+
+        # A failed autoload may have registered an empty Table in MetaData;
+        # reuse that object if present, otherwise create a fresh one.
+        tbl = self._meta.tables.get(table_name) or sa.Table(table_name, self._meta)
+        existing = set(tbl.c.keys())
+        for col_name, type_str in rows:
+            if col_name not in existing:
+                tbl.append_column(sa.Column(col_name, _map_type(type_str)))
+        return tbl
+
     @validate_arguments
     def _get_table(self, table_name: AnyTableType, missing_ok: bool = False) -> Optional[DBTableType]:
         if not isinstance(table_name, str):
@@ -250,11 +303,25 @@ class QueryCore:
         try:
             return self._tables.setdefault(table_name, sa.Table(table_name, self._meta, autoload_with=self._engine))
         except sa.exc.NoSuchTableError:  # type: ignore
-            if missing_ok:
-                logger.warning(f"No {table_name} table is present.")
-                return None
-            else:
-                raise
+            pass
+
+        # Normal autoload failed — the object may be an Athena view whose
+        # column definitions are not stored in the Glue catalog.  Fall back to
+        # information_schema.columns, which covers both tables and views.
+        try:
+            tbl = self._reflect_via_information_schema(table_name)
+            logger.info("Reflected '%s' via information_schema (Athena view fallback).", table_name)
+            self._tables[table_name] = tbl
+            return tbl
+        except sa.exc.NoSuchTableError:
+            pass
+        except Exception:
+            logger.warning("View reflection fallback failed for '%s'.", table_name, exc_info=True)
+
+        if missing_ok:
+            logger.warning(f"No {table_name} table is present.")
+            return None
+        raise sa.exc.NoSuchTableError(table_name)
 
     @validate_arguments
     def _get_column(

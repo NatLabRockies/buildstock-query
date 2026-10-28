@@ -769,6 +769,8 @@ class BuildStockQuery(QueryCore):
     def _get_enduse_cols(self, enduses: Sequence[AnyColType], table="baseline") -> Sequence[DBColType]:
         tbls_dict = {"baseline": self.bs_table, "upgrade": self.up_table, "timeseries": self.ts_table}
         tbl = tbls_dict[table]
+        if tbl is None:
+            raise ValueError(f"No {table!r} table is available for this data source.")
         enduse_cols: list[DBColType] = []
         for enduse in enduses:
             if isinstance(enduse, (sa.Column, SALabel)):
@@ -976,23 +978,20 @@ class BuildStockQuery(QueryCore):
 
     @property
     def _bs_completed_status_col(self):
-        if not isinstance(self.bs_table.c[self.db_schema.column_names.completed_status].type, sqltypes.String):
-            return sa.cast(self.bs_table.c[self.db_schema.column_names.completed_status], sa.String).label(
-                "completed_status"
-            )
-        else:
-            return self.bs_table.c[self.db_schema.column_names.completed_status]
+        col_name = self.db_schema.column_names.completed_status
+        if col_name not in self.bs_table.c.keys():
+            # Column absent: this is a pre-processed view that has already
+            # filtered to successful rows.  Treat every row as completed.
+            return sa.literal(self.db_schema.completion_values.success).label("completed_status")
+        if not isinstance(self.bs_table.c[col_name].type, sqltypes.String):
+            return sa.cast(self.bs_table.c[col_name], sa.String).label("completed_status")
+        return self.bs_table.c[col_name]
 
     @property
     def _up_completed_status_col(self):
         if self.up_table is None:
             raise ValueError("No upgrades table")
-        if not isinstance(self.up_table.c[self.db_schema.column_names.completed_status].type, sqltypes.String):
-            return sa.cast(self.up_table.c[self.db_schema.column_names.completed_status], sa.String).label(
-                "completed_status"
-            )
-        else:
-            return self.up_table.c[self.db_schema.column_names.completed_status]
+        return self._get_completed_status_col(self.up_table)
 
     @property
     def _bs_successful_condition(self):
@@ -1019,10 +1018,15 @@ class BuildStockQuery(QueryCore):
             return self.up_table.c["upgrade"]
 
     def _get_completed_status_col(self, table: AnyTableType):
-        if not isinstance(table.c[self.db_schema.column_names.completed_status].type, sqltypes.String):
-            return sa.cast(table.c[self.db_schema.column_names.completed_status], sa.String).label("completed_status")
-        else:
-            return table.c[self.db_schema.column_names.completed_status]
+        col_name = self.db_schema.column_names.completed_status
+        if col_name not in table.c.keys():
+            return sa.case(
+                (table.c[self.building_id_column_name].is_(None), None),
+                else_=self.db_schema.completion_values.success,
+            ).label("completed_status")
+        if not isinstance(table.c[col_name].type, sqltypes.String):
+            return sa.cast(table.c[col_name], sa.String).label("completed_status")
+        return table.c[col_name]
 
     def _get_success_condition(self, table: AnyTableType):
         return self._get_completed_status_col(table) == self.db_schema.completion_values.success

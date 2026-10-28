@@ -43,6 +43,7 @@ class BuildStockReport:
 
     def _get_bs_success_report(self, get_query_only: bool = False):
         bs_query = sa.select(*[self._bsq._bs_completed_status_col, safunc.count().label("count")])
+        bs_query = bs_query.select_from(self._bsq.bs_table)
         bs_query = bs_query.group_by(sa.text("1"))
         if get_query_only:
             return self._bsq._compile(bs_query)

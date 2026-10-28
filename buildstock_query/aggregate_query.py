@@ -206,6 +206,8 @@ class BuildStockAggregate:
                 ),
             )
             query = query.select_from(tbljoin)
+        else:
+            query = query.select_from(self._bsq.bs_table)
 
         restrict = [(self._bsq._bs_completed_status_col, [self._bsq.db_schema.completion_values.success])] + restrict
         query = self._bsq._add_join(query, join_list)

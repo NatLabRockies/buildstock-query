@@ -48,6 +48,30 @@ class TestBuildStockQuery:
         clean_group_by = bsq._clean_group_by(group_by_with_alias)  # pylint: disable=protected-access
         assert clean_group_by == ["time", "moy", "build_existing_model.county"]
 
+    @pytest.mark.parametrize(
+        ("upgrade_type", "upgrade_id", "expected_filter"),
+        [
+            (sa.BigInteger, "20", "upgrade = 20"),
+            (sa.String, "20", "upgrade = '20'"),
+        ],
+    )
+    def test_get_upgrades_csv_uses_upgrade_column_type(
+        self, upgrade_type, upgrade_id: str, expected_filter: str
+    ) -> None:
+        metadata = sa.MetaData()
+        upgrades = sa.Table(
+            "run_upgrade",
+            metadata,
+            sa.Column("building_id", sa.String),
+            sa.Column("upgrade", upgrade_type),
+        )
+        query_bsq = BuildStockQuery.__new__(BuildStockQuery)
+        query_bsq.up_table = upgrades
+
+        query = query_bsq.get_upgrades_csv(upgrade_id=upgrade_id, get_query_only=True)
+
+        assert expected_filter in query
+
     def test_execute_returns_dataframe(self, bsq: BuildStockQuery) -> None:
         df = bsq.execute(f"select count(*) as total_rows from {bsq.bs_table.name}")
         assert list(df.columns) == ["total_rows"]

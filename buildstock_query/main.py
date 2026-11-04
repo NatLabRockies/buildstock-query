@@ -499,7 +499,12 @@ class BuildStockQuery(QueryCore):
         if upgrade_id:
             if self.up_table is None:
                 raise ValueError("This run has no upgrades")
-            query = query.where(self.up_table.c["upgrade"] == str(upgrade_id))
+            upgrade_column = self.up_table.c["upgrade"]
+            try:
+                upgrade_id = upgrade_column.type.python_type(upgrade_id)
+            except NotImplementedError:
+                pass
+            query = query.where(upgrade_column == upgrade_id)
 
         query = self._add_restrict(query, restrict, annual_only=True)
         compiled_query = self._compile(query)
